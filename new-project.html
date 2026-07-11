@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>New Project · ClipHunt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <a class="logo" href="index.html">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </div>
+      ClipHunt
+    </a>
+    <a class="btn btn-primary" href="new-project.html">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      New Project
+    </a>
+  </div>
+
+  <div class="container" style="max-width:600px;">
+    <div class="page-head">
+      <h1>Start a New Project</h1>
+      <p>Drop in your script and let's hunt some clips.</p>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <label class="field-label">Project Title</label>
+        <input type="text" id="title-input" placeholder="Harry Kane's World Cup Curse" />
+      </div>
+
+      <div class="field">
+        <label class="field-label">How did you write this?</label>
+        <div class="choice-row">
+          <div class="choice-card active" id="choice-script" onclick="selectChoice('script')">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6M9 9h2"/></svg>
+            </span>
+            <span>
+              <h4>Pasted Script</h4>
+              <p>I have the text written out.</p>
+            </span>
+          </div>
+          <div class="choice-card" id="choice-voice" onclick="selectChoice('voice')">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>
+            </span>
+            <span>
+              <h4>Voiceover</h4>
+              <p>I recorded the audio first.</p>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <label class="field-label" style="margin:0;">Video Script</label>
+          <span class="upload-link">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+            Upload file
+          </span>
+        </div>
+        <textarea id="script-input" placeholder="Paste your script here, or upload a file above. We'll break it down into distinct moments automatically."></textarea>
+      </div>
+
+      <p id="hunt-error" style="display:none; color:#ff8a6a; font-size:13px; margin:0 0 14px;"></p>
+
+      <button id="hunt-btn" class="btn btn-primary" style="width:100%; justify-content:center; padding:13px;" onclick="huntClips()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+        <span id="hunt-btn-label">Hunt Clips</span>
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    function selectChoice(which) {
+      document.getElementById('choice-script').classList.toggle('active', which === 'script');
+      document.getElementById('choice-voice').classList.toggle('active', which === 'voice');
+    }
+
+    async function huntClips() {
+      const script = document.getElementById('script-input').value.trim();
+      const title = document.getElementById('title-input').value.trim() || 'Untitled Project';
+      const errorEl = document.getElementById('hunt-error');
+      const btn = document.getElementById('hunt-btn');
+      const label = document.getElementById('hunt-btn-label');
+      errorEl.style.display = 'none';
+
+      if (!script) {
+        errorEl.textContent = 'Paste or write a script first.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      label.textContent = 'Breaking it down…';
+
+      try {
+        const res = await fetch('/.netlify/functions/segment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ script }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+        const now = Date.now();
+        const project = { id: newId(), title, segments: data.segments, createdAt: now, updatedAt: now };
+        const projects = getProjects();
+        projects.push(project);
+        saveProjects(projects);
+        window.location.href = 'workspace.html?id=' + encodeURIComponent(project.id);
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        label.textContent = 'Hunt Clips';
+      }
+    }
+  </script>
+</body>
+</html>

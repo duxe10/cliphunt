@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check app.js)",
+      "Bash(node --check netlify/functions/find-clips.js)",
+      "Bash(node --check netlify/functions/segment.js)",
+      "Bash(netlify deploy *)",
+      "WebFetch(domain:developers.giphy.com)",
+      "Bash(curl -sS https://hgkj.netlify.app/index.html)",
+      "Bash(curl -sS https://hgkj.netlify.app/workspace.html)"
+    ]
+  }
+}
