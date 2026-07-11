@@ -336,7 +336,7 @@ async function findFootage(segIdx) {
     search.candidates.forEach(c => { byId[c.videoId] = c; });
     const results = (match.results || []).map(r => ({ ...(byId[r.videoId] || {}), ...r }));
 
-    seg.evidence = { quote: search.quote, footageType: search.footageType, results };
+    seg.evidence = { quote: search.quote, results };
     renderEvidence(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
@@ -353,25 +353,13 @@ function renderEvidence(segIdx) {
     : `<p class="no-clip-msg">No footage candidates found.</p>`;
 }
 
-// Honest one-liner for a candidate, driven by the worker's `reason`, so a beat with no spoken
-// line reads as "general footage" rather than a scary "couldn't verify."
-function evidenceLabel(cand) {
-  if (cand.matched) {
-    return { text: `matched ${formatTime(cand.start)} · ${Math.round((cand.score || 0) * 100)}%`, cls: "ev-ok" };
-  }
-  switch (cand.reason) {
-    case "no_captions": return { text: "no captions to verify", cls: "ev-warn" };
-    case "low_score": return { text: "exact line not found", cls: "ev-warn" };
-    case "no_quote":
-    default: return { text: "general footage", cls: "ev-warn" };
-  }
-}
-
 function evidenceCardHtml(segIdx, candIdx, cand) {
   const thumbStyle = cand.thumb
     ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
     : "";
-  const label = evidenceLabel(cand);
+  const info = cand.matched
+    ? `matched ${formatTime(cand.start)} · ${Math.round((cand.score || 0) * 100)}%`
+    : `couldn't verify timestamp`;
   return `
     <div class="clip-card" onclick="openEvidencePreview(${segIdx}, ${candIdx})">
       <div class="clip-thumb" style="${thumbStyle}">
@@ -379,7 +367,7 @@ function evidenceCardHtml(segIdx, candIdx, cand) {
         ${cand.thumb ? "" : PLAY_ICON}
       </div>
       <div class="clip-label">${escapeHtml(cand.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${label.text}</div>
+      <div class="clip-sub ${cand.matched ? "ev-ok" : "ev-warn"}">${info}</div>
     </div>`;
 }
 
@@ -403,7 +391,7 @@ function openEvidencePreview(segIdx, candIdx) {
   document.getElementById("modal-title").textContent = cand.title || "";
   document.getElementById("modal-sub").textContent = cand.matched
     ? `YouTube · ${cand.channel || ""} · matched “${cand.snippet}”`
-    : `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
+    : `YouTube · ${cand.channel || ""} · timestamp unverified`;
 
   const dlExcerpt = document.getElementById("modal-download");
   const dlFull = document.getElementById("modal-download-full");
