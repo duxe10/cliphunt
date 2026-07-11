@@ -8,22 +8,33 @@
 // only used here to HMAC-sign the exact (videoIds, quote) the worker is allowed to /match.
 const crypto = require("crypto");
 
-const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script so a tool
-can find real footage of the actual person or event referenced.
+const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script so a tool can
+find real footage for it.
 
 Return strict JSON only, no prose, no markdown fences:
-{"subject":"...","claim":"...","quote":"...","youtubeQuery":"..."}
+{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"..."}
 
-- "subject": the specific real person, org, or event the moment is about (e.g. "Harry Kane",
-  "Elon Musk", "2022 World Cup final"). This is who/what the footage should show.
-- "claim": a short plain-language description of what they said or did in this moment.
-- "quote": if the script quotes or closely paraphrases something the subject actually SAID,
-  put the verbatim-ish phrase here (this is what gets matched against video captions to find
-  the exact timestamp). If the script only describes an action or paraphrases loosely rather
-  than quoting words, set "quote" to null — do NOT invent a quote.
-- "youtubeQuery": the best 3-6 word YouTube search to surface footage of this moment. Combine
-  the subject with the most distinguishing keywords from the claim (e.g.
-  "Harry Kane penalty miss France"). Prefer terms likely to appear in a real video title.`;
+The whole script is given ONLY to resolve references (a "he"/"they"/"the striker" that points
+back to someone named earlier). The subject of THIS moment must be named or unambiguously
+referred to IN the moment's own sentence. Do NOT attribute a line to the video's main character
+just because the overall script is about them.
+
+Set "footageType":
+- "specific": the moment is about a PARTICULAR real person, team, org, or event doing or saying
+  a particular thing (e.g. "Harry Kane missed a penalty against France"). "subject" is that
+  entity. "youtubeQuery" combines it with distinguishing keywords likely to appear in a real
+  video's title (e.g. "Harry Kane penalty miss France 2022").
+- "generic": the moment is a GENERAL statement about a category, not one identifiable subject
+  (e.g. "For most footballers, scoring at a World Cup is the highlight of their career",
+  "everybody loves an underdog"). This is illustrative b-roll. "subject" is the general concept.
+  "youtubeQuery" is a plain descriptive footage search with NO specific person's name
+  (e.g. "World Cup goal celebration", "fans celebrating in stadium"). Set "quote" to null.
+
+Set "quote" ONLY when the moment quotes or closely paraphrases something the subject actually
+SAID OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions
+of actions, and general statements are NOT quotes; set "quote" to null. Never invent a quote.
+
+"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage.`;
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -87,7 +98,12 @@ exports.handler = async (event) => {
   }
 
   const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
-  const quote = intent.quote && String(intent.quote).trim() ? String(intent.quote).trim() : null;
+  const footageType = intent.footageType === "specific" ? "specific" : "generic";
+  // A quote only makes sense for specific spoken lines; never carry one on generic b-roll.
+  const quote =
+    footageType === "specific" && intent.quote && String(intent.quote).trim()
+      ? String(intent.quote).trim()
+      : null;
 
   // 2. YouTube Data API search.list — 100 quota units/call (~100/day on the free tier).
   let candidates;
@@ -125,7 +141,7 @@ exports.handler = async (event) => {
   return {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subject: intent.subject || null, quote, exp, matchSig, candidates }),
+    body: JSON.stringify({ subject: intent.subject || null, footageType, quote, exp, matchSig, candidates }),
   };
 };
 

@@ -69,12 +69,21 @@ app.post("/match", async (req, res) => {
   const results = await Promise.all(
     targets.map(async (videoId) => {
       let m = { matched: false, start: 0, end: 0, snippet: "", score: 0 };
+      // Why there's no trimmed excerpt — so the UI can be honest instead of a blanket
+      // "couldn't verify": no_quote (generic/narration beat), no_captions (video has none),
+      // low_score (had a quote but couldn't find the line), matched (found it).
+      let reason = "no_quote";
       if (quote) {
         try {
           const transcript = await fetchTranscript(videoId);
-          m = matchQuote(transcript, quote);
+          if (!transcript.length) {
+            reason = "no_captions";
+          } else {
+            m = matchQuote(transcript, quote);
+            reason = m.matched ? "matched" : "low_score";
+          }
         } catch {
-          /* leave unmatched */
+          reason = "no_captions";
         }
       }
 
@@ -85,7 +94,7 @@ app.post("/match", async (req, res) => {
         links.excerptUrl = clipUrl(base, { videoId, start, end, mode: "excerpt" }, clipExp);
         links.excerptSec = Math.round(Number(end) - Number(start));
       }
-      return { videoId, ...m, ...links };
+      return { videoId, ...m, reason, ...links };
     })
   );
 
