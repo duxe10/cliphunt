@@ -62,6 +62,23 @@ const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="current
 let CURRENT_PROJECT = null;
 let SEGMENTS = [];
 
+// The evidence backend worker's base URL (yt-dlp/ffmpeg service — see worker/). Not a secret;
+// fetched once from the /config function so it isn't hardcoded here. Guarded by HMAC, not URL.
+let WORKER_URL = null;
+let WORKER_URL_LOADED = false;
+async function ensureWorkerUrl() {
+  if (WORKER_URL_LOADED) return WORKER_URL;
+  try {
+    const res = await fetch("/.netlify/functions/config");
+    const data = await res.json();
+    WORKER_URL = (data.workerUrl || "").replace(/\/$/, "") || null;
+  } catch {
+    WORKER_URL = null;
+  }
+  WORKER_URL_LOADED = true;
+  return WORKER_URL;
+}
+
 // Turns raw {text, family, query} objects from the Groq function into full display
 // segments with estimated timestamps. Clips start null (not yet hydrated).
 function buildLiveSegments(raw) {
@@ -175,15 +192,23 @@ function renderWorkspace() {
 function segmentHtml(seg) {
   const isEmpty = seg.family === "nothing";
   const needsSearch = !isEmpty && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
-  const notWiredYet = !isEmpty && seg.clips === null && !needsSearch;
+  // Evidence is user-triggered (real footage costs a YouTube search + a caption fetch), so it
+  // gets a "Find footage" button rather than auto-hydrating like feel/reference on load.
+  const isEvidence = !isEmpty && seg.family === "evidence";
 
   let body;
   if (isEmpty) {
     body = `<p class="no-clip-msg">Pacing beat — no clip needed here.</p>`;
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
-  } else if (notWiredYet) {
-    body = `<p class="no-clip-msg">Evidence clips need real footage of the actual person/event — not wired up yet.</p>`;
+  } else if (isEvidence) {
+    body = `
+      <div class="evidence-block" id="evidence-${seg.idx}">
+        <button class="btn btn-primary btn-find-footage" onclick="findFootage(${seg.idx})">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+          Find footage
+        </button>
+      </div>`;
   } else {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`;
   }
@@ -258,9 +283,147 @@ function clipCardHtml(segIdx, clipIdx, clip) {
   `;
 }
 
+const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
+
+// ── Evidence footage (workspace.html) ───────────────────────────────────────
+// User clicks "Find footage" on an evidence beat: evidence-search returns YouTube candidates
+// plus a signed authorization, then the worker caption-matches the quote → timestamps + signed
+// download URLs. Results are cached in memory on the segment so re-preview doesn't re-search.
+async function findFootage(segIdx) {
+  const seg = SEGMENTS[segIdx];
+  const container = document.getElementById(`evidence-${segIdx}`);
+  if (!container) return;
+  container.innerHTML = `<p class="no-clip-msg">Searching YouTube for real footage…</p>`;
+
+  const workerUrl = await ensureWorkerUrl();
+  if (!workerUrl) {
+    container.innerHTML = `<p class="no-clip-msg">Footage backend isn't configured (WORKER_URL missing).</p>`;
+    return;
+  }
+
+  try {
+    const context = (CURRENT_PROJECT.segments || []).map(s => s.text).join(" ");
+    const searchRes = await fetch("/.netlify/functions/evidence-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segmentText: seg.text, context }),
+    });
+    const search = await searchRes.json();
+    if (!searchRes.ok) throw new Error(search.error || "Search failed");
+    if (!search.candidates || !search.candidates.length) {
+      container.innerHTML = `<p class="no-clip-msg">No footage candidates found for this moment.</p>`;
+      return;
+    }
+
+    container.innerHTML = `<p class="no-clip-msg">Waking the clip server &amp; matching the quote… (first run can take ~30s)</p>`;
+
+    const matchRes = await fetch(`${workerUrl}/match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        videoIds: search.candidates.map(c => c.videoId),
+        quote: search.quote,
+        exp: search.exp,
+        sig: search.matchSig,
+      }),
+    });
+    const match = await matchRes.json();
+    if (!matchRes.ok) throw new Error(match.error || "Matching failed");
+
+    // Merge search metadata (title/thumb/channel) with worker results (timestamps/urls) by id,
+    // preserving the worker's score order.
+    const byId = {};
+    search.candidates.forEach(c => { byId[c.videoId] = c; });
+    const results = (match.results || []).map(r => ({ ...(byId[r.videoId] || {}), ...r }));
+
+    seg.evidence = { quote: search.quote, results };
+    renderEvidence(segIdx);
+  } catch (err) {
+    container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderEvidence(segIdx) {
+  const seg = SEGMENTS[segIdx];
+  const container = document.getElementById(`evidence-${segIdx}`);
+  if (!container || !seg.evidence) return;
+  const { results } = seg.evidence;
+  container.innerHTML = results.length
+    ? `<div class="clip-queue">${results.map((r, i) => evidenceCardHtml(segIdx, i, r)).join("")}</div>`
+    : `<p class="no-clip-msg">No footage candidates found.</p>`;
+}
+
+function evidenceCardHtml(segIdx, candIdx, cand) {
+  const thumbStyle = cand.thumb
+    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const info = cand.matched
+    ? `matched ${formatTime(cand.start)} · ${Math.round((cand.score || 0) * 100)}%`
+    : `couldn't verify timestamp`;
+  return `
+    <div class="clip-card" onclick="openEvidencePreview(${segIdx}, ${candIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
+        ${cand.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
+      <div class="clip-sub ${cand.matched ? "ev-ok" : "ev-warn"}">${info}</div>
+    </div>`;
+}
+
+// Preview plays ONLY the matched excerpt via a YouTube embed (from the start when unverified),
+// so the user hears the moment, not a 30-minute source. Download buttons are contextual: the
+// trimmed excerpt (when matched) plus the full video; full-only when no confident match.
+function openEvidencePreview(segIdx, candIdx) {
+  const cand = SEGMENTS[segIdx].evidence.results[candIdx];
+
+  const startParam = cand.matched ? Math.max(0, Math.floor(cand.start)) : 0;
+  const endParam = cand.matched ? Math.ceil(cand.end) : 0;
+  const embed = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1&start=${startParam}${endParam ? `&end=${endParam}` : ""}`;
+
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = "";
+  document.getElementById("modal-play").style.display = "none";
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = embed;
+  iframe.style.display = "block";
+
+  document.getElementById("modal-title").textContent = cand.title || "";
+  document.getElementById("modal-sub").textContent = cand.matched
+    ? `YouTube · ${cand.channel || ""} · matched “${cand.snippet}”`
+    : `YouTube · ${cand.channel || ""} · timestamp unverified`;
+
+  const dlExcerpt = document.getElementById("modal-download");
+  const dlFull = document.getElementById("modal-download-full");
+  if (cand.excerptUrl) {
+    dlExcerpt.href = cand.excerptUrl;
+    dlExcerpt.innerHTML = `${DL_ICON} Download clip (${cand.excerptSec}s)`;
+    dlExcerpt.style.display = "";
+    dlFull.href = cand.fullUrl;
+    dlFull.innerHTML = `${DL_ICON} Download full video`;
+    dlFull.style.display = "";
+  } else {
+    // No confident trim → a single "Download full video" as the primary action.
+    dlExcerpt.href = cand.fullUrl;
+    dlExcerpt.innerHTML = `${DL_ICON} Download full video`;
+    dlExcerpt.style.display = "";
+    dlFull.style.display = "none";
+  }
+
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
 function openPreview(segIdx, clipIdx) {
   const seg = SEGMENTS[segIdx];
   const clip = seg.clips[clipIdx];
+
+  // Reset any evidence-preview state (iframe) so the gif path renders cleanly.
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
+  document.getElementById("modal-play").style.display = "";
+  document.getElementById("modal-download-full").style.display = "none";
+
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = clip.url ? `url('${clip.url}')` : "";
   thumbEl.style.backgroundSize = "contain";
@@ -272,6 +435,7 @@ function openPreview(segIdx, clipIdx) {
   const downloadBtn = document.getElementById("modal-download");
   if (clip.url) {
     downloadBtn.href = clip.url;
+    downloadBtn.innerHTML = `${DL_ICON} Download`;
     downloadBtn.style.display = "";
   } else {
     downloadBtn.style.display = "none";
@@ -284,6 +448,10 @@ function closePreview() {
   document.getElementById("modal-overlay").classList.remove("open");
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
+  // Stop excerpt playback when closing (clearing src halts the YouTube embed).
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
 }
 
 // One script serves all pages; dispatch by which page's root element is present.

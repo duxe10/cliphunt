@@ -510,6 +510,26 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   justify-content: center;
 }
 
+/* ---- Evidence footage ---- */
+.evidence-block { padding-top: 2px; }
+.btn-find-footage { padding: 8px 14px; }
+
+.clip-sub {
+  font-size: 10px;
+  padding: 0 8px 8px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ev-ok { color: var(--evidence); }
+.ev-warn { color: var(--nothing); font-style: italic; }
+
+/* Excerpt preview iframe fills the modal's preview area, replacing the gif thumbnail.
+   Kept below the close button so the X stays clickable over the embed. */
+#modal-iframe { position: absolute; inset: 0; z-index: 1; }
+.modal-close { z-index: 2; }
+
 @media (prefers-reduced-motion: reduce) {
   .btn, .project-card, .clip-card { transition: none; }
 }
