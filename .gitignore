@@ -1,2 +1,7 @@
 # Local Netlify folder
 .netlify
+
+# Node dependencies (worker/)
+node_modules
+*.log
+.env
