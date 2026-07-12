@@ -10,7 +10,10 @@ const path = require("path");
 
 const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 // 720p ceiling keeps files reasonable while staying "high resolution" vs the old gifs.
-const FORMAT = "bv*[height<=720]+ba/b[height<=720]/b";
+// Prefer h264/aac mp4 streams so the full-video path can remux straight to a widely-playable
+// mp4 with no re-encode; fall back to any 720p, then anything.
+const FORMAT =
+  "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]/b";
 
 function run(args, timeout) {
   return new Promise((resolve, reject) => {
@@ -36,15 +39,24 @@ async function makeClip({ videoId, start, end, mode, maxFilesize }) {
   const out = path.join(dir, "%(id)s.%(ext)s");
   const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const args = ["-f", FORMAT, "--recode-video", "mp4", "--no-playlist", "-o", out];
+  const args = ["-f", FORMAT, "--no-playlist", "-o", out];
   if (maxFilesize) args.push("--max-filesize", maxFilesize);
   if (mode === "excerpt") {
-    // --force-keyframes-at-cuts re-encodes cut boundaries so the excerpt starts/ends clean.
-    args.push("--download-sections", `*${start}-${end}`, "--force-keyframes-at-cuts");
+    // Trimming needs a real re-encode so the cut starts/ends on a clean frame and lands in mp4.
+    // The excerpt is short, so this is cheap even on a small instance.
+    args.push(
+      "--download-sections", `*${start}-${end}`,
+      "--force-keyframes-at-cuts",
+      "--recode-video", "mp4"
+    );
+  } else {
+    // Full video: remux only (no re-encode) so a long download doesn't pin the CPU for minutes
+    // and blow the timeout on a small host. Fast, IO-bound.
+    args.push("--merge-output-format", "mp4");
   }
   args.push(url);
 
-  await run(args, 5 * 60_000);
+  await run(args, 10 * 60_000);
 
   const file = fs.readdirSync(dir).find((f) => f.endsWith(".mp4"));
   if (!file) {
