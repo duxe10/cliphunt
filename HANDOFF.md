@@ -18,25 +18,56 @@ The `evidence` family is built: quote → YouTube search → caption match → e
 trimmed **downloadable** mp4. Because downloading+trimming video needs `yt-dlp`+`ffmpeg` (can't
 run in a short-lived edge function), the heavy work lives in a separate worker service (`worker/`,
 Node+Express, Docker, deployed to Render). The smart/cheap steps run as Cloudflare Pages Functions.
-- `functions/api/evidence-search.js`: Groq extracts `{footageType,subject,quote,youtubeQuery}`
-  grounded in the beat's OWN sentence (a general line must NOT inherit the video's protagonist;
-  `footageType:generic` yields person-free b-roll queries). Runs YouTube `search.list` (fetches 10),
-  enriches via `videos.list` (duration/views), then an LLM **rerank** scores each candidate 0-100
-  against the beat (demoting reactions/watchalongs/compilations) and keeps the best 5. Returns
+- `functions/api/evidence-search.js`: Groq extracts `{footageType,subject,quote,youtubeQuery}`.
+  Subject resolution handles TWO cases, which took a couple of iterations to get right:
+  1. **True category statements** ("For most footballers, scoring at a World Cup is the highlight
+     of their career") → `footageType:generic`, person-free b-roll query. The video's protagonist
+     must NOT be attached to these just because the script is about them.
+  2. **Elliptical references** ("A missed penalty.") — no subject in the sentence itself, but it's
+     shorthand for one specific event the preceding narration is about (Kane's miss vs France) →
+     `footageType:specific`, subject resolved from prior context. Getting this discernment right
+     (vs collapsing everything subject-less into generic) was the harder half of the prompt.
+  `app.js`'s `findFootage()` sends only the **preceding segments** as context
+  (`segments.slice(0, seg.idx)`, story-so-far in reading order) — not the whole script — so back-
+  references resolve correctly and the model can't grab a subject from later in the script. Caveat:
+  this needs enough preceding narration to work; an elliptical reference very early in a script
+  (thin context) can still fall back to generic on a small model like llama-3.3-70b.
+  Runs YouTube `search.list` (fetches 10), enriches via `videos.list` (duration/views), then an LLM
+  **rerank** scores each candidate 0-100 against the beat (demoting reactions/watchalongs/
+  compilations) and keeps the best 5 — a better-resolved subject also improves this rerank. Returns
   candidates + a short-lived HMAC `matchSig`/`exp` authorizing the worker's `/match`.
-- `worker/` `POST /match`: `yt-dlp` auto-subs (json3) → fuzzy-match the quote (sliding-window
-  token overlap, `lib/captions.js`) → per-candidate `{matched,start,end,snippet,score}` + signed
-  `excerptUrl`/`fullUrl`. `GET /clip`: `yt-dlp --download-sections` + ffmpeg → streams the mp4.
+- `worker/` `POST /match`: caption-matches **all 5** candidates evidence-search sends (`MAX_MATCH`
+  bumped 3→5, so none of the reranked candidates silently vanish) via `yt-dlp` auto-subs (json3) →
+  fuzzy-match the quote (sliding-window token overlap, `lib/captions.js`) → per-candidate
+  `{matched,start,end,snippet,score,reason}` + signed `excerptUrl`/`fullUrl`. `GET /clip`:
+  `yt-dlp --download-sections` (excerpt, still re-encodes for a clean cut) or a plain remux
+  (`mode=full` — no re-encode, since re-encoding a whole video pins the CPU for minutes and blows
+  the timeout on a small host; only trimming needs the re-encode) → streams the mp4.
+- **Manual trim** (`functions/api/sign-clip.js`, new): the auto-match only offers a trimmed excerpt
+  when the quote was found in captions — generic/no-quote beats and failed matches only had "full
+  video" before. This function mints a signed `/clip?mode=excerpt` URL for a **user-chosen**
+  `[start,end]` (≤60s) on **any** candidate. `workspace.html`'s preview modal has a trim row
+  (start/end timecode inputs, Preview range, Download range) that's evidence-only — hidden for the
+  gif modal path.
 - **Auth is HMAC signed URLs, not a bearer token** — `WORKER_TOKEN` never reaches the browser.
   A `<a download>` navigation can't send an Authorization header, so downloads go straight to a
-  pre-signed worker URL (streamed, nothing buffered in browser memory). `signMatch` in
-  `worker/lib/sign.js` (Node `crypto.createHmac`) must stay byte-for-byte identical to the one in
-  `functions/api/evidence-search.js` (WebCrypto `crypto.subtle` — verified byte-identical hex).
+  pre-signed worker URL (streamed, nothing buffered in browser memory). `worker/lib/sign.js`'s
+  `signMatch`/`signClip` (Node `crypto.createHmac`) must stay byte-for-byte identical to the
+  WebCrypto (`crypto.subtle`) versions in `functions/api/evidence-search.js` (signs `/match` calls)
+  and `functions/api/sign-clip.js` (signs manual-trim `/clip` calls) — verified byte-identical hex
+  for both. Don't touch these payload strings without re-verifying parity on both sides.
+- yt-dlp resilience: YouTube blocks datacenter IPs (Render's) with "confirm you're not a bot,"
+  which fails caption fetches and downloads. `worker/server.js` optionally decodes
+  `YTDLP_COOKIES_B64` (base64 of a youtube.com `cookies.txt`, exported from a **throwaway** Google
+  account) to `/tmp/yt-cookies.txt` at boot and passes `--cookies` from `lib/captions.js`/`lib/clip.js`
+  — optional, worker runs fine without it but is more bot-block-prone. yt-dlp pinned version bumped
+  2025.06.30 → 2026.07.04 in `worker/Dockerfile`. See `worker/README.md` for the cookie export steps.
 - Frontend: evidence beats get a **Find footage** button (user-triggered — real footage costs a
   YouTube search + caption fetch, so it does NOT auto-hydrate like feel/reference). Candidates
   render as cards; preview plays only the matched excerpt via a YouTube embed (`?start=&end=`);
-  download shows the trimmed clip + full video (full-only when no confident match). Evidence
-  results are cached in memory on the segment, not persisted. See `worker/README.md` for deploy.
+  download shows the trimmed clip + full video (full-only when no confident match), plus the
+  manual trim row described above. Evidence results are cached in memory on the segment, not
+  persisted. See `worker/README.md` for deploy.
 
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:
@@ -76,4 +107,16 @@ Hardest part was getting segment *boundaries* right, not the classification. Les
 - No emoji as icons anywhere — inline SVG only (see existing icon usage in the HTML files for the established style).
 - Dark "editing bay" theme (near-black warm background, amber accent, Bricolage Grotesque + IBM Plex Sans/Mono) — this was a deliberate reaction against generic AI-template looks (cream background, emoji icons, purple gradients). Keep it consistent if extending the UI.
 - Deploy: `npx wrangler pages deploy . --project-name cliphunt --branch production` from this folder (Cloudflare Pages project `cliphunt`, account `bashirmubarak08@gmail.com`; `npx wrangler login` if the token lacks pages/workers scopes). Repo is on GitHub now (github.com/duxe10/cliphunt, PUBLIC — that also removed Netlify's old "unrecognized contributor" build block). `.assetsignore` keeps `.git`/`worker`/docs out of the Pages upload. Netlify is fully decommissioned.
+- **IMPORTANT deploy-trigger asymmetry**: `git push origin master` alone does NOT deploy the site —
+  the Cloudflare Pages project (`cliphunt`) was created via direct-upload (`wrangler pages deploy`),
+  not git-connected, so pushing to `master` only updates the repo. You must ALSO run
+  `npx wrangler pages deploy . --project-name cliphunt --branch production --commit-dirty=true`
+  after every push that touches `functions/api/*`, `app.js`, or any HTML/CSS, or the live site keeps
+  running the old code. The `worker/` (Render) is the opposite — it IS git-connected and auto-
+  deploys on push to `master`, no extra step needed. Easy to forget one half of this split; always
+  verify live behavior after a push (curl the endpoint / check the browser), don't assume push = deployed.
+- After changing a Cloudflare secret (`GROQ_API_KEY` etc.) you must also redeploy — Pages binds
+  secrets at deploy time, so the running functions won't see a new secret until the next `wrangler
+  pages deploy`.
 - Known gotcha from the migration: a GitHub merge once silently reverted a whole fix (evidence relevance) — if behavior regresses after a merge, check the deployed file actually contains the change (`git show <ref>:functions/api/evidence-search.js | grep footageType`), don't trust the commit graph alone.
+- Workflow in this project: Claude Code web (Opus, via "Ultraplan") does planning/design and code review; this local session (recently switched planning/default model to Sonnet 5, per the user) does the actual implementation + deploy + live verification, since local has push/deploy access and web does not. Both read/write the same GitHub repo — "access to HANDOFF.md" just means whoever last did `git pull` has the current version; there's no live shared state beyond git.
