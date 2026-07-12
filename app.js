@@ -315,7 +315,9 @@ async function findFootage(segIdx) {
   }
 
   try {
-    const context = (CURRENT_PROJECT.segments || []).map(s => s.text).join(" ");
+    // Only the story SO FAR (preceding segments, reading order) so back-references resolve and
+    // the model can't grab a subject from a later part of the script.
+    const context = (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
     const searchRes = await fetch("/api/evidence-search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

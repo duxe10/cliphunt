@@ -3,31 +3,44 @@
 //   1. Netlify handler -> Pages onRequestPost; process.env -> env (threaded into helpers).
 //   2. Node crypto.createHmac -> WebCrypto crypto.subtle in signMatch. Output is byte-identical
 //      hex, so the Render worker (Node) recomputes the same signature — do not change the payload.
-const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script so a tool can
-find real footage for it.
+const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
+real footage for it. You are given the script SO FAR (everything before the moment) to work out
+who or what it is about.
 
 Return strict JSON only, no prose, no markdown fences:
 {"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"..."}
 
-The whole script is given ONLY to resolve references (a "he"/"they"/"the striker" that points
-back to someone named earlier). The subject of THIS moment must be named or unambiguously
-referred to IN the moment's own sentence. Do NOT attribute a line to the video's main character
-just because the overall script is about them.
+Decide "footageType":
 
-Set "footageType":
-- "specific": the moment is about a PARTICULAR real person, team, org, or event doing or saying
-  a particular thing (e.g. "Harry Kane missed a penalty against France"). "subject" is that
-  entity. "youtubeQuery" combines it with distinguishing keywords likely to appear in a real
-  video's title (e.g. "Harry Kane penalty miss France 2022").
-- "generic": the moment is a GENERAL statement about a category, not one identifiable subject
-  (e.g. "For most footballers, scoring at a World Cup is the highlight of their career",
-  "everybody loves an underdog"). This is illustrative b-roll. "subject" is the general concept.
-  "youtubeQuery" is a plain descriptive footage search with NO specific person's name
-  (e.g. "World Cup goal celebration", "fans celebrating in stadium"). Set "quote" to null.
+- "specific": the moment shows a PARTICULAR real person, team, org, or event doing or saying a
+  particular thing. The subject can come from either place:
+  (a) named or clearly referred to in the moment itself ("Harry Kane missed a penalty"); or
+  (b) NOT named in the moment because it is a fragment or shorthand for a specific event the
+      preceding script is about — then resolve the subject from that earlier context.
+      Example: after "...one moment continues to define his World Cup legacy.", the moment
+      "A missed penalty." means HIM missing THAT penalty, so subject = the person the story is
+      about (e.g. "Harry Kane") and youtubeQuery = "Harry Kane missed penalty France 2022".
+  "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
+  opponent, year) most likely to appear in a real video's title.
 
-Set "quote" ONLY when the moment quotes or closely paraphrases something the subject actually
-SAID OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions
-of actions, and general statements are NOT quotes; set "quote" to null. Never invent a quote.
+- "generic": the moment is a self-contained GENERAL statement true of a whole category, not one
+  identifiable instance — usually signalled by quantifiers like "most", "every", "people",
+  "everyone", or a general truth ("For most footballers, scoring at a World Cup is the highlight
+  of their career"). Do NOT attach the video's main character to these. "subject" = the general
+  concept; "youtubeQuery" = a plain descriptive footage search with NO specific person's name
+  ("World Cup goal celebration"). Set "quote" to null.
+
+The test: does the moment point at ONE real event or person — even if only nameable through the
+preceding context? Then specific. Would it be equally true of many people or instances? Then
+generic. When the moment is a fragment/reference and the surrounding script clearly narrates one
+subject's story, prefer specific and pull the subject from context. Go generic only when the
+moment is genuinely a category-level statement, or when no specific subject can be identified even
+from context.
+
+Set "quote" ONLY when the moment quotes or closely paraphrases something the subject actually SAID
+OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions of
+actions or events, and general statements are NOT quotes; set "quote" to null. Never invent a
+quote. ("A missed penalty." describes an action, so quote is null.)
 
 "youtubeQuery": 3-6 words, the best real YouTube search to surface this footage.`;
 
@@ -74,9 +87,9 @@ export async function onRequestPost(context) {
   }
 
   // 1. Groq extracts intent.
-  const userContent = scriptContext
-    ? `Whole script (for subject context):\n${scriptContext}\n\nThe moment to search for:\n${segmentText}`
-    : segmentText;
+  const userContent = scriptContext && scriptContext.trim()
+    ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
+    : `The moment:\n${segmentText}`;
 
   let intent;
   try {
