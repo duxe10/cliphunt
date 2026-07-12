@@ -1,5 +1,5 @@
-# Local Netlify folder
-.netlify
+# Cloudflare / local tooling
+.wrangler
 
 # Node dependencies (worker/)
 node_modules

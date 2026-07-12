@@ -1,0 +1,10 @@
+.git
+node_modules
+worker
+.claude
+.wrangler
+public
+*.md
+wrangler.toml
+.gitignore
+.assetsignore
