@@ -11,6 +11,12 @@ const path = require("path");
 
 const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 
+// Pass a cookies file to yt-dlp when one was materialized at startup (see server.js) — lets it
+// authenticate past YouTube's datacenter-IP bot checks. Empty when no cookies configured.
+function cookieArgs() {
+  return process.env.YTDLP_COOKIES_FILE ? ["--cookies", process.env.YTDLP_COOKIES_FILE] : [];
+}
+
 function run(args, opts = {}) {
   return new Promise((resolve, reject) => {
     execFile(YTDLP, args, { timeout: 60_000, maxBuffer: 32 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
@@ -25,6 +31,7 @@ async function fetchTranscript(videoId) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cap-"));
   try {
     await run([
+      ...cookieArgs(),
       "--skip-download",
       "--write-auto-subs",
       "--write-subs",

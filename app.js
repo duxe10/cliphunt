@@ -106,6 +106,19 @@ function formatTime(totalSec) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Parse a timecode ("m:ss", "h:mm:ss", "ss", or decimals like "12.5") into seconds. NaN on garbage.
+function parseTimecode(str) {
+  const t = String(str || "").trim();
+  if (!t) return NaN;
+  if (t.includes(":")) {
+    const parts = t.split(":").map(Number);
+    if (parts.some((n) => !Number.isFinite(n) || n < 0)) return NaN;
+    return parts.reduce((acc, n) => acc * 60 + n, 0);
+  }
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+}
+
 function relativeTime(ts) {
   const min = Math.floor((Date.now() - ts) / 60000);
   if (min < 1) return "just now";
@@ -422,7 +435,69 @@ function openEvidencePreview(segIdx, candIdx) {
     dlFull.style.display = "none";
   }
 
+  setupTrimRow(cand);
   document.getElementById("modal-overlay").classList.add("open");
+}
+
+// Manual trim row inside the evidence preview: pick any [start,end], preview it in the embed, and
+// download just that range via /api/sign-clip — works for ANY candidate (matched or not), which
+// rescues generic/no-quote beats and failed matches that otherwise only offer the full video.
+function setupTrimRow(cand) {
+  const row = document.getElementById("trim-row");
+  if (!row) return;
+  row.style.display = "flex";
+  const startEl = document.getElementById("trim-start");
+  const endEl = document.getElementById("trim-end");
+  const errEl = document.getElementById("trim-err");
+  errEl.textContent = "";
+  const defStart = cand.matched ? Math.max(0, Math.floor(cand.start)) : 0;
+  const defEnd = cand.matched ? Math.ceil(cand.end) : 10;
+  startEl.value = formatTime(defStart);
+  endEl.value = formatTime(defEnd);
+
+  const readRange = () => {
+    const s = parseTimecode(startEl.value);
+    const e = parseTimecode(endEl.value);
+    if (Number.isNaN(s) || Number.isNaN(e)) { errEl.textContent = "Use m:ss or seconds."; return null; }
+    if (!(e > s)) { errEl.textContent = "End must be after start."; return null; }
+    if (e - s > 60) { errEl.textContent = "Range must be 60s or less."; return null; }
+    errEl.textContent = "";
+    return { s, e };
+  };
+
+  document.getElementById("trim-preview").onclick = () => {
+    const r = readRange();
+    if (!r) return;
+    const iframe = document.getElementById("modal-iframe");
+    iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1&start=${Math.floor(r.s)}&end=${Math.ceil(r.e)}`;
+    iframe.style.display = "block";
+    document.getElementById("modal-thumb").style.backgroundImage = "";
+    document.getElementById("modal-play").style.display = "none";
+  };
+
+  document.getElementById("trim-download").onclick = async () => {
+    const r = readRange();
+    if (!r) return;
+    errEl.textContent = "Preparing clip…";
+    try {
+      const res = await fetch("/api/sign-clip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: cand.videoId, start: r.s, end: r.e }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't prepare clip");
+      errEl.textContent = "";
+      const a = document.createElement("a");
+      a.href = data.clipUrl;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
 }
 
 function openPreview(segIdx, clipIdx) {
@@ -435,6 +510,8 @@ function openPreview(segIdx, clipIdx) {
   iframe.style.display = "none";
   document.getElementById("modal-play").style.display = "";
   document.getElementById("modal-download-full").style.display = "none";
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is evidence-only; never leak into the gif modal
 
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = clip.url ? `url('${clip.url}')` : "";
@@ -464,6 +541,8 @@ function closePreview() {
   const iframe = document.getElementById("modal-iframe");
   iframe.src = "";
   iframe.style.display = "none";
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none";
 }
 
 // One script serves all pages; dispatch by which page's root element is present.

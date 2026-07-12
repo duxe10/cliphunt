@@ -61,6 +61,16 @@
       <div class="modal-body">
         <h4 id="modal-title">Clip title</h4>
         <p id="modal-sub">source · match info</p>
+        <!-- Manual trim (evidence only): pick any range and download just that. Hidden for gifs. -->
+        <div class="trim-row" id="trim-row" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
+          <span style="font-size:12px; opacity:.65; font-family:'IBM Plex Mono',monospace;">TRIM</span>
+          <input type="text" id="trim-start" placeholder="0:00" style="width:60px; padding:6px 8px; background:#151512; border:1px solid #35322c; border-radius:6px; color:inherit; font-family:'IBM Plex Mono',monospace; font-size:13px;" />
+          <span style="opacity:.5;">→</span>
+          <input type="text" id="trim-end" placeholder="0:10" style="width:60px; padding:6px 8px; background:#151512; border:1px solid #35322c; border-radius:6px; color:inherit; font-family:'IBM Plex Mono',monospace; font-size:13px;" />
+          <button class="btn btn-dark" id="trim-preview" style="padding:6px 12px;">Preview range</button>
+          <button class="btn btn-primary" id="trim-download" style="padding:6px 12px;">Download range</button>
+          <span class="trim-err" id="trim-err" style="color:#ff8a6a; font-size:12px; width:100%;"></span>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-dark" onclick="closePreview()">Skip</button>
           <a class="btn btn-ghost" id="modal-download-full" download target="_blank" rel="noopener" style="display:none;">

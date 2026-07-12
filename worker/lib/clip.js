@@ -15,6 +15,12 @@ const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 const FORMAT =
   "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]/b";
 
+// Cookies file (materialized in server.js from YTDLP_COOKIES_B64) helps yt-dlp get past YouTube's
+// datacenter-IP bot checks. Empty when not configured.
+function cookieArgs() {
+  return process.env.YTDLP_COOKIES_FILE ? ["--cookies", process.env.YTDLP_COOKIES_FILE] : [];
+}
+
 function run(args, timeout) {
   return new Promise((resolve, reject) => {
     execFile(YTDLP, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -27,7 +33,7 @@ function run(args, timeout) {
 // Returns the video's duration in seconds (used to clamp full-video downloads).
 async function probeDuration(videoId) {
   const out = await run(
-    ["--skip-download", "--no-playlist", "--print", "duration", `https://www.youtube.com/watch?v=${videoId}`],
+    [...cookieArgs(), "--skip-download", "--no-playlist", "--print", "duration", `https://www.youtube.com/watch?v=${videoId}`],
     60_000
   );
   return parseFloat(String(out).trim()) || 0;
@@ -39,7 +45,7 @@ async function makeClip({ videoId, start, end, mode, maxFilesize }) {
   const out = path.join(dir, "%(id)s.%(ext)s");
   const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const args = ["-f", FORMAT, "--no-playlist", "-o", out];
+  const args = [...cookieArgs(), "-f", FORMAT, "--no-playlist", "-o", out];
   if (maxFilesize) args.push("--max-filesize", maxFilesize);
   if (mode === "excerpt") {
     // Trimming needs a real re-encode so the cut starts/ends on a clean frame and lands in mp4.

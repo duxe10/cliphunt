@@ -11,7 +11,7 @@ const { probeDuration, makeClip } = require("./lib/clip");
 
 const TOKEN = process.env.WORKER_TOKEN;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
-const MAX_MATCH = 3; // cap caption fetches per request (quota + latency)
+const MAX_MATCH = 5; // caption-match all candidates evidence-search returns (it sends 5)
 const MAX_EXCERPT_SEC = 60;
 const MAX_FULL_SEC = 20 * 60;
 const MAX_FULL_FILESIZE = "500M";
@@ -19,6 +19,20 @@ const MAX_FULL_FILESIZE = "500M";
 if (!TOKEN) {
   console.error("WORKER_TOKEN is not set — refusing to start.");
   process.exit(1);
+}
+
+// YouTube blocks datacenter IPs (Render's) with "confirm you're not a bot", which fails caption
+// fetches and downloads. If a base64 cookies.txt blob is provided, materialize it once and point
+// yt-dlp at it (lib/captions.js + lib/clip.js pick up YTDLP_COOKIES_FILE). Optional — the worker
+// still runs without it, just more prone to bot blocks.
+if (process.env.YTDLP_COOKIES_B64) {
+  try {
+    fs.writeFileSync("/tmp/yt-cookies.txt", Buffer.from(process.env.YTDLP_COOKIES_B64, "base64"));
+    process.env.YTDLP_COOKIES_FILE = "/tmp/yt-cookies.txt";
+    console.log("yt-dlp cookies loaded from YTDLP_COOKIES_B64");
+  } catch (e) {
+    console.error("Failed to load YTDLP_COOKIES_B64:", e.message);
+  }
 }
 
 const app = express();

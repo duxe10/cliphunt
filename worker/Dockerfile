@@ -7,7 +7,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin yt-dlp — YouTube changes break older versions; bump this deliberately.
-ARG YTDLP_VERSION=2025.06.30
+ARG YTDLP_VERSION=2026.07.04
 RUN curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" \
     -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
