@@ -69,7 +69,7 @@ let WORKER_URL_LOADED = false;
 async function ensureWorkerUrl() {
   if (WORKER_URL_LOADED) return WORKER_URL;
   try {
-    const res = await fetch("/.netlify/functions/config");
+    const res = await fetch("/api/config");
     const data = await res.json();
     WORKER_URL = (data.workerUrl || "").replace(/\/$/, "") || null;
   } catch {
@@ -236,7 +236,7 @@ async function hydrateClips() {
 
   await Promise.all(targets.map(async (seg) => {
     try {
-      const res = await fetch("/.netlify/functions/find-clips", {
+      const res = await fetch("/api/find-clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: seg.query || seg.text }),
@@ -303,7 +303,7 @@ async function findFootage(segIdx) {
 
   try {
     const context = (CURRENT_PROJECT.segments || []).map(s => s.text).join(" ");
-    const searchRes = await fetch("/.netlify/functions/evidence-search", {
+    const searchRes = await fetch("/api/evidence-search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ segmentText: seg.text, context }),

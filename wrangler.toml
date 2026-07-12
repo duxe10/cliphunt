@@ -1,0 +1,6 @@
+# Cloudflare Pages config for ClipHunt.
+# Static site is the repo root; Pages Functions live in ./functions (routed as /api/*).
+# No nodejs_compat needed — the functions use only Web APIs (fetch, crypto.subtle, Response).
+name = "cliphunt"
+compatibility_date = "2025-06-01"
+pages_build_output_dir = "."

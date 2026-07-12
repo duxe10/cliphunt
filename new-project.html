@@ -104,7 +104,7 @@
       label.textContent = 'Breaking it down…';
 
       try {
-        const res = await fetch('/.netlify/functions/segment', {
+        const res = await fetch('/api/segment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ script }),
