@@ -3,6 +3,10 @@
 //   1. Netlify handler -> Pages onRequestPost; process.env -> env (threaded into helpers).
 //   2. Node crypto.createHmac -> WebCrypto crypto.subtle in signMatch. Output is byte-identical
 //      hex, so the Render worker (Node) recomputes the same signature — do not change the payload.
+// "generic" beats (a category statement, not one identifiable person/event) skip the YouTube/
+// worker pipeline entirely and route to clean licensed Pexels b-roll instead — see the branch
+// right after intent extraction below.
+import { mapPexelsVideo } from "./stock-search.js";
 const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
 real footage for it. You are given the script SO FAR (everything before the moment) to work out
 who or what it is about.
@@ -79,12 +83,6 @@ export async function onRequestPost(context) {
   if (!env.GROQ_API_KEY) {
     return Response.json({ error: "GROQ_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
-  if (!env.YOUTUBE_API_KEY) {
-    return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
-  }
-  if (!env.WORKER_TOKEN) {
-    return Response.json({ error: "WORKER_TOKEN is not set on this Cloudflare project" }, { status: 500 });
-  }
 
   // 1. Groq extracts intent.
   const userContent = scriptContext && scriptContext.trim()
@@ -127,6 +125,35 @@ export async function onRequestPost(context) {
     footageType === "specific" && intent.quote && String(intent.quote).trim()
       ? String(intent.quote).trim()
       : null;
+
+  // Generic beats (category statements, no one identifiable person/event) skip YouTube/the
+  // worker entirely — clean licensed Pexels b-roll is a better (and copyright-safe) fit, and
+  // needs no HMAC signing since there's no worker call to authorize.
+  if (footageType === "generic") {
+    if (!env.PEXELS_API_KEY) {
+      return Response.json({ error: "PEXELS_API_KEY is not set on this Cloudflare project" }, { status: 500 });
+    }
+    try {
+      const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`;
+      const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
+      if (!res.ok) {
+        const errText = await res.text();
+        return Response.json({ error: `Pexels error: ${errText}` }, { status: 502 });
+      }
+      const data = await res.json();
+      const clips = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
+      return Response.json({ footageType, source: "stock", subject: intent.subject || null, clips });
+    } catch (err) {
+      return Response.json({ error: err.message }, { status: 500 });
+    }
+  }
+
+  if (!env.YOUTUBE_API_KEY) {
+    return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
+  }
+  if (!env.WORKER_TOKEN) {
+    return Response.json({ error: "WORKER_TOKEN is not set on this Cloudflare project" }, { status: 500 });
+  }
 
   // 2. YouTube Data API search.list (fetch 10 to rerank from).
   let candidates;

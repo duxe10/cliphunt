@@ -10,8 +10,8 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 ## Stack, deliberately
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live from Giphy on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
-- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq), `functions/api/find-clips.js` (Giphy — feel/reference), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank — evidence), `functions/api/config.js` (echoes the non-secret, trimmed `WORKER_URL`). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers — prompts + logic byte-identical.
-- Mostly-free constraint — Groq (llama-3.3-70b), Giphy, and YouTube Data API all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `GIPHY_API_KEY`, `YOUTUBE_API_KEY`, plus `WORKER_URL`/`WORKER_TOKEN`), never in code. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. The one non-Cloudflare piece is the evidence worker (Render free tier).
+- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq), `functions/api/find-clips.js` (Giphy — feel/reference gif path), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — feel/evidence stock path, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/config.js` (echoes the non-secret, trimmed `WORKER_URL`). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers — prompts + logic byte-identical except where noted.
+- Mostly-free constraint — Groq (llama-3.3-70b), Giphy, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `GIPHY_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, plus `WORKER_URL`/`WORKER_TOKEN`), never in code. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. The one non-Cloudflare piece is the evidence worker (Render free tier).
 
 ## Evidence pipeline (real footage — NOW WIRED)
 The `evidence` family is built: quote → YouTube search → caption match → exact timestamp →
@@ -93,10 +93,46 @@ Hardest part was getting segment *boundaries* right, not the classification. Les
 - Recency: Giphy search has NO date filter and NO recency sort (confirmed against their API docs). Its top results skew to 2013-2016 evergreen reaction gifs. `find-clips.js` returns `importDatetime`/`trendingDatetime` per clip and does a SOFT re-rank (not a hard filter): stable-sort so gifs "active in the 2020s" (uploaded OR last-trended >= 2020) float above older ones, preserving Giphy's relevance order within each group. Deliberately NOT a hard 2020+ cutoff — that deletes most of the good evergreen gifs and thins pools to nothing. Note many 2013-2016 gifs have `trendingDatetime` in 2020-2025, i.e. old uploads that are still actively used — those correctly count as "fresh".
 - Cross-segment dedup (wired through `app.js` `hydrateClips()`): each searchable segment fetches a pool of 8 candidates, then after all fetches resolve a client-side pass greedily assigns non-duplicate results (by gif `id`) in segment order, slices to 4, and falls back to a segment's own pool if everything got filtered out — so the same gif doesn't get reused project-wide. `find-clips.js` fetches `limit=8` to leave room for this. The `query` field is threaded through `buildLiveSegments()` and sent as `seg.query || seg.text`.
 
+## Stock footage (Pexels) — the 4th clip source (WIRED UP)
+Stock lives entirely on Cloudflare — no worker, no HMAC, no yt-dlp. Pexels returns direct-CDN
+MP4s that are already short, licensed, and the right resolution, so there's nothing to trim or
+sign, just a same-origin download proxy so `<a download>` actually saves instead of playing the
+CDN url in a tab (cross-origin `download` attributes are ignored by the browser).
+- `functions/api/stock-search.js` (`POST /api/stock-search`, body `{query, orientation?}`):
+  calls `GET api.pexels.com/videos/search` with header `Authorization: <PEXELS_API_KEY>` (raw
+  key, NOT `Bearer` — that's Pexels' convention, not this app's). Exports `mapPexelsVideo(v)`
+  (best `<=1080p` mp4 as `downloadUrl`, an `sd`-quality mp4 as `previewUrl`) so evidence-search's
+  generic branch (below) can reuse the exact same mapping instead of duplicating it.
+- `functions/api/stock-download.js` (`GET /api/stock-download?url=&name=`): streams the upstream
+  CDN mp4 back with `Content-Disposition: attachment` (no buffering). Open-proxy guard: only
+  fetches hosts ending in `.pexels.com` or `.vimeo.com` — never an arbitrary caller-supplied URL.
+- Routing brain lives in two places:
+  1. **Segmenter** (`segment.js`): `feel` beats now also get a `"source":"stock"|"gif"` field.
+     `"stock"` is for atmospheric/scene-setting/conceptual beats (mood, place, action — no
+     specific person or joke); `query` becomes a 2-5 word descriptive scene phrase instead of
+     the 1-2 word Giphy tag term. `"gif"` keeps the existing reaction-punch behavior unchanged.
+     `reference` never gets a `source` field — it always stays Giphy.
+  2. **Evidence search** (`evidence-search.js`): the existing `footageType:"generic"` branch
+     (a category statement, no one identifiable person/event) now short-circuits straight to
+     Pexels instead of YouTube — returns `{footageType:"generic", source:"stock", clips}` with
+     no `matchSig`/worker call at all. `footageType:"specific"` is completely unchanged (still
+     YouTube → rerank → HMAC-signed `/match`). This means the YOUTUBE_API_KEY/WORKER_TOKEN env
+     guards in `evidence-search.js` had to move from "always required" to "required only once
+     footageType resolves to specific" — a generic-only deploy works with just GROQ+PEXELS keys.
+- Frontend (`app.js`): `hydrateClips()` sends `feel`+`source:"stock"` beats to `/api/stock-search`
+  instead of `/api/find-clips`; `findFootage()` checks `data.source === "stock"` on the
+  evidence-search response and renders straight from `data.clips` (via the shared `clipCardHtml`/
+  `openPreview`), skipping `ensureWorkerUrl()`/`/match` entirely for that path. `openPreview`
+  branches on `clip.source === "pexels"` to show `#modal-video` (a real `<video>` playing
+  `previewUrl`) instead of the gif `#modal-thumb`/`#modal-iframe` treatment, and the download
+  button points at `/api/stock-download?url=<downloadUrl>&name=<id>`. Stock clip ids are
+  prefixed `pexels-<id>` so they never collide with Giphy ids in the existing cross-segment dedup.
+- Needs `PEXELS_API_KEY` as a Cloudflare Pages secret (Production env) — free tier, 200 req/hour.
+- Not yet migrated: `reference`→YouTube-meme (still Giphy). Once/if that also moves off Giphy,
+  remove `find-clips.js`, `GIPHY_API_KEY`, and the gif-specific UI.
+
 ## What's NOT built yet
-- `feel`→stock (Pexels/Pixabay direct-mp4, no worker needed) and `reference`→YouTube-meme
-  migrations onto the evidence skeleton — both still use Giphy for now. Once migrated, remove
-  `find-clips.js`, `GIPHY_API_KEY`, and the gif-specific UI.
+- `reference`→YouTube-meme migration onto the evidence skeleton — still uses Giphy for now.
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional
 - File upload for pasted-script (.txt/.docx/.pdf) — also UI-only

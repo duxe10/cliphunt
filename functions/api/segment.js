@@ -32,13 +32,24 @@ For each segment, also pick one "family":
 - "reference" — matches a known meme/cultural callback
 - "nothing" — pacing beat or transition, no clip needed
 
-If family is "feel" or "reference", also include a "query": a short 1-2 word term for
-searching a reaction-gif site. Reaction-gif search is tag-based and matches short, common
-words — not clever specific phrases (a phrase like "finally believing again" matches almost
-nothing and returns generic junk, whereas "hope" or "relief" returns real reaction gifs).
-So pick the single most-searchable common reaction word (or a two-word combo at most) that
-best fits THIS segment: e.g. "heartbreak", "nervous", "hype", "shocked", "relief". Vary the
-word across segments so different beats don't all collapse to the same term.
+If family is "feel", also include a "source": "stock" or "gif", deciding which kind of clip
+this beat wants:
+- "stock" — the beat is atmospheric, scene-setting, or conceptual: a mood, place, or action
+  that real-world b-roll can depict, with no specific person or joke (rain on a window, a city
+  at night, a crowd, hands typing, a sunrise, an empty stadium). For "stock", "query" is a
+  SHORT DESCRIPTIVE VISUAL SCENE PHRASE, 2-5 words ("stormy sky timelapse", "empty stadium
+  night", "city traffic time lapse") — describe the shot, not a reaction word.
+- "gif" — the beat is a comedic or emotional REACTION PUNCH that a looping reaction clip nails
+  (shock, celebration, facepalm, disbelief). For "gif", "query" stays a short 1-2 word reaction
+  term per the rules below.
+
+If family is "feel" with source "gif", or family is "reference", include a "query": a short
+1-2 word term for searching a reaction-gif site. Reaction-gif search is tag-based and matches
+short, common words — not clever specific phrases (a phrase like "finally believing again"
+matches almost nothing and returns generic junk, whereas "hope" or "relief" returns real
+reaction gifs). So pick the single most-searchable common reaction word (or a two-word combo
+at most) that best fits THIS segment: e.g. "heartbreak", "nervous", "hype", "shocked", "relief".
+Vary the word across segments so different beats don't all collapse to the same term.
 
 Avoid ambiguous words whose most common meaning on a gif site is a specific holiday, event,
 or community unrelated to the beat — those return off-topic results. In particular do NOT
@@ -47,10 +58,11 @@ Pride-month content); use an unambiguous reaction word like "impressed", "amazed
 "standing ovation" instead. Same idea for other loaded single words — prefer the plain
 reaction over the word that a platform has repurposed.
 
-For "nothing"/"evidence" segments, omit "query".
+For "nothing"/"evidence" segments, omit "query" and "source". "reference" segments never get
+a "source" field — they always search the reaction-gif site.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","query":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","query":"...","source":"stock"}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;

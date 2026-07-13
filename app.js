@@ -54,7 +54,7 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", giphy: "GIF", tenor: "TNR" };
+const SOURCE_LABEL = { youtube: "YT", giphy: "GIF", tenor: "TNR", pexels: "STOCK" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -95,6 +95,7 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
+      source: s.source || null, // "stock" | "gif", feel-only — which clip source this beat wants
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -248,12 +249,19 @@ async function hydrateClips() {
   const targets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
 
   await Promise.all(targets.map(async (seg) => {
+    const wantsStock = seg.family === "feel" && seg.source === "stock";
     try {
-      const res = await fetch("/api/find-clips", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: seg.query || seg.text }),
-      });
+      const res = wantsStock
+        ? await fetch("/api/stock-search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: seg.query || seg.text }),
+          })
+        : await fetch("/api/find-clips", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: seg.query || seg.text }),
+          });
       const data = await res.json();
       seg.clips = res.ok ? data.clips : [];
     } catch {
@@ -306,13 +314,7 @@ async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  container.innerHTML = `<p class="no-clip-msg">Searching YouTube for real footage…</p>`;
-
-  const workerUrl = await ensureWorkerUrl();
-  if (!workerUrl) {
-    container.innerHTML = `<p class="no-clip-msg">Footage backend isn't configured (WORKER_URL missing).</p>`;
-    return;
-  }
+  container.innerHTML = `<p class="no-clip-msg">Searching for real footage…</p>`;
 
   try {
     // Only the story SO FAR (preceding segments, reading order) so back-references resolve and
@@ -325,8 +327,25 @@ async function findFootage(segIdx) {
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
+
+    // Generic beats (category statement, no one identifiable event) route to clean licensed
+    // Pexels b-roll — no YouTube/worker match needed, so render straight from these clips.
+    if (search.source === "stock") {
+      seg.clips = search.clips || [];
+      container.innerHTML = seg.clips.length
+        ? `<div class="clip-queue">${seg.clips.map((c, i) => clipCardHtml(segIdx, i, c)).join("")}</div>`
+        : `<p class="no-clip-msg">No stock footage found for this moment.</p>`;
+      return;
+    }
+
     if (!search.candidates || !search.candidates.length) {
       container.innerHTML = `<p class="no-clip-msg">No footage candidates found for this moment.</p>`;
+      return;
+    }
+
+    const workerUrl = await ensureWorkerUrl();
+    if (!workerUrl) {
+      container.innerHTML = `<p class="no-clip-msg">Footage backend isn't configured (WORKER_URL missing).</p>`;
       return;
     }
 
@@ -411,6 +430,12 @@ function openEvidencePreview(segIdx, candIdx) {
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
   document.getElementById("modal-play").style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
   const iframe = document.getElementById("modal-iframe");
   iframe.src = embed;
   iframe.style.display = "block";
@@ -506,30 +531,53 @@ function openPreview(segIdx, clipIdx) {
   const seg = SEGMENTS[segIdx];
   const clip = seg.clips[clipIdx];
 
-  // Reset any evidence-preview state (iframe) so the gif path renders cleanly.
+  // Reset any evidence-preview state (iframe) so the gif/stock paths render cleanly.
   const iframe = document.getElementById("modal-iframe");
   iframe.src = "";
   iframe.style.display = "none";
-  document.getElementById("modal-play").style.display = "";
   document.getElementById("modal-download-full").style.display = "none";
   const trimRow = document.getElementById("trim-row");
-  if (trimRow) trimRow.style.display = "none"; // trim is evidence-only; never leak into the gif modal
+  if (trimRow) trimRow.style.display = "none"; // trim is evidence-only; never leak into gif/stock modals
 
+  const video = document.getElementById("modal-video");
   const thumbEl = document.getElementById("modal-thumb");
-  thumbEl.style.backgroundImage = clip.url ? `url('${clip.url}')` : "";
-  thumbEl.style.backgroundSize = "contain";
-  thumbEl.style.backgroundRepeat = "no-repeat";
-  thumbEl.style.backgroundPosition = "center";
-  document.getElementById("modal-title").textContent = clip.title || clip.label || "";
-  document.getElementById("modal-sub").textContent = `${clip.source} · matched to scene ${String(segIdx).padStart(2, "0")}`;
-
   const downloadBtn = document.getElementById("modal-download");
-  if (clip.url) {
-    downloadBtn.href = clip.url;
-    downloadBtn.innerHTML = `${DL_ICON} Download`;
+
+  if (clip.source === "pexels") {
+    document.getElementById("modal-play").style.display = "none";
+    thumbEl.style.backgroundImage = "";
+    if (video) {
+      video.src = clip.previewUrl || clip.downloadUrl || "";
+      video.style.display = "";
+    }
+    document.getElementById("modal-title").textContent = clip.title || "Stock footage";
+    document.getElementById("modal-sub").textContent = `Pexels · ${clip.author || ""}`;
+
+    downloadBtn.href = `/api/stock-download?url=${encodeURIComponent(clip.downloadUrl)}&name=${encodeURIComponent(clip.id)}`;
+    downloadBtn.innerHTML = `${DL_ICON} Download clip`;
     downloadBtn.style.display = "";
   } else {
-    downloadBtn.style.display = "none";
+    if (video) {
+      video.pause();
+      video.src = "";
+      video.style.display = "none";
+    }
+    document.getElementById("modal-play").style.display = "";
+
+    thumbEl.style.backgroundImage = clip.url ? `url('${clip.url}')` : "";
+    thumbEl.style.backgroundSize = "contain";
+    thumbEl.style.backgroundRepeat = "no-repeat";
+    thumbEl.style.backgroundPosition = "center";
+    document.getElementById("modal-title").textContent = clip.title || clip.label || "";
+    document.getElementById("modal-sub").textContent = `${clip.source} · matched to scene ${String(segIdx).padStart(2, "0")}`;
+
+    if (clip.url) {
+      downloadBtn.href = clip.url;
+      downloadBtn.innerHTML = `${DL_ICON} Download`;
+      downloadBtn.style.display = "";
+    } else {
+      downloadBtn.style.display = "none";
+    }
   }
 
   document.getElementById("modal-overlay").classList.add("open");
@@ -539,10 +587,16 @@ function closePreview() {
   document.getElementById("modal-overlay").classList.remove("open");
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
-  // Stop excerpt playback when closing (clearing src halts the YouTube embed).
+  // Stop excerpt playback when closing (clearing src halts the YouTube embed / video element).
   const iframe = document.getElementById("modal-iframe");
   iframe.src = "";
   iframe.style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
   const trimRow = document.getElementById("trim-row");
   if (trimRow) trimRow.style.display = "none";
 }
