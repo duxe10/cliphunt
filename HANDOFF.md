@@ -62,8 +62,8 @@ Node+Express, Docker, deployed to Render). The smart/cheap steps run as Cloudfla
   account) to `/tmp/yt-cookies.txt` at boot and passes `--cookies` from `lib/captions.js`/`lib/clip.js`
   — optional, worker runs fine without it but is more bot-block-prone. yt-dlp pinned version bumped
   2025.06.30 → 2026.07.04 in `worker/Dockerfile`. See `worker/README.md` for the cookie export steps.
-- Frontend: evidence (and now reference — see "Meme footage" below) beats get a **Find
-  footage**/**Find meme clip** button (user-triggered — each costs a YouTube search + caption
+- Frontend: evidence (and now reference — see "Reaction clip footage" below) beats get a **Find
+  footage**/**Find reaction clip** button (user-triggered — each costs a YouTube search + caption
   fetch and re-hydrates on every workspace load, so neither auto-hydrates like feel). Candidates
   render as cards; preview plays only the matched excerpt via a YouTube embed (`?start=&end=`);
   download shows the trimmed clip + full video (full-only when no confident match), plus the
@@ -74,7 +74,7 @@ Node+Express, Docker, deployed to Render). The smart/cheap steps run as Cloudfla
 Every segment gets classified into one of:
 - **feel** — pure emotion beat, no specific referent → searched on Giphy
 - **evidence** — a specific real person/thing said or did the exact thing referenced → real footage from YouTube, trimmed & downloadable (WIRED UP — see Evidence pipeline above)
-- **reference** — matches a known meme/cultural callback → real YouTube clip of that specific meme, trimmed & downloadable (WIRED UP — see "Meme footage" below; migrated off Giphy)
+- **reference** — matches a known meme/cultural callback → real raw reaction clip from YouTube, trimmed & downloadable (WIRED UP — see "Reaction clip footage" below; migrated off Giphy)
 - **nothing** — pacing beat/transition → no clip forced, and that's deliberate (a forced bad clip is worse than no clip)
 
 This collapsed from a more elaborate original taxonomy (subject_quote/subject_post/meme_callback/etc.) for MVP simplicity — see git history / ask if the fuller version matters later.
@@ -87,10 +87,10 @@ Hardest part was getting segment *boundaries* right, not the classification. Les
 
 ## Clip search (`functions/api/find-clips.js`)
 - `feel` (with `source:"gif"`) is searched on Giphy (keyword search) — auto-hydrated on load.
-  `reference` no longer uses Giphy — see "Meme footage" below.
+  `reference` no longer uses Giphy — see "Reaction clip footage" below.
 - `evidence` and `reference` are each built on their own YouTube pipeline (search → captions →
-  fuzzy-match → trim/download); see "Evidence pipeline" and "Meme footage" above/below. Both are
-  user-triggered, not auto-hydrated.
+  fuzzy-match → trim/download); see "Evidence pipeline" and "Reaction clip footage" above/below.
+  Both are user-triggered, not auto-hydrated.
 - The model generates a `query` field per feel/gif segment now, instead of dumping raw sentence text at Giphy (raw text produced generic/repeated results). IMPORTANT lesson from testing against the live Giphy index: the query must be a SHORT 1-2 word COMMON reaction term (`hope`, `nervous`, `heartbreak`), NOT a clever specific phrase. Giphy search is tag-based — a specific phrase like "nation holds breath" matches almost nothing and Giphy returns an identical generic-junk fallback set for every unmatched phrase. An earlier version of this prompt pushed toward specificity ("finally believing again" over "hope") and it made results strictly worse — don't reintroduce that.
 - Ambiguous-word guard (also in the prompt): some plain reaction words have a DOMINANT unrelated meaning on Giphy and pull off-topic content. The known one is "proud" → Giphy returns Pride-month content, so an "incredible achievement" beat that queried "proud" surfaced LGBTQ/Pride gifs. Prompt now tells the model to avoid such words and use unambiguous ones ("impressed"/"amazed"/"standing ovation" for success). If new off-topic drift shows up, it's usually another loaded single word — add it to that guidance.
 - Recency: Giphy search has NO date filter and NO recency sort (confirmed against their API docs). Its top results skew to 2013-2016 evergreen reaction gifs. `find-clips.js` returns `importDatetime`/`trendingDatetime` per clip and does a SOFT re-rank (not a hard filter): stable-sort so gifs "active in the 2020s" (uploaded OR last-trended >= 2020) float above older ones, preserving Giphy's relevance order within each group. Deliberately NOT a hard 2020+ cutoff — that deletes most of the good evergreen gifs and thins pools to nothing. Note many 2013-2016 gifs have `trendingDatetime` in 2020-2025, i.e. old uploads that are still actively used — those correctly count as "fresh".
@@ -133,39 +133,54 @@ CDN url in a tab (cross-origin `download` attributes are ignored by the browser)
   prefixed `pexels-<id>` so they never collide with Giphy ids in the existing cross-segment dedup.
 - Needs `PEXELS_API_KEY` as a Cloudflare Pages secret (Production env) — free tier, 200 req/hour.
 
-## Meme footage (reference beats) — migrated off Giphy onto the evidence skeleton (WIRED UP)
+## Reaction clip footage (reference beats) — migrated off Giphy onto the evidence skeleton (WIRED UP)
 Giphy/Tenor are a tag-based reaction-gif index, not a meme database — they can't represent an
 actual *named* meme ("Surprised Pikachu," "This Is Fine," "Stonks Guy") and skew to old (2013-2016)
 evergreen gifs, so `reference` results were low-quality and disconnected from actual meme culture.
-The fix: the evidence pipeline (YouTube search → LLM rerank → HMAC-signed worker `/match`/`/clip`)
-never actually depended on "real event" semantics — it just operates on `{videoId, quote}` pairs —
-so `reference` reuses it wholesale with a differently-tuned intent + rerank prompt. Decided:
-memes are real downloadable video clips only (no static-image path), and the LLM infers which
-meme fits purely from the script text (no live trending-meme feed) — scripts already tend to name
-or clearly imply the meme, so no new data source was needed.
-- `functions/api/reference-search.js` (new): Groq identifies the specific named meme (returns
-  `memeName:null` and empty candidates if it can't confidently name ONE well-known meme — the
-  frontend already has a "No footage candidates found" state for this), a YouTube search query
-  for its iconic clip, and a `quote` ONLY when the meme is built around an exact well-known line
-  (most memes aren't — `quote` is null far more often than not, unlike evidence). Its rerank
-  prompt scores candidates on **recognizability** (is this genuinely the meme's iconic/well-known
-  clip) rather than evidence's "primary/official footage" rubric — virality/view count is itself
-  a quality signal here, not just a tiebreaker.
+The first fix asked an LLM to name the specific meme — but an LLM's meme knowledge is stuck at its
+training cutoff and can't track what's actually current, so that was replaced with this: search
+YouTube by **emotion/reaction** the same way `feel` already searches Giphy (no meme naming at
+all), then lean on **deterministic filtering heuristics** — not frame/caption analysis — to
+surface genuine raw reaction clips instead of compilations, reaction-channel commentary, or
+YouTube Shorts. The evidence pipeline (YouTube search → LLM rerank → HMAC-signed worker
+`/match`/`/clip`) never actually depended on "real event" semantics — it just operates on
+`{videoId, quote}` pairs — so `reference` reuses it wholesale with a differently-tuned intent +
+rerank prompt, same as before.
+- `functions/api/reference-search.js`: Groq generates `{"query":"..."}` — a short emotion/reaction
+  search phrase in the spirit of `feel`'s Giphy query style but phrased for real YouTube footage
+  ("shocked crowd reaction," "stunned silence reaction real footage"), not a meme name and not a
+  gif tag. `quote` is dropped from the response shape entirely — reactions aren't quote-based, so
+  it's always signed as `null` downstream.
+- **`filterRawReactionCandidates()`** (new, plain code, no LLM call) runs after `enrichCandidates()`
+  and before rerank: drops titles matching a junk regex (compilations, "top 10," "best of,"
+  reaction-to-reaction/commentary like "reacts to"/"review"/"explained," multi-part videos), drops
+  anything with a `#shorts`/`#short` marker in title or description (actual YouTube Shorts are
+  often remixes/compilations themselves, not the raw clip), and drops anything with unknown
+  duration or `durationSec > 180` — the length-as-proxy-signal: with no frame/caption analysis
+  attempted for this family, a long video can't be trimmed down to the moment, so it's excluded
+  outright rather than kept and mis-trimmed. If everything gets filtered out, returns empty
+  `candidates` — the frontend's existing "No footage candidates found" state already handles it.
+- Its rerank prompt (still the same exported `rerankCandidates(intent, candidates, env,
+  systemPrompt)` from `evidence-search.js`, just a different `systemPrompt`) scores survivors on
+  **capture quality/authenticity** — is this genuinely a raw, single, undoctored capture of the
+  reaction, not a video *about* the reaction — rather than evidence's "primary/official footage"
+  rubric or the old meme-recognizability rubric.
 - Reuses `evidence-search.js`'s YouTube search/enrich/sign machinery directly — `searchYouTubeVideos`,
-  `enrichCandidates`, `signMatch` are now named exports from `evidence-search.js`, imported into
+  `enrichCandidates`, `signMatch` are named exports from `evidence-search.js`, imported into
   `reference-search.js` (same "export from the canonical file" pattern already used for
-  `mapPexelsVideo` between `stock-search.js`/`evidence-search.js`). `rerankCandidates` took a
-  `systemPrompt` param (default `RERANK_PROMPT`) so `reference-search.js` supplies its own rubric
-  through the same function instead of a forked copy.
+  `mapPexelsVideo` between `stock-search.js`/`evidence-search.js`).
 - **Zero worker/`sign-clip.js` changes** — both already operate on arbitrary `{videoId, quote}` /
-  `{videoId, start, end}`, with no notion of "evidence" vs "reference" beats.
+  `{videoId, start, end}`, with no notion of "evidence" vs "reference" beats. `quote:null` already
+  makes the worker's `/match` take its existing zero-analysis fast path (`reason:"no_quote"`, a
+  signed full-video `fullUrl` built unconditionally, no transcript fetch/matching attempted) — the
+  exact same path evidence's generic/no-quote beats already exercised, so nothing new there either.
 - Frontend (`app.js`): `reference` moved out of `SEARCHABLE_FAMILIES` (now just `["feel"]`) onto
   the same user-triggered pattern as evidence — auto-hydrating would re-fire a YouTube search on
   *every* workspace load for *every* reference beat, burning through the free 10k-units/day quota
-  fast (`search.list` alone is 100 units). `findFootage()` now routes by family
+  fast (`search.list` alone is 100 units). `findFootage()` routes by family
   (`/api/reference-search` vs `/api/evidence-search`) but is otherwise unchanged — both endpoints
   return the same candidate shape, so `renderEvidence`/`evidenceCardHtml`/`openEvidencePreview`/
-  `setupTrimRow` needed no changes at all.
+  `setupTrimRow` needed no changes at all. Button label is "Find reaction clip" for this family.
 - `find-clips.js`/`GIPHY_API_KEY` are NOT removed — `feel` beats with `source:"gif"` still depend
   on them.
 

@@ -217,7 +217,7 @@ function segmentHtml(seg) {
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
   } else if (needsFootage) {
-    const label = seg.family === "reference" ? "Find meme clip" : "Find footage";
+    const label = seg.family === "reference" ? "Find reaction clip" : "Find footage";
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
         <button class="btn btn-primary btn-find-footage" onclick="findFootage(${seg.idx})">
@@ -309,16 +309,17 @@ function clipCardHtml(segIdx, clipIdx, clip) {
 const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
 
 // ── Evidence footage (workspace.html) ───────────────────────────────────────
-// User clicks "Find footage"/"Find meme clip" on an evidence or reference beat: evidence-search
-// (or reference-search for memes) returns YouTube candidates plus a signed authorization, then
-// the worker caption-matches the quote → timestamps + signed download URLs. Both endpoints return
-// the same candidate shape, so everything past the fetch is family-agnostic. Results are cached
-// in memory on the segment so re-preview doesn't re-search.
+// User clicks "Find footage"/"Find reaction clip" on an evidence or reference beat: evidence-search
+// (or reference-search for reaction clips) returns YouTube candidates plus a signed authorization,
+// then the worker caption-matches the quote (or, for reference, takes its zero-analysis quote:null
+// fast path) → signed download URLs. Both endpoints return the same candidate shape, so everything
+// past the fetch is family-agnostic. Results are cached in memory on the segment so re-preview
+// doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  const searchingMsg = seg.family === "reference" ? "Searching for the meme clip…" : "Searching for real footage…";
+  const searchingMsg = seg.family === "reference" ? "Searching for the reaction clip…" : "Searching for real footage…";
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
