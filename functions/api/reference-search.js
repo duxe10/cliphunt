@@ -43,13 +43,15 @@ Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"r
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the raw reaction moment.`;
 
 // Deterministic pre-filter — no LLM call. Runs after enrichCandidates() so durationSec/title/
-// description are populated. Junk-title regex catches compilations and reaction-to-reaction
-// commentary; the #shorts marker catches actual YouTube Shorts (often remixes/compilations
-// themselves, not the raw clip); the duration cap is the length-as-proxy-signal: with no
-// frame/caption analysis attempted for this family, a long video can't be trimmed down to the
-// moment, so it's excluded outright rather than kept and mis-trimmed.
+// description are populated. Junk-title regex catches compilations, reaction-to-reaction
+// commentary, and sound-effect-library uploads (these are short and pass the duration cap, but
+// they're audio SFX, not a raw reaction being captured on video — they reliably say so in the
+// title); the #shorts marker catches actual YouTube Shorts (often remixes/compilations themselves,
+// not the raw clip); the duration cap is the length-as-proxy-signal: with no frame/caption
+// analysis attempted for this family, a long video can't be trimmed down to the moment, so it's
+// excluded outright rather than kept and mis-trimmed.
 const MAX_REACTION_SEC = 180;
-const JUNK_TITLE_RE = /compilation|top\s*\d+|best of|montage|mashup|reacts?\s+to|reaction\s+to|review|explained|breakdown|part\s*\d+/i;
+const JUNK_TITLE_RE = /compilation|top\s*\d+|best of|montage|mashup|reacts?\s+to|reaction\s+to|review|explained|breakdown|part\s*\d+|sound effects?|\bsfx\b/i;
 const SHORTS_RE = /#shorts?\b/i;
 
 export function filterRawReactionCandidates(candidates) {
