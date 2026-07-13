@@ -43,13 +43,13 @@ this beat wants:
   (shock, celebration, facepalm, disbelief). For "gif", "query" stays a short 1-2 word reaction
   term per the rules below.
 
-If family is "feel" with source "gif", or family is "reference", include a "query": a short
-1-2 word term for searching a reaction-gif site. Reaction-gif search is tag-based and matches
-short, common words — not clever specific phrases (a phrase like "finally believing again"
-matches almost nothing and returns generic junk, whereas "hope" or "relief" returns real
-reaction gifs). So pick the single most-searchable common reaction word (or a two-word combo
-at most) that best fits THIS segment: e.g. "heartbreak", "nervous", "hype", "shocked", "relief".
-Vary the word across segments so different beats don't all collapse to the same term.
+If family is "feel" with source "gif", include a "query": a short 1-2 word term for searching a
+reaction-gif site. Reaction-gif search is tag-based and matches short, common words — not clever
+specific phrases (a phrase like "finally believing again" matches almost nothing and returns
+generic junk, whereas "hope" or "relief" returns real reaction gifs). So pick the single
+most-searchable common reaction word (or a two-word combo at most) that best fits THIS segment:
+e.g. "heartbreak", "nervous", "hype", "shocked", "relief". Vary the word across segments so
+different beats don't all collapse to the same term.
 
 Avoid ambiguous words whose most common meaning on a gif site is a specific holiday, event,
 or community unrelated to the beat — those return off-topic results. In particular do NOT
@@ -58,8 +58,8 @@ Pride-month content); use an unambiguous reaction word like "impressed", "amazed
 "standing ovation" instead. Same idea for other loaded single words — prefer the plain
 reaction over the word that a platform has repurposed.
 
-For "nothing"/"evidence" segments, omit "query" and "source". "reference" segments never get
-a "source" field — they always search the reaction-gif site.
+For "nothing"/"evidence"/"reference" segments, omit "query" and "source" — both are resolved
+downstream by their own dedicated search step, not by this pass.
 
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","query":"...","source":"stock"}]}`;

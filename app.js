@@ -133,9 +133,10 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Families with a real search wired up. "evidence" (real footage of a real person/thing)
-// needs YouTube + transcript matching, which isn't built yet — stays a placeholder.
-const SEARCHABLE_FAMILIES = ["feel", "reference"];
+// Families that auto-hydrate on load. "evidence" and "reference" both cost a YouTube search (and
+// re-hydrate on every workspace load, not just once), so both stay user-triggered "Find footage"
+// buttons instead — see segmentHtml()/findFootage().
+const SEARCHABLE_FAMILIES = ["feel"];
 
 // ── Dashboard (index.html) ──────────────────────────────────────────────────
 // Renders the real project history. No projects → just the "New Project" card,
@@ -206,21 +207,22 @@ function renderWorkspace() {
 function segmentHtml(seg) {
   const isEmpty = seg.family === "nothing";
   const needsSearch = !isEmpty && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
-  // Evidence is user-triggered (real footage costs a YouTube search + a caption fetch), so it
-  // gets a "Find footage" button rather than auto-hydrating like feel/reference on load.
-  const isEvidence = !isEmpty && seg.family === "evidence";
+  // Evidence AND reference are both user-triggered (each costs a YouTube search, and re-hydrates
+  // on every workspace load), so both get a "Find footage" button rather than auto-hydrating.
+  const needsFootage = !isEmpty && (seg.family === "evidence" || seg.family === "reference");
 
   let body;
   if (isEmpty) {
     body = `<p class="no-clip-msg">Pacing beat — no clip needed here.</p>`;
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
-  } else if (isEvidence) {
+  } else if (needsFootage) {
+    const label = seg.family === "reference" ? "Find meme clip" : "Find footage";
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
         <button class="btn btn-primary btn-find-footage" onclick="findFootage(${seg.idx})">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-          Find footage
+          ${label}
         </button>
       </div>`;
   } else {
@@ -307,20 +309,24 @@ function clipCardHtml(segIdx, clipIdx, clip) {
 const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
 
 // ── Evidence footage (workspace.html) ───────────────────────────────────────
-// User clicks "Find footage" on an evidence beat: evidence-search returns YouTube candidates
-// plus a signed authorization, then the worker caption-matches the quote → timestamps + signed
-// download URLs. Results are cached in memory on the segment so re-preview doesn't re-search.
+// User clicks "Find footage"/"Find meme clip" on an evidence or reference beat: evidence-search
+// (or reference-search for memes) returns YouTube candidates plus a signed authorization, then
+// the worker caption-matches the quote → timestamps + signed download URLs. Both endpoints return
+// the same candidate shape, so everything past the fetch is family-agnostic. Results are cached
+// in memory on the segment so re-preview doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  container.innerHTML = `<p class="no-clip-msg">Searching for real footage…</p>`;
+  const searchingMsg = seg.family === "reference" ? "Searching for the meme clip…" : "Searching for real footage…";
+  container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
     // Only the story SO FAR (preceding segments, reading order) so back-references resolve and
     // the model can't grab a subject from a later part of the script.
     const context = (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
-    const searchRes = await fetch("/api/evidence-search", {
+    const endpoint = seg.family === "reference" ? "/api/reference-search" : "/api/evidence-search";
+    const searchRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ segmentText: seg.text, context }),

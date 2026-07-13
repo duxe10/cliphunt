@@ -158,28 +158,9 @@ export async function onRequestPost(context) {
   // 2. YouTube Data API search.list (fetch 10 to rerank from).
   let candidates;
   try {
-    const url =
-      "https://www.googleapis.com/youtube/v3/search" +
-      `?part=snippet&type=video&maxResults=10&safeSearch=none` +
-      `&q=${encodeURIComponent(query)}&key=${env.YOUTUBE_API_KEY}`;
-    const res = await fetch(url);
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return Response.json({ error: `YouTube error: ${errText}` }, { status: 502 });
-    }
-
-    const data = await res.json();
-    candidates = (data.items || [])
-      .filter((it) => it.id && it.id.videoId)
-      .map((it) => ({
-        videoId: it.id.videoId,
-        title: it.snippet?.title || "",
-        channel: it.snippet?.channelTitle || "",
-        thumb: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || "",
-      }));
+    candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
   } catch (err) {
-    return Response.json({ error: `YouTube search failed: ${err.message}` }, { status: 502 });
+    return Response.json({ error: err.message }, { status: 502 });
   }
 
   // 2b/2c. Enrich with quality signals, then LLM re-rank against the beat's intent. Both
@@ -199,7 +180,9 @@ export async function onRequestPost(context) {
 
 // HMAC-SHA256 over the canonical string, hex-encoded. WebCrypto here produces the exact same
 // hex as the Render worker's Node crypto.createHmac(...).digest("hex") — keep the payload identical.
-async function signMatch(videoIds, quote, exp, secret) {
+// Exported: reference-search.js's meme candidates are signed for the same worker /match the exact
+// same way — the worker doesn't care whether a videoId came from an "evidence" or "reference" beat.
+export async function signMatch(videoIds, quote, exp, secret) {
   const payload = `${[...videoIds].sort().join(",")}|${quote || ""}|${exp}`;
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -207,8 +190,31 @@ async function signMatch(videoIds, quote, exp, secret) {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// YouTube Data API search.list (fetch 10 to rerank from). Exported so reference-search.js's meme
+// lookup reuses the exact same search/shape instead of a second copy of this fetch.
+export async function searchYouTubeVideos(query, apiKey) {
+  const url =
+    "https://www.googleapis.com/youtube/v3/search" +
+    `?part=snippet&type=video&maxResults=10&safeSearch=none` +
+    `&q=${encodeURIComponent(query)}&key=${apiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`YouTube error: ${errText}`);
+  }
+  const data = await res.json();
+  return (data.items || [])
+    .filter((it) => it.id && it.id.videoId)
+    .map((it) => ({
+      videoId: it.id.videoId,
+      title: it.snippet?.title || "",
+      channel: it.snippet?.channelTitle || "",
+      thumb: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || "",
+    }));
+}
+
 // Adds duration/views/description onto each candidate via one videos.list call (1 quota unit).
-async function enrichCandidates(candidates, apiKey) {
+export async function enrichCandidates(candidates, apiKey) {
   const ids = candidates.map((c) => c.videoId).filter(Boolean).join(",");
   if (!ids) return;
   try {
@@ -238,7 +244,9 @@ function parseIsoDuration(iso) {
 }
 
 // Scores each candidate 0-100 against the beat's intent, writing c.score / c.reason in place.
-async function rerankCandidates(intent, candidates, env) {
+// Exported with a `systemPrompt` override so reference-search.js can rerank against a
+// meme-recognizability rubric instead of evidence's primary-footage rubric, via the same call.
+export async function rerankCandidates(intent, candidates, env, systemPrompt = RERANK_PROMPT) {
   if (candidates.length <= 1 || !env.GROQ_API_KEY) return;
   const list = candidates.map((c) => ({
     videoId: c.videoId,
@@ -264,7 +272,7 @@ async function rerankCandidates(intent, candidates, env) {
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "system", content: RERANK_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: user },
         ],
         temperature: 0,
