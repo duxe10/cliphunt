@@ -9,6 +9,7 @@
 // Returned as plain youtube.com links — no downloading, same as evidence-search.js (see its
 // header comment for why the yt-dlp/ffmpeg worker was dropped entirely).
 import { searchYouTubeVideos, enrichCandidates, rerankCandidates, MIN_RERANK_SCORE } from "./evidence-search.js";
+import { groqChat } from "./_groq.js";
 
 const SYSTEM_PROMPT = `You extract a search phrase for the REACTION/EMOTION at ONE moment of a video script
 ("the moment") so a tool can find a real raw reaction clip on YouTube — not a specific named meme,
@@ -97,21 +98,13 @@ export async function onRequestPost(context) {
 
   let intent;
   try {
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-      }),
+    const groqRes = await groqChat(env, {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.2,
     });
 
     if (!groqRes.ok) {

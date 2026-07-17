@@ -8,6 +8,8 @@
 // each clip's title. That title is real signal, so it gets the same LLM-rerank treatment
 // evidence-search.js already gives YouTube results — Pexels results used to be pure pass-through
 // from Pexels' own search ranking with zero validation against what the beat actually needs.
+import { groqChat } from "./_groq.js";
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -112,21 +114,16 @@ export async function rerankStockCandidates(intent, clips, env) {
     `\nCANDIDATES:\n${JSON.stringify(list)}`;
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // Same reasoning as evidence-search.js's rerankCandidates: scoring against a fixed
-        // rubric doesn't need the bigger model, and this runs on every feel-beat search too —
-        // keep it off llama-3.3-70b's shared quota.
-        model: "openai/gpt-oss-20b",
-        messages: [
-          { role: "system", content: STOCK_RERANK_PROMPT },
-          { role: "user", content: user },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
+    const res = await groqChat(env, {
+      // Same reasoning as evidence-search.js's rerankCandidates: scoring against a fixed
+      // rubric doesn't need the bigger model, and this runs on every feel-beat search too —
+      // keep it off llama-3.3-70b's shared quota.
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: STOCK_RERANK_PROMPT },
+        { role: "user", content: user },
+      ],
+      temperature: 0,
     });
     if (!res.ok) return clips;
 
@@ -147,4 +144,72 @@ export async function rerankStockCandidates(intent, clips, env) {
   } catch {
     return clips;
   }
+}
+
+const STOCK_RERANK_BATCH_PROMPT = `You score how well each stock-footage clip matches its OWN moment
+of a video script. You get a list of segments, each with a moment (and its resolved context, if
+given) plus candidate clips — same rubric as scoring one moment at a time: does the clip's title
+(a real but terse auto-extracted slug, not a full sentence) plausibly describe footage fitting
+THAT segment's moment? Score each segment's candidates independently of every other segment's —
+a clip scoring well for one moment says nothing about its fit for another.
+
+Return strict JSON only, no prose: {"segments":[{"i":0,"ranking":[{"id":"...","score":0-100,"reason":"<=8 words"}]}]}
+Include an entry for every segment index given, and every one of that segment's candidates
+exactly once, best first. 0 = clearly wrong, 100 = exactly the shot needed.`;
+
+// Batched sibling of rerankStockCandidates — scores every segment's candidates in ONE Groq call
+// instead of one call per segment. Exists because stock-search-batch.js's hydration path used to
+// mean N segments' worth of "feel" beats each firing their own rerank call simultaneously via
+// Promise.all on every workspace load — a burst against Groq's per-minute rate limit, not just
+// its daily quota. Same 0-100 rubric and >=20 keep-threshold as the single-segment version, just
+// addressed by segment index instead of a flat candidate list.
+export async function rerankStockCandidatesBatch(items, env) {
+  // Segments with 0-1 candidates have nothing to rank (same short-circuit as the single-segment
+  // version) — skip them so the batch prompt/response stays sized to what's actually scorable.
+  const scorable = items.filter((it) => it.clips.length > 1);
+  if (!scorable.length || !env.GROQ_API_KEY) {
+    return items.map((it) => it.clips);
+  }
+
+  const user = scorable.map((it) => ({
+    i: it.i,
+    moment: it.segmentText,
+    context: it.context || undefined,
+    query: it.query,
+    candidates: it.clips.map((c) => ({ id: c.id, title: c.title, duration: c.duration })),
+  }));
+
+  let rankingBySegment = new Map();
+  try {
+    const res = await groqChat(env, {
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: STOCK_RERANK_BATCH_PROMPT },
+        { role: "user", content: JSON.stringify(user) },
+      ],
+      temperature: 0,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+      const segs = Array.isArray(parsed.segments) ? parsed.segments : [];
+      rankingBySegment = new Map(
+        segs.map((s) => [s.i, new Map((Array.isArray(s.ranking) ? s.ranking : []).map((r) => [r.id, r]))])
+      );
+    }
+  } catch {
+    // best-effort — segments below fall through to their unscored pass-through
+  }
+
+  return items.map((it) => {
+    const ranking = rankingBySegment.get(it.i);
+    if (!ranking) return it.clips; // <=1 candidate (never sent), or the whole batch call failed
+    const scored = it.clips.map((c) => {
+      const r = ranking.get(c.id);
+      return { ...c, score: r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : null, reason: r ? String(r.reason || "").slice(0, 60) : null };
+    });
+    const kept = scored.filter((c) => c.score === null || c.score >= 20);
+    kept.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    return kept;
+  });
 }

@@ -1,6 +1,8 @@
 // Cloudflare Pages Function — POST /api/segment
 // Ported from netlify/functions/segment.js (Netlify handler -> Pages onRequestPost,
 // process.env -> context.env). Prompt + mergeFragments logic is unchanged.
+import { groqChat } from "./_groq.js";
+
 const SYSTEM_PROMPT = `You break a video script into distinct moments for a clip-matching tool.
 Each segment should be something a video editor would treat as a single cut decision —
 not just a run of separate sentences with a segment boundary at every full stop.
@@ -137,21 +139,16 @@ async function narrateSegments(segments, env) {
   const userContent = `FULL SCRIPT, IN ORDER:\n${script}\n\nRESOLVE THESE: ${targets.map((t) => t.i).join(", ")}`;
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // The narrate pass is the reasoning-heaviest step in the pipeline (relational + temporal
-        // resolution across an arbitrary-length script) — worth the stronger model. Also spreads
-        // load off llama-3.3-70b's shared quota, which every other call site here uses.
-        model: "openai/gpt-oss-120b",
-        messages: [
-          { role: "system", content: NARRATE_PROMPT },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-      }),
+    const res = await groqChat(env, {
+      // The narrate pass is the reasoning-heaviest step in the pipeline (relational + temporal
+      // resolution across an arbitrary-length script) — worth the stronger model. Also spreads
+      // load off llama-3.3-70b's shared quota, which every other call site here uses.
+      model: "openai/gpt-oss-120b",
+      messages: [
+        { role: "system", content: NARRATE_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.2,
     });
     if (!res.ok) return segments; // best-effort: evidence-search.js falls back to raw context
 
@@ -183,21 +180,13 @@ export async function onRequestPost(context) {
   }
 
   try {
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: script },
-        ],
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-      }),
+    const groqRes = await groqChat(env, {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: script },
+      ],
+      temperature: 0.3,
     });
 
     if (!groqRes.ok) {

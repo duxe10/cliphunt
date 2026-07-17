@@ -9,6 +9,7 @@
 // there's no separate verification step to rebuild — it's the same signal, just surfaced in the UI
 // instead of feeding a caption-match step).
 import { mapPexelsVideo, rerankStockCandidates } from "./stock-search.js";
+import { groqChat } from "./_groq.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
@@ -125,21 +126,13 @@ export async function onRequestPost(context) {
 
   let intent;
   try {
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
-        ],
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-      }),
+    const groqRes = await groqChat(env, {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.2,
     });
 
     if (!groqRes.ok) {
@@ -291,25 +284,17 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
     (intent.quote ? `SPOKEN LINE: ${intent.quote}\n` : "") +
     `\nCANDIDATES:\n${JSON.stringify(list)}`;
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        // Scoring against an already-well-defined rubric is mechanical, not reasoning-heavy —
-        // the fast model is plenty, and this is the highest-frequency call site (every YouTube
-        // search, evidence + reference both), so moving it off llama-3.3-70b's shared quota
-        // matters most here.
-        model: "openai/gpt-oss-20b",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: user },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
+    const res = await groqChat(env, {
+      // Scoring against an already-well-defined rubric is mechanical, not reasoning-heavy —
+      // the fast model is plenty, and this is the highest-frequency call site (every YouTube
+      // search, evidence + reference both), so moving it off llama-3.3-70b's shared quota
+      // matters most here.
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: user },
+      ],
+      temperature: 0,
     });
     if (!res.ok) return false;
     const data = await res.json();

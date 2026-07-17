@@ -231,22 +231,30 @@ function segmentHtml(seg) {
 // Fires real Pexels searches for feel segments after the initial render, then swaps each
 // segment's "Searching…" placeholder for real results in place. Gifs (Giphy) were dropped
 // entirely — low quality, too short to be useful cuts — so "feel" is Pexels-only now.
+//
+// One /api/stock-search-batch call for ALL feel segments at once, not one /api/stock-search call
+// per segment — a script with many feel beats used to fire that many concurrent Groq rerank
+// calls simultaneously (via the Promise.all this used to have), on every single workspace load,
+// which was enough to burst past Groq's per-minute rate limit. See stock-search-batch.js's header
+// comment for the full breakdown.
 async function hydrateClips() {
   const targets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
+  if (!targets.length) return;
 
-  await Promise.all(targets.map(async (seg) => {
-    try {
-      const res = await fetch("/api/stock-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: seg.query || seg.text, segmentText: seg.text, context: seg.context }),
-      });
-      const data = await res.json();
-      seg.clips = res.ok ? data.clips : [];
-    } catch {
-      seg.clips = [];
-    }
-  }));
+  try {
+    const res = await fetch("/api/stock-search-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        segments: targets.map(seg => ({ query: seg.query || seg.text, segmentText: seg.text, context: seg.context })),
+      }),
+    });
+    const data = await res.json();
+    const byIndex = new Map(res.ok && Array.isArray(data.results) ? data.results.map(r => [r.i, r.clips]) : []);
+    targets.forEach((seg, i) => { seg.clips = byIndex.get(i) || []; });
+  } catch {
+    targets.forEach(seg => { seg.clips = []; });
+  }
 
   // Cross-segment dedup: with a wider pool per segment, greedily assign non-duplicate
   // clips in segment order so the same clip doesn't get reused across scenes. If a segment
