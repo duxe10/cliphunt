@@ -28,17 +28,28 @@ in order, covering the whole script.
 
 For each segment, also pick one "family":
 - "feel" — a pure emotional beat (surprise, disappointment, hype, etc), no specific referent
-- "evidence" — references a specific real person/thing that said or did something
+- "evidence" — needs a REAL-WORLD illustrative visual. Either (a) ONE specific real person/thing
+  that said or did something, or (b) a general statement about a CATEGORY of people/things doing
+  or experiencing something concrete ("most footballers", "everyone who's tried it") — even with
+  no single person named, real footage of that KIND of moment exists and should be found.
+  Example: "For most footballers, scoring at a World Cup is the highlight of their career" is
+  "evidence" (needs real footage of players scoring/celebrating) — do NOT call this "nothing"
+  just because it doesn't name one player. Ask whether real footage of that kind of moment
+  exists; if yes, it's "evidence", named person or not.
 - "reference" — matches a known meme/cultural callback
-- "nothing" — pacing beat or transition, no clip needed
+- "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
+  setup clause that only makes sense combined with the next segment's visual. If a sentence
+  describes any real-world action, scene, or moment — named person or not — it is NOT "nothing".
 
 If family is "feel", also include a "source": "stock" or "gif", deciding which kind of clip
 this beat wants:
-- "stock" — the beat is atmospheric, scene-setting, or conceptual: a mood, place, or action
-  that real-world b-roll can depict, with no specific person or joke (rain on a window, a city
-  at night, a crowd, hands typing, a sunrise, an empty stadium). For "stock", "query" is a
-  SHORT DESCRIPTIVE VISUAL SCENE PHRASE, 2-5 words ("stormy sky timelapse", "empty stadium
-  night", "city traffic time lapse") — describe the shot, not a reaction word.
+- "stock" — the beat is PURE atmosphere or mood/setting, with no notable action by real people:
+  a place, a feeling of time or weather (rain on a window, a city at night, a sunrise, an empty
+  stadium, hands typing). If the beat describes people DOING something specific and real — even
+  a general category of people ("footballers celebrating a goal") — that's "evidence", not
+  "stock"; see the evidence family definition above. For "stock", "query" is a SHORT DESCRIPTIVE
+  VISUAL SCENE PHRASE, 2-5 words ("stormy sky timelapse", "empty stadium night", "city traffic
+  time lapse") — describe the shot, not a reaction word.
 - "gif" — the beat is a comedic or emotional REACTION PUNCH that a looping reaction clip nails
   (shock, celebration, facepalm, disbelief). For "gif", "query" stays a short 1-2 word reaction
   term per the rules below.
