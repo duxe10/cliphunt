@@ -8,7 +8,7 @@
 // reaction-channel commentary, or YouTube Shorts.
 // Returned as plain youtube.com links — no downloading, same as evidence-search.js (see its
 // header comment for why the yt-dlp/ffmpeg worker was dropped entirely).
-import { searchYouTubeVideos, enrichCandidates, rerankCandidates } from "./evidence-search.js";
+import { searchYouTubeVideos, enrichCandidates, rerankCandidates, MIN_RERANK_SCORE } from "./evidence-search.js";
 
 const SYSTEM_PROMPT = `You extract a search phrase for the REACTION/EMOTION at ONE moment of a video script
 ("the moment") so a tool can find a real raw reaction clip on YouTube — not a specific named meme,
@@ -140,9 +140,10 @@ export async function onRequestPost(context) {
     return Response.json({ subject: query, candidates: [] });
   }
 
-  await rerankCandidates({ segmentText, subject: query, footageType: "reaction", quote: null }, candidates, env, RERANK_PROMPT);
+  const reranked = await rerankCandidates({ segmentText, subject: query, footageType: "reaction", quote: null }, candidates, env, RERANK_PROMPT);
   candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const top = candidates.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
+  const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+  const top = filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
 
   return Response.json({ subject: query, candidates: top });
 }

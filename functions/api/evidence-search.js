@@ -8,7 +8,12 @@
 // to take on. The rerank score/reason already answers "does this actually back up the claim?", so
 // there's no separate verification step to rebuild — it's the same signal, just surfaced in the UI
 // instead of feeding a caption-match step).
-import { mapPexelsVideo } from "./stock-search.js";
+import { mapPexelsVideo, rerankStockCandidates } from "./stock-search.js";
+
+// Below this score, the rerank considers a candidate a clear miss rather than a borderline
+// option — dropped outright rather than shown with a low score nobody's forced to notice.
+// Exported so reference-search.js's own rerank filter uses the same bar.
+export const MIN_RERANK_SCORE = 30;
 const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
 real footage for it. You are given the script SO FAR (everything before the moment) to work out
 who or what it is about.
@@ -152,7 +157,8 @@ export async function onRequestPost(context) {
       }
       const data = await res.json();
       const clips = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
-      return Response.json({ footageType, source: "stock", subject: intent.subject || null, clips });
+      const ranked = await rerankStockCandidates({ segmentText, context: scriptContext, query }, clips, env);
+      return Response.json({ footageType, source: "stock", subject: intent.subject || null, clips: ranked });
     } catch (err) {
       return Response.json({ error: err.message }, { status: 500 });
     }
@@ -171,11 +177,14 @@ export async function onRequestPost(context) {
   }
 
   // 2b/2c. Enrich with quality signals, then LLM re-rank against the beat's intent. Both
-  //        best-effort — on failure candidates keep YouTube's order. Keep the best 5.
+  //        best-effort — on failure candidates keep YouTube's order and an unfiltered score of 0,
+  //        which the MIN_RERANK_SCORE filter below would wrongly drop — so track whether rerank
+  //        actually ran before applying it.
   await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
-  await rerankCandidates({ segmentText, subject: intent.subject, footageType, quote }, candidates, env);
+  const reranked = await rerankCandidates({ segmentText, subject: intent.subject, footageType, quote }, candidates, env);
   candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const top = candidates.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
+  const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+  const top = filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
 
   return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top });
 }
@@ -236,8 +245,10 @@ function parseIsoDuration(iso) {
 // Scores each candidate 0-100 against the beat's intent, writing c.score / c.reason in place.
 // Exported with a `systemPrompt` override so reference-search.js can rerank against a
 // meme-recognizability rubric instead of evidence's primary-footage rubric, via the same call.
+// Returns true if scoring actually happened (so callers can tell a real 0 apart from "rerank
+// didn't run" and avoid filtering everything out on a network/API failure).
 export async function rerankCandidates(intent, candidates, env, systemPrompt = RERANK_PROMPT) {
-  if (candidates.length <= 1 || !env.GROQ_API_KEY) return;
+  if (candidates.length <= 1 || !env.GROQ_API_KEY) return false;
   const list = candidates.map((c) => ({
     videoId: c.videoId,
     title: c.title,
@@ -269,7 +280,7 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
         response_format: { type: "json_object" },
       }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = await res.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
     const ranking = Array.isArray(parsed.ranking) ? parsed.ranking : [];
@@ -279,7 +290,8 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
       c.score = r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : 0;
       c.reason = r ? String(r.reason || "").slice(0, 60) : "";
     }
+    return true;
   } catch {
-    /* best-effort: leave candidates unscored, original order preserved */
+    return false; // best-effort: leave candidates unscored, original order preserved
   }
 }

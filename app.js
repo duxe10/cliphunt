@@ -239,7 +239,7 @@ async function hydrateClips() {
       const res = await fetch("/api/stock-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: seg.query || seg.text }),
+        body: JSON.stringify({ query: seg.query || seg.text, segmentText: seg.text, context: seg.context }),
       });
       const data = await res.json();
       seg.clips = res.ok ? data.clips : [];
@@ -272,6 +272,11 @@ function clipCardHtml(segIdx, clipIdx, clip) {
     ? `background-image:url('${clip.thumbUrl}'); background-size:cover; background-position:center;`
     : "";
   const icon = clip.thumbUrl ? "" : PLAY_ICON;
+  // Stock clips get a rerank score when it ran (see stock-search.js's rerankStockCandidates) —
+  // same honesty-signal pattern as evidence/reference cards, shown only when it's actually there.
+  const scoreLine = Number.isFinite(clip.score)
+    ? `<div class="clip-sub ${clip.score >= 60 ? "ev-ok" : "ev-warn"}">${clip.score}%${clip.reason ? ` · ${escapeHtml(clip.reason)}` : ""}</div>`
+    : "";
   return `
     <div class="clip-card" onclick="openPreview(${segIdx}, ${clipIdx})">
       <div class="clip-thumb" style="${thumbStyle}">
@@ -279,6 +284,7 @@ function clipCardHtml(segIdx, clipIdx, clip) {
         ${icon}
       </div>
       <div class="clip-label">${escapeHtml(clip.title || clip.label || "")}</div>
+      ${scoreLine}
     </div>
   `;
 }
