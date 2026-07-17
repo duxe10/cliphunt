@@ -141,8 +141,7 @@ async function narrateSegments(segments, env) {
   try {
     const res = await groqChat(env, {
       // The narrate pass is the reasoning-heaviest step in the pipeline (relational + temporal
-      // resolution across an arbitrary-length script) — worth the stronger model. Also spreads
-      // load off llama-3.3-70b's shared quota, which every other call site here uses.
+      // resolution across an arbitrary-length script) — worth the stronger model.
       model: "openai/gpt-oss-120b",
       messages: [
         { role: "system", content: NARRATE_PROMPT },
@@ -181,7 +180,14 @@ export async function onRequestPost(context) {
 
   try {
     const groqRes = await groqChat(env, {
-      model: "llama-3.3-70b-versatile",
+      // Was llama-3.3-70b-versatile — moved here alongside narrateSegments() below. That model's
+      // 100k-tokens/day quota got exhausted mid-session repeatedly (real, reproducible — a live
+      // 429 response confirmed it), and it was the sole model behind segmentation AND both
+      // intent-extraction calls (evidence-search.js, reference-search.js): once it's out, the
+      // whole "understand the script" pipeline hard-fails, not just one call site. Consolidating
+      // onto gpt-oss-120b (already verified for the narrate pass) trades that hard dependency for
+      // a model whose quota isn't shared with anything user-triggered per-click.
+      model: "openai/gpt-oss-120b",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: script },

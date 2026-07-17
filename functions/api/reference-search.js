@@ -99,7 +99,8 @@ export async function onRequestPost(context) {
   let intent;
   try {
     const groqRes = await groqChat(env, {
-      model: "llama-3.3-70b-versatile",
+      // Was llama-3.3-70b-versatile — see segment.js's onRequestPost for why.
+      model: "openai/gpt-oss-120b",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },

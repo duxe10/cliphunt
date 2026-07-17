@@ -127,7 +127,10 @@ export async function onRequestPost(context) {
   let intent;
   try {
     const groqRes = await groqChat(env, {
-      model: "llama-3.3-70b-versatile",
+      // Was llama-3.3-70b-versatile — see segment.js's onRequestPost for why: that model's daily
+      // quota is small and was shared with segmentation + reference-search's own intent call, so
+      // exhausting it broke footage-finding entirely, not just degraded it.
+      model: "openai/gpt-oss-120b",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },
