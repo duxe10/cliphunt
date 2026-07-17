@@ -62,23 +62,6 @@ const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="current
 let CURRENT_PROJECT = null;
 let SEGMENTS = [];
 
-// The evidence backend worker's base URL (yt-dlp/ffmpeg service — see worker/). Not a secret;
-// fetched once from the /config function so it isn't hardcoded here. Guarded by HMAC, not URL.
-let WORKER_URL = null;
-let WORKER_URL_LOADED = false;
-async function ensureWorkerUrl() {
-  if (WORKER_URL_LOADED) return WORKER_URL;
-  try {
-    const res = await fetch("/api/config");
-    const data = await res.json();
-    WORKER_URL = (data.workerUrl || "").replace(/\/$/, "") || null;
-  } catch {
-    WORKER_URL = null;
-  }
-  WORKER_URL_LOADED = true;
-  return WORKER_URL;
-}
-
 // Turns raw {text, family, query} objects from the Groq function into full display
 // segments with estimated timestamps. Clips start null (not yet hydrated).
 function buildLiveSegments(raw) {
@@ -307,14 +290,13 @@ function clipCardHtml(segIdx, clipIdx, clip) {
 }
 
 const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
+const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>`;
 
 // ── Evidence footage (workspace.html) ───────────────────────────────────────
 // User clicks "Find footage"/"Find reaction clip" on an evidence or reference beat: evidence-search
-// (or reference-search for reaction clips) returns YouTube candidates plus a signed authorization,
-// then the worker caption-matches the quote (or, for reference, takes its zero-analysis quote:null
-// fast path) → signed download URLs. Both endpoints return the same candidate shape, so everything
-// past the fetch is family-agnostic. Results are cached in memory on the segment so re-preview
-// doesn't re-search.
+// (or reference-search for reaction clips) searches YouTube, quality-enriches, and LLM-reranks
+// against the beat, returning plain youtube.com links — no downloading, no separate matching step.
+// Results are cached in memory on the segment so re-preview doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
@@ -336,7 +318,7 @@ async function findFootage(segIdx) {
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
 
     // Generic beats (category statement, no one identifiable event) route to clean licensed
-    // Pexels b-roll — no YouTube/worker match needed, so render straight from these clips.
+    // Pexels b-roll — render straight from these clips, same card style as feel/stock.
     if (search.source === "stock") {
       seg.clips = search.clips || [];
       container.innerHTML = seg.clips.length
@@ -345,39 +327,7 @@ async function findFootage(segIdx) {
       return;
     }
 
-    if (!search.candidates || !search.candidates.length) {
-      container.innerHTML = `<p class="no-clip-msg">No footage candidates found for this moment.</p>`;
-      return;
-    }
-
-    const workerUrl = await ensureWorkerUrl();
-    if (!workerUrl) {
-      container.innerHTML = `<p class="no-clip-msg">Footage backend isn't configured (WORKER_URL missing).</p>`;
-      return;
-    }
-
-    container.innerHTML = `<p class="no-clip-msg">Waking the clip server &amp; matching the quote… (first run can take ~30s)</p>`;
-
-    const matchRes = await fetch(`${workerUrl}/match`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        videoIds: search.candidates.map(c => c.videoId),
-        quote: search.quote,
-        exp: search.exp,
-        sig: search.matchSig,
-      }),
-    });
-    const match = await matchRes.json();
-    if (!matchRes.ok) throw new Error(match.error || "Matching failed");
-
-    // Merge search metadata (title/thumb/channel) with worker results (timestamps/urls) by id,
-    // preserving the worker's score order.
-    const byId = {};
-    search.candidates.forEach(c => { byId[c.videoId] = c; });
-    const results = (match.results || []).map(r => ({ ...(byId[r.videoId] || {}), ...r }));
-
-    seg.evidence = { quote: search.quote, footageType: search.footageType, results };
+    seg.evidence = { candidates: search.candidates || [] };
     renderEvidence(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
@@ -388,24 +338,19 @@ function renderEvidence(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container || !seg.evidence) return;
-  const { results } = seg.evidence;
-  container.innerHTML = results.length
-    ? `<div class="clip-queue">${results.map((r, i) => evidenceCardHtml(segIdx, i, r)).join("")}</div>`
+  const { candidates } = seg.evidence;
+  container.innerHTML = candidates.length
+    ? `<div class="clip-queue">${candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("")}</div>`
     : `<p class="no-clip-msg">No footage candidates found.</p>`;
 }
 
-// Honest one-liner for a candidate, driven by the worker's `reason`, so a beat with no spoken
-// line reads as "general footage" rather than a scary "couldn't verify."
+// Honest one-liner driven by the LLM rerank's own score/reason (0-100 against the beat's actual
+// claim/subject/quote) — that's already the verification signal, just surfaced here instead of
+// feeding a separate caption-match step.
 function evidenceLabel(cand) {
-  if (cand.matched) {
-    return { text: `matched ${formatTime(cand.start)} · ${Math.round((cand.score || 0) * 100)}%`, cls: "ev-ok" };
-  }
-  switch (cand.reason) {
-    case "no_captions": return { text: "no captions to verify", cls: "ev-warn" };
-    case "low_score": return { text: "exact line not found", cls: "ev-warn" };
-    case "no_quote":
-    default: return { text: "general footage", cls: "ev-warn" };
-  }
+  if (!Number.isFinite(cand.score)) return { text: "unscored", cls: "ev-warn" };
+  const cls = cand.score >= 70 ? "ev-ok" : "ev-warn";
+  return { text: cand.reason ? `${cand.score}% · ${cand.reason}` : `${cand.score}% match`, cls };
 }
 
 function evidenceCardHtml(segIdx, candIdx, cand) {
@@ -424,15 +369,11 @@ function evidenceCardHtml(segIdx, candIdx, cand) {
     </div>`;
 }
 
-// Preview plays ONLY the matched excerpt via a YouTube embed (from the start when unverified),
-// so the user hears the moment, not a 30-minute source. Download buttons are contextual: the
-// trimmed excerpt (when matched) plus the full video; full-only when no confident match.
+// Standard (non-trimmed) YouTube embed for preview — evidence/reference results are references
+// for the user to watch and judge, not files this app hands out. The single action button is an
+// external link, not a download.
 function openEvidencePreview(segIdx, candIdx) {
-  const cand = SEGMENTS[segIdx].evidence.results[candIdx];
-
-  const startParam = cand.matched ? Math.max(0, Math.floor(cand.start)) : 0;
-  const endParam = cand.matched ? Math.ceil(cand.end) : 0;
-  const embed = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1&start=${startParam}${endParam ? `&end=${endParam}` : ""}`;
+  const cand = SEGMENTS[segIdx].evidence.candidates[candIdx];
 
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
@@ -444,94 +385,24 @@ function openEvidencePreview(segIdx, candIdx) {
     video.style.display = "none";
   }
   const iframe = document.getElementById("modal-iframe");
-  iframe.src = embed;
+  iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1`;
   iframe.style.display = "block";
 
   document.getElementById("modal-title").textContent = cand.title || "";
-  document.getElementById("modal-sub").textContent = cand.matched
-    ? `YouTube · ${cand.channel || ""} · matched “${cand.snippet}”`
-    : `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
+  document.getElementById("modal-sub").textContent = `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
 
-  const dlExcerpt = document.getElementById("modal-download");
-  const dlFull = document.getElementById("modal-download-full");
-  if (cand.excerptUrl) {
-    dlExcerpt.href = cand.excerptUrl;
-    dlExcerpt.innerHTML = `${DL_ICON} Download clip (${cand.excerptSec}s)`;
-    dlExcerpt.style.display = "";
-    dlFull.href = cand.fullUrl;
-    dlFull.innerHTML = `${DL_ICON} Download full video`;
-    dlFull.style.display = "";
-  } else {
-    // No confident trim → a single "Download full video" as the primary action.
-    dlExcerpt.href = cand.fullUrl;
-    dlExcerpt.innerHTML = `${DL_ICON} Download full video`;
-    dlExcerpt.style.display = "";
-    dlFull.style.display = "none";
-  }
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = cand.url;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
+  actionBtn.style.display = "";
 
-  setupTrimRow(cand);
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
+
   document.getElementById("modal-overlay").classList.add("open");
-}
-
-// Manual trim row inside the evidence preview: pick any [start,end], preview it in the embed, and
-// download just that range via /api/sign-clip — works for ANY candidate (matched or not), which
-// rescues generic/no-quote beats and failed matches that otherwise only offer the full video.
-function setupTrimRow(cand) {
-  const row = document.getElementById("trim-row");
-  if (!row) return;
-  row.style.display = "flex";
-  const startEl = document.getElementById("trim-start");
-  const endEl = document.getElementById("trim-end");
-  const errEl = document.getElementById("trim-err");
-  errEl.textContent = "";
-  const defStart = cand.matched ? Math.max(0, Math.floor(cand.start)) : 0;
-  const defEnd = cand.matched ? Math.ceil(cand.end) : 10;
-  startEl.value = formatTime(defStart);
-  endEl.value = formatTime(defEnd);
-
-  const readRange = () => {
-    const s = parseTimecode(startEl.value);
-    const e = parseTimecode(endEl.value);
-    if (Number.isNaN(s) || Number.isNaN(e)) { errEl.textContent = "Use m:ss or seconds."; return null; }
-    if (!(e > s)) { errEl.textContent = "End must be after start."; return null; }
-    if (e - s > 60) { errEl.textContent = "Range must be 60s or less."; return null; }
-    errEl.textContent = "";
-    return { s, e };
-  };
-
-  document.getElementById("trim-preview").onclick = () => {
-    const r = readRange();
-    if (!r) return;
-    const iframe = document.getElementById("modal-iframe");
-    iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1&start=${Math.floor(r.s)}&end=${Math.ceil(r.e)}`;
-    iframe.style.display = "block";
-    document.getElementById("modal-thumb").style.backgroundImage = "";
-    document.getElementById("modal-play").style.display = "none";
-  };
-
-  document.getElementById("trim-download").onclick = async () => {
-    const r = readRange();
-    if (!r) return;
-    errEl.textContent = "Preparing clip…";
-    try {
-      const res = await fetch("/api/sign-clip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId: cand.videoId, start: r.s, end: r.e }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't prepare clip");
-      errEl.textContent = "";
-      const a = document.createElement("a");
-      a.href = data.clipUrl;
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err) {
-      errEl.textContent = err.message;
-    }
-  };
 }
 
 function openPreview(segIdx, clipIdx) {
@@ -542,13 +413,14 @@ function openPreview(segIdx, clipIdx) {
   const iframe = document.getElementById("modal-iframe");
   iframe.src = "";
   iframe.style.display = "none";
-  document.getElementById("modal-download-full").style.display = "none";
   const trimRow = document.getElementById("trim-row");
-  if (trimRow) trimRow.style.display = "none"; // trim is evidence-only; never leak into gif/stock modals
+  if (trimRow) trimRow.style.display = "none"; // shown again below, stock clips only
 
   const video = document.getElementById("modal-video");
   const thumbEl = document.getElementById("modal-thumb");
   const downloadBtn = document.getElementById("modal-download");
+  downloadBtn.removeAttribute("target");
+  downloadBtn.removeAttribute("rel");
 
   if (clip.source === "pexels") {
     document.getElementById("modal-play").style.display = "none";
@@ -561,8 +433,11 @@ function openPreview(segIdx, clipIdx) {
     document.getElementById("modal-sub").textContent = `Pexels · ${clip.author || ""}`;
 
     downloadBtn.href = `/api/stock-download?url=${encodeURIComponent(clip.downloadUrl)}&name=${encodeURIComponent(clip.id)}`;
+    downloadBtn.setAttribute("download", "");
     downloadBtn.innerHTML = `${DL_ICON} Download clip`;
     downloadBtn.style.display = "";
+
+    setupStockTrimRow(clip);
   } else {
     if (video) {
       video.pause();
@@ -580,6 +455,7 @@ function openPreview(segIdx, clipIdx) {
 
     if (clip.url) {
       downloadBtn.href = clip.url;
+      downloadBtn.setAttribute("download", "");
       downloadBtn.innerHTML = `${DL_ICON} Download`;
       downloadBtn.style.display = "";
     } else {
@@ -588,6 +464,140 @@ function openPreview(segIdx, clipIdx) {
   }
 
   document.getElementById("modal-overlay").classList.add("open");
+}
+
+// Trim-to-download for Pexels stock clips only — Pexels' license permits reuse, so this is a
+// genuine convenience feature (hand over just the range that's wanted, not the whole clip to trim
+// later), unlike the YouTube path which stays link-only. Entirely client-side: no server, no new
+// library, so it stays free and doesn't bloat the app. "Preview range" just seeks/plays the
+// visible <video> (a plain playback, no CORS concern). "Download range" records via
+// captureStream()+MediaRecorder straight off Pexels' CDN (their video URLs send
+// Access-Control-Allow-Origin: *, verified, so a crossOrigin="anonymous" element isn't
+// data-tainted) — output is .webm, not .mp4, since that's MediaRecorder's native format; shipping
+// an mp4 re-encoder client-side would mean bundling ffmpeg.wasm (~25MB) for this one feature,
+// which isn't worth it — every modern editor, CapCut included, opens .webm fine.
+function setupStockTrimRow(clip) {
+  const row = document.getElementById("trim-row");
+  if (!row) return;
+  row.style.display = "flex";
+  const startEl = document.getElementById("trim-start");
+  const endEl = document.getElementById("trim-end");
+  const errEl = document.getElementById("trim-err");
+  const video = document.getElementById("modal-video");
+  const dlBtn = document.getElementById("trim-download");
+  errEl.textContent = "";
+  dlBtn.disabled = false;
+  const dur = clip.duration || 10;
+  startEl.value = "0:00";
+  endEl.value = formatTime(Math.min(dur, 10));
+
+  const readRange = () => {
+    const s = parseTimecode(startEl.value);
+    const e = parseTimecode(endEl.value);
+    if (Number.isNaN(s) || Number.isNaN(e)) { errEl.textContent = "Use m:ss or seconds."; return null; }
+    if (!(e > s)) { errEl.textContent = "End must be after start."; return null; }
+    if (e - s > 60) { errEl.textContent = "Range must be 60s or less."; return null; }
+    if (dur && e > dur + 0.5) { errEl.textContent = `Clip is only ${formatTime(dur)} long.`; return null; }
+    errEl.textContent = "";
+    return { s, e };
+  };
+
+  document.getElementById("trim-preview").onclick = () => {
+    const r = readRange();
+    if (!r || !video) return;
+    video.currentTime = r.s;
+    video.play();
+    const stopAt = () => {
+      if (video.currentTime >= r.e) {
+        video.pause();
+        video.removeEventListener("timeupdate", stopAt);
+      }
+    };
+    video.addEventListener("timeupdate", stopAt);
+  };
+
+  dlBtn.onclick = async () => {
+    const r = readRange();
+    if (!r) return;
+    dlBtn.disabled = true;
+    errEl.textContent = "Recording trimmed range…";
+    try {
+      const blob = await recordClipRange(clip, r.s, r.e);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cliphunt-${clip.id || "clip"}-trim.webm`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      errEl.textContent = "";
+    } catch (err) {
+      errEl.textContent = `Trim failed: ${err.message}`;
+    } finally {
+      dlBtn.disabled = false;
+    }
+  };
+}
+
+// Records [start,end] of a Pexels clip into a downloadable webm blob. Loads its own hidden video
+// element (crossOrigin="anonymous" against Pexels' CDN — see setupStockTrimRow's comment) rather
+// than reusing the visible preview, so a re-download for recording never disturbs playback.
+function recordClipRange(clip, start, end) {
+  return new Promise((resolve, reject) => {
+    if (typeof HTMLVideoElement.prototype.captureStream !== "function") {
+      reject(new Error("this browser can't record video"));
+      return;
+    }
+    const video = document.createElement("video");
+    // Pexels' CDN sends Access-Control-Allow-Origin: * (verified), so captureStream() can read
+    // straight from their CDN URL, same as the visible preview does — no proxy hop needed.
+    video.crossOrigin = "anonymous";
+    video.muted = false;
+    video.playsInline = true;
+    video.style.display = "none";
+    document.body.appendChild(video);
+    const cleanup = () => { video.pause(); video.remove(); };
+
+    const beginRecording = () => {
+      let recorder;
+      try {
+        const stream = video.captureStream();
+        const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+          .find((t) => MediaRecorder.isTypeSupported(t)) || "";
+        recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      } catch (err) {
+        cleanup();
+        reject(err);
+        return;
+      }
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onerror = (e) => { cleanup(); reject(e.error || new Error("recording failed")); };
+      recorder.onstop = () => { cleanup(); resolve(new Blob(chunks, { type: "video/webm" })); };
+
+      recorder.start();
+      video.play();
+      const check = () => {
+        if (video.currentTime >= end || video.ended) {
+          video.removeEventListener("timeupdate", check);
+          recorder.stop();
+        }
+      };
+      video.addEventListener("timeupdate", check);
+    };
+
+    video.onerror = () => { cleanup(); reject(new Error("couldn't load clip")); };
+    video.onloadedmetadata = () => {
+      // Setting currentTime to the value it's already at (start=0 on a fresh load) never fires
+      // "seeked" — skip the seek entirely in that case instead of waiting on an event that won't come.
+      if (Math.abs(video.currentTime - start) < 0.05) beginRecording();
+      else video.currentTime = start;
+    };
+    video.onseeked = beginRecording;
+
+    video.src = clip.downloadUrl;
+  });
 }
 
 function closePreview() {

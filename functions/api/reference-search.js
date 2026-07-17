@@ -6,11 +6,9 @@
 // searches YouTube by EMOTION/REACTION (the same way `feel` already searches Giphy), then leans on
 // deterministic filtering heuristics — not frame/caption analysis — to surface genuine raw
 // reaction clips instead of compilations, reaction-channel commentary, or YouTube Shorts.
-// Reactions aren't quote-based, so `quote` is always null: the worker's /match already has a
-// zero-analysis fast path for quote:null (same one evidence's generic/no-quote beats use) that
-// just returns a signed full-video download URL with no matching attempted — so the worker and
-// app.js's existing /match call need no changes at all.
-import { searchYouTubeVideos, enrichCandidates, rerankCandidates, signMatch } from "./evidence-search.js";
+// Returned as plain youtube.com links — no downloading, same as evidence-search.js (see its
+// header comment for why the yt-dlp/ffmpeg worker was dropped entirely).
+import { searchYouTubeVideos, enrichCandidates, rerankCandidates } from "./evidence-search.js";
 
 const SYSTEM_PROMPT = `You extract a search phrase for the REACTION/EMOTION at ONE moment of a video script
 ("the moment") so a tool can find a real raw reaction clip on YouTube — not a specific named meme,
@@ -86,9 +84,6 @@ export async function onRequestPost(context) {
   if (!env.YOUTUBE_API_KEY) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
-  if (!env.WORKER_TOKEN) {
-    return Response.json({ error: "WORKER_TOKEN is not set on this Cloudflare project" }, { status: 500 });
-  }
 
   // 1. Groq extracts an emotion/reaction search phrase — no meme naming.
   const userContent = scriptContext && scriptContext.trim()
@@ -142,18 +137,12 @@ export async function onRequestPost(context) {
   if (!candidates.length) {
     // Everything got filtered out — fail gracefully to the same empty-candidates state
     // findFootage() already handles ("No footage candidates found for this moment.").
-    return Response.json({ subject: query, quote: null, candidates: [] });
+    return Response.json({ subject: query, candidates: [] });
   }
 
   await rerankCandidates({ segmentText, subject: query, footageType: "reaction", quote: null }, candidates, env, RERANK_PROMPT);
   candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const top = candidates.slice(0, 5);
+  const top = candidates.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
 
-  // 3. Sign with quote:null — the worker's /match already takes a zero-analysis fast path for
-  //    quote:null (same one evidence's generic/no-quote beats use), no worker changes needed.
-  const exp = Math.floor(Date.now() / 1000) + 600; // 10 min
-  const videoIds = top.map((c) => c.videoId);
-  const matchSig = await signMatch(videoIds, null, exp, env.WORKER_TOKEN);
-
-  return Response.json({ subject: query, quote: null, exp, matchSig, candidates: top });
+  return Response.json({ subject: query, candidates: top });
 }

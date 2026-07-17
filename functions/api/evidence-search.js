@@ -1,11 +1,13 @@
 // Cloudflare Pages Function — POST /api/evidence-search
-// Ported from netlify/functions/evidence-search.js. Two ported concerns vs the Netlify version:
-//   1. Netlify handler -> Pages onRequestPost; process.env -> env (threaded into helpers).
-//   2. Node crypto.createHmac -> WebCrypto crypto.subtle in signMatch. Output is byte-identical
-//      hex, so the Render worker (Node) recomputes the same signature — do not change the payload.
-// "generic" beats (a category statement, not one identifiable person/event) skip the YouTube/
-// worker pipeline entirely and route to clean licensed Pexels b-roll instead — see the branch
-// right after intent extraction below.
+// "generic" beats (a category statement, not one identifiable person/event) skip YouTube entirely
+// and route to clean licensed Pexels b-roll instead — see the branch right after intent extraction
+// below. "specific" beats search YouTube, get quality-enriched and LLM-reranked against the beat's
+// claim, and are returned as plain youtube.com links — no downloading, trimming, or server-side
+// video handling of any kind (that used to hand off to a yt-dlp/ffmpeg worker; dropped entirely —
+// downloading someone else's YouTube video carried real copyright/ToS risk this app doesn't need
+// to take on. The rerank score/reason already answers "does this actually back up the claim?", so
+// there's no separate verification step to rebuild — it's the same signal, just surfaced in the UI
+// instead of feeding a caption-match step).
 import { mapPexelsVideo } from "./stock-search.js";
 const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
 real footage for it. You are given the script SO FAR (everything before the moment) to work out
@@ -151,9 +153,6 @@ export async function onRequestPost(context) {
   if (!env.YOUTUBE_API_KEY) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
-  if (!env.WORKER_TOKEN) {
-    return Response.json({ error: "WORKER_TOKEN is not set on this Cloudflare project" }, { status: 500 });
-  }
 
   // 2. YouTube Data API search.list (fetch 10 to rerank from).
   let candidates;
@@ -168,26 +167,9 @@ export async function onRequestPost(context) {
   await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
   await rerankCandidates({ segmentText, subject: intent.subject, footageType, quote }, candidates, env);
   candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const top = candidates.slice(0, 5);
+  const top = candidates.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
 
-  // 3. Sign the exact (videoIds, quote) the worker is allowed to /match.
-  const exp = Math.floor(Date.now() / 1000) + 600; // 10 min
-  const videoIds = top.map((c) => c.videoId);
-  const matchSig = await signMatch(videoIds, quote, exp, env.WORKER_TOKEN);
-
-  return Response.json({ subject: intent.subject || null, footageType, quote, exp, matchSig, candidates: top });
-}
-
-// HMAC-SHA256 over the canonical string, hex-encoded. WebCrypto here produces the exact same
-// hex as the Render worker's Node crypto.createHmac(...).digest("hex") — keep the payload identical.
-// Exported: reference-search.js's meme candidates are signed for the same worker /match the exact
-// same way — the worker doesn't care whether a videoId came from an "evidence" or "reference" beat.
-export async function signMatch(videoIds, quote, exp, secret) {
-  const payload = `${[...videoIds].sort().join(",")}|${quote || ""}|${exp}`;
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top });
 }
 
 // YouTube Data API search.list (fetch 10 to rerank from). Exported so reference-search.js's meme

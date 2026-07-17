@@ -2,73 +2,46 @@
 
 ## What this is
 A tool for video creators: paste/upload a script (or a voiceover to transcribe), it gets
-broken into distinct moments, and each moment gets matched with candidate reaction
-clips/gifs/memes to cut to. Live on **Cloudflare Pages** at https://cliphunt.pages.dev
-(public GitHub repo github.com/duxe10/cliphunt; deploy with `npx wrangler pages deploy .`).
+broken into distinct moments, and each moment gets matched with candidate footage to cut to.
+Live on **Cloudflare Pages** at https://cliphunt.pages.dev (public GitHub repo
+github.com/duxe10/cliphunt; deploy with `npx wrangler pages deploy .`).
 Migrated off Netlify after hitting its free-tier deploy-credit wall — the old `netlify/` dir is gone.
 
 ## Stack, deliberately
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
-- Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live from Giphy on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
-- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq), `functions/api/find-clips.js` (Giphy — feel/reference gif path), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — feel/evidence stock path, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/config.js` (echoes the non-secret, trimmed `WORKER_URL`). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers — prompts + logic byte-identical except where noted.
-- Mostly-free constraint — Groq (llama-3.3-70b), Giphy, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `GIPHY_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`, plus `WORKER_URL`/`WORKER_TOKEN`), never in code. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. The one non-Cloudflare piece is the evidence worker (Render free tier).
+- Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
+- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq), `functions/api/find-clips.js` (Giphy — feel/gif path), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — feel/stock + generic-evidence path, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
+- Mostly-free constraint — Groq (llama-3.3-70b), Giphy, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `GIPHY_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
 
-## Evidence pipeline (real footage — NOW WIRED)
-The `evidence` family is built: quote → YouTube search → caption match → exact timestamp →
-trimmed **downloadable** mp4. Because downloading+trimming video needs `yt-dlp`+`ffmpeg` (can't
-run in a short-lived edge function), the heavy work lives in a separate worker service (`worker/`,
-Node+Express, Docker, deployed to Render). The smart/cheap steps run as Cloudflare Pages Functions.
-- `functions/api/evidence-search.js`: Groq extracts `{footageType,subject,quote,youtubeQuery}`.
-  Subject resolution handles TWO cases, which took a couple of iterations to get right:
-  1. **True category statements** ("For most footballers, scoring at a World Cup is the highlight
-     of their career") → `footageType:generic`, person-free b-roll query. The video's protagonist
-     must NOT be attached to these just because the script is about them.
-  2. **Elliptical references** ("A missed penalty.") — no subject in the sentence itself, but it's
-     shorthand for one specific event the preceding narration is about (Kane's miss vs France) →
-     `footageType:specific`, subject resolved from prior context. Getting this discernment right
-     (vs collapsing everything subject-less into generic) was the harder half of the prompt.
-  `app.js`'s `findFootage()` sends only the **preceding segments** as context
-  (`segments.slice(0, seg.idx)`, story-so-far in reading order) — not the whole script — so back-
-  references resolve correctly and the model can't grab a subject from later in the script. Caveat:
-  this needs enough preceding narration to work; an elliptical reference very early in a script
-  (thin context) can still fall back to generic on a small model like llama-3.3-70b.
-  Runs YouTube `search.list` (fetches 10), enriches via `videos.list` (duration/views), then an LLM
-  **rerank** scores each candidate 0-100 against the beat (demoting reactions/watchalongs/
-  compilations) and keeps the best 5 — a better-resolved subject also improves this rerank. Returns
-  candidates + a short-lived HMAC `matchSig`/`exp` authorizing the worker's `/match`.
-- `worker/` `POST /match`: caption-matches **all 5** candidates evidence-search sends (`MAX_MATCH`
-  bumped 3→5, so none of the reranked candidates silently vanish) via `yt-dlp` auto-subs (json3) →
-  fuzzy-match the quote (sliding-window token overlap, `lib/captions.js`) → per-candidate
-  `{matched,start,end,snippet,score,reason}` + signed `excerptUrl`/`fullUrl`. `GET /clip`:
-  `yt-dlp --download-sections` (excerpt, still re-encodes for a clean cut) or a plain remux
-  (`mode=full` — no re-encode, since re-encoding a whole video pins the CPU for minutes and blows
-  the timeout on a small host; only trimming needs the re-encode) → streams the mp4.
-- **Manual trim** (`functions/api/sign-clip.js`, new): the auto-match only offers a trimmed excerpt
-  when the quote was found in captions — generic/no-quote beats and failed matches only had "full
-  video" before. This function mints a signed `/clip?mode=excerpt` URL for a **user-chosen**
-  `[start,end]` (≤60s) on **any** candidate. `workspace.html`'s preview modal has a trim row
-  (start/end timecode inputs, Preview range, Download range) that's evidence-only — hidden for the
-  gif modal path.
-- **Auth is HMAC signed URLs, not a bearer token** — `WORKER_TOKEN` never reaches the browser.
-  A `<a download>` navigation can't send an Authorization header, so downloads go straight to a
-  pre-signed worker URL (streamed, nothing buffered in browser memory). `worker/lib/sign.js`'s
-  `signMatch`/`signClip` (Node `crypto.createHmac`) must stay byte-for-byte identical to the
-  WebCrypto (`crypto.subtle`) versions in `functions/api/evidence-search.js` (signs `/match` calls)
-  and `functions/api/sign-clip.js` (signs manual-trim `/clip` calls) — verified byte-identical hex
-  for both. Don't touch these payload strings without re-verifying parity on both sides.
-- yt-dlp resilience: YouTube blocks datacenter IPs (Render's) with "confirm you're not a bot,"
-  which fails caption fetches and downloads. `worker/server.js` optionally decodes
-  `YTDLP_COOKIES_B64` (base64 of a youtube.com `cookies.txt`, exported from a **throwaway** Google
-  account) to `/tmp/yt-cookies.txt` at boot and passes `--cookies` from `lib/captions.js`/`lib/clip.js`
-  — optional, worker runs fine without it but is more bot-block-prone. yt-dlp pinned version bumped
-  2025.06.30 → 2026.07.04 in `worker/Dockerfile`. See `worker/README.md` for the cookie export steps.
-- Frontend: evidence (and now reference — see "Reaction clip footage" below) beats get a **Find
-  footage**/**Find reaction clip** button (user-triggered — each costs a YouTube search + caption
-  fetch and re-hydrates on every workspace load, so neither auto-hydrates like feel). Candidates
-  render as cards; preview plays only the matched excerpt via a YouTube embed (`?start=&end=`);
-  download shows the trimmed clip + full video (full-only when no confident match), plus the
-  manual trim row described above. Results are cached in memory on the segment, not persisted.
-  See `worker/README.md` for deploy.
+## Evidence & reference pipelines — link-only, no downloading (reworked 2026-07-17)
+There used to be a separate worker service (`worker/`, Node+Express+Docker on Render) that ran
+`yt-dlp`+`ffmpeg` to download and trim YouTube video server-side and stream it back as a file,
+with HMAC-signed URLs authorizing it and a manual-trim signing function (`sign-clip.js`). All of
+that — `worker/`, `functions/api/sign-clip.js`, `functions/api/config.js` (existed only to expose
+`WORKER_URL`), and every `WORKER_URL`/`WORKER_TOKEN` reference — is now gone. Downloading and
+redistributing someone else's YouTube video carried real copyright/ToS risk; the product decision
+was to stop taking that risk and to differentiate on NOT locking creators into an editing
+workflow ("hunt for clips," not "edit here") rather than on owning the clip file. What's kept:
+- `functions/api/evidence-search.js`: unchanged intent-extraction (elliptical-reference resolution,
+  generic→Pexels short-circuit) and unchanged YouTube search → `enrichCandidates` (duration/views)
+  → LLM `rerankCandidates` (0-100 against the beat's actual claim, demoting reactions/watchalongs/
+  compilations) — all of that search-quality work is unaffected by the download removal. The only
+  change: the top 5 reranked candidates are mapped to plain `https://www.youtube.com/watch?v=...`
+  links and returned directly — no HMAC signing, no worker handoff, no `matchSig`/`exp`.
+- `functions/api/reference-search.js`: same shape — emotion/reaction query → YouTube search →
+  `filterRawReactionCandidates()` (unchanged) → rerank on capture-quality (unchanged) → plain links.
+- **The rerank score/reason IS the honesty signal now**, surfacing directly in the UI (e.g. "87% ·
+  primary broadcast footage") instead of feeding a caption-match verification step — it already
+  answers "does this actually back up the claim," so there was no separate verification logic to
+  rebuild when captions went away.
+- Frontend (`app.js`): evidence/reference beats still get a **Find footage**/**Find reaction clip**
+  button (user-triggered, same reasoning as before — quota-limited YouTube search). Preview is a
+  plain (non-trimmed) YouTube embed; the single action button is **"Watch on YouTube ↗"** — an
+  external link, not a download. `evidenceLabel()` reads `cand.score`/`cand.reason` from the
+  rerank instead of the old worker's `matched`/`start`/`end`/`reason` shape. The manual trim row
+  that used to live here (`setupTrimRow`, signed via `sign-clip.js`) is gone — trimming moved to
+  stock/Pexels clips only, see below, since that's the one source this app is actually allowed to
+  redistribute.
 
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:
@@ -116,22 +89,52 @@ CDN url in a tab (cross-origin `download` attributes are ignored by the browser)
      the 1-2 word Giphy tag term. `"gif"` keeps the existing reaction-punch behavior unchanged.
      `reference` never gets a `source`/`query` field at all — see "Meme footage" below, its
      identification happens downstream in its own dedicated search step, not in the segmenter.
-  2. **Evidence search** (`evidence-search.js`): the existing `footageType:"generic"` branch
-     (a category statement, no one identifiable person/event) now short-circuits straight to
-     Pexels instead of YouTube — returns `{footageType:"generic", source:"stock", clips}` with
-     no `matchSig`/worker call at all. `footageType:"specific"` is completely unchanged (still
-     YouTube → rerank → HMAC-signed `/match`). This means the YOUTUBE_API_KEY/WORKER_TOKEN env
-     guards in `evidence-search.js` had to move from "always required" to "required only once
-     footageType resolves to specific" — a generic-only deploy works with just GROQ+PEXELS keys.
+  2. **Evidence search** (`evidence-search.js`): the `footageType:"generic"` branch (a category
+     statement, no one identifiable person/event) short-circuits straight to Pexels instead of
+     YouTube — returns `{footageType:"generic", source:"stock", clips}`. `footageType:"specific"`
+     goes YouTube → enrich → rerank → plain links (see "Evidence & reference pipelines" above).
+     This means the YOUTUBE_API_KEY guard in `evidence-search.js` only applies once footageType
+     resolves to specific — a generic-only deploy works with just GROQ+PEXELS keys.
 - Frontend (`app.js`): `hydrateClips()` sends `feel`+`source:"stock"` beats to `/api/stock-search`
   instead of `/api/find-clips`; `findFootage()` checks `data.source === "stock"` on the
   evidence-search response and renders straight from `data.clips` (via the shared `clipCardHtml`/
-  `openPreview`), skipping `ensureWorkerUrl()`/`/match` entirely for that path. `openPreview`
-  branches on `clip.source === "pexels"` to show `#modal-video` (a real `<video>` playing
-  `previewUrl`) instead of the gif `#modal-thumb`/`#modal-iframe` treatment, and the download
-  button points at `/api/stock-download?url=<downloadUrl>&name=<id>`. Stock clip ids are
-  prefixed `pexels-<id>` so they never collide with Giphy ids in the existing cross-segment dedup.
+  `openPreview`). `openPreview` branches on `clip.source === "pexels"` to show `#modal-video` (a
+  real `<video>` playing `previewUrl`) instead of the gif `#modal-thumb`/`#modal-iframe` treatment,
+  and the download button points at `/api/stock-download?url=<downloadUrl>&name=<id>`. Stock clip
+  ids are prefixed `pexels-<id>` so they never collide with Giphy ids in cross-segment dedup.
 - Needs `PEXELS_API_KEY` as a Cloudflare Pages secret (Production env) — free tier, 200 req/hour.
+
+## Trim-to-download (Pexels/stock clips only, added 2026-07-17)
+Downloading a whole clip just to cut it down in another editor is friction Pexels' license
+actually lets this app remove — YouTube-sourced clips stay link-only (see above), but Pexels
+content is genuinely licensed for reuse, so trimming here is a real feature, not a legal
+question. Deliberately kept minimal per the product's own principle (don't turn into an editor,
+don't bloat the app): entirely client-side, no server component, no new library/dependency.
+- `setupStockTrimRow(clip)` (`app.js`, wired from `openPreview()` for `clip.source === "pexels"`
+  only) reuses the existing `#trim-row` DOM (start/end timecode inputs, Preview range, Download
+  range) that used to belong to the now-removed YouTube manual-trim feature. **Preview range**
+  just seeks/plays the already-visible `#modal-video` between the chosen times — plain playback,
+  no CORS concern. **Download range** calls `recordClipRange(clip, start, end)`.
+- `recordClipRange()`: creates its own hidden `<video crossOrigin="anonymous">`, sets `src` to
+  `clip.downloadUrl` (Pexels' own CDN, NOT proxied through `/api/stock-download`), and once it's
+  seeked to `start`, captures it via `HTMLVideoElement.captureStream()` into a `MediaRecorder`,
+  stopping at `end`. Resolves a `Blob` that's handed to the browser as a normal file download.
+  **Verified via curl that Pexels' CDN sends `Access-Control-Allow-Origin: *`** — that's what
+  makes the direct-CDN `crossOrigin="anonymous"` capture legal instead of a tainted/blocked
+  stream; if that ever changes, the capture would need to route through `/api/stock-download`
+  instead (same-origin, guaranteed CORS-safe, but double-fetches the file).
+- Output is **`.webm`**, not `.mp4` — that's `MediaRecorder`'s native format on Chromium (codec
+  picked from `vp9,opus` → `vp8,opus` → generic `webm`, whichever `MediaRecorder.isTypeSupported`
+  first accepts). Shipping an mp4 re-encoder client-side would mean bundling `ffmpeg.wasm`
+  (~25MB) for one feature — not worth it. Every modern editor, CapCut included, opens `.webm` fine.
+- Known real bug caught during testing, worth remembering: setting `video.currentTime` to the
+  value it's *already at* (start=0 on a freshly-loaded video, the common case) never fires a
+  `seeked` event — code that only starts recording on `onseeked` hangs forever with a default
+  0:00 start. Fixed by checking `Math.abs(video.currentTime - start) < 0.05` in `onloadedmetadata`
+  and skipping straight to `beginRecording()` when already there.
+- Browser support: needs `HTMLVideoElement.captureStream` (Chromium — the actual target, since
+  this app's own maintainer is on a Chromebook — not Safari). Feature-detected; shows a plain
+  error string if unsupported rather than failing silently.
 
 ## Reaction clip footage (reference beats) — migrated off Giphy onto the evidence skeleton (WIRED UP)
 Giphy/Tenor are a tag-based reaction-gif index, not a meme database — they can't represent an
@@ -142,10 +145,9 @@ training cutoff and can't track what's actually current, so that was replaced wi
 YouTube by **emotion/reaction** the same way `feel` already searches Giphy (no meme naming at
 all), then lean on **deterministic filtering heuristics** — not frame/caption analysis — to
 surface genuine raw reaction clips instead of compilations, reaction-channel commentary, or
-YouTube Shorts. The evidence pipeline (YouTube search → LLM rerank → HMAC-signed worker
-`/match`/`/clip`) never actually depended on "real event" semantics — it just operates on
-`{videoId, quote}` pairs — so `reference` reuses it wholesale with a differently-tuned intent +
-rerank prompt, same as before.
+YouTube Shorts. The evidence pipeline (YouTube search → enrich → LLM rerank → plain links) never
+actually depended on "real event" semantics — so `reference` reuses it wholesale with a
+differently-tuned intent + rerank prompt, same as before.
 - `functions/api/reference-search.js`: Groq generates `{"query":"..."}` — a short emotion/reaction
   search phrase in the spirit of `feel`'s Giphy query style but phrased for real YouTube footage
   ("shocked crowd reaction," "stunned silence reaction real footage"), not a meme name and not a
@@ -165,22 +167,17 @@ rerank prompt, same as before.
   **capture quality/authenticity** — is this genuinely a raw, single, undoctored capture of the
   reaction, not a video *about* the reaction — rather than evidence's "primary/official footage"
   rubric or the old meme-recognizability rubric.
-- Reuses `evidence-search.js`'s YouTube search/enrich/sign machinery directly — `searchYouTubeVideos`,
-  `enrichCandidates`, `signMatch` are named exports from `evidence-search.js`, imported into
-  `reference-search.js` (same "export from the canonical file" pattern already used for
-  `mapPexelsVideo` between `stock-search.js`/`evidence-search.js`).
-- **Zero worker/`sign-clip.js` changes** — both already operate on arbitrary `{videoId, quote}` /
-  `{videoId, start, end}`, with no notion of "evidence" vs "reference" beats. `quote:null` already
-  makes the worker's `/match` take its existing zero-analysis fast path (`reason:"no_quote"`, a
-  signed full-video `fullUrl` built unconditionally, no transcript fetch/matching attempted) — the
-  exact same path evidence's generic/no-quote beats already exercised, so nothing new there either.
-- Frontend (`app.js`): `reference` moved out of `SEARCHABLE_FAMILIES` (now just `["feel"]`) onto
-  the same user-triggered pattern as evidence — auto-hydrating would re-fire a YouTube search on
+- Reuses `evidence-search.js`'s YouTube search/enrich/rerank machinery directly —
+  `searchYouTubeVideos`, `enrichCandidates`, `rerankCandidates` are named exports from
+  `evidence-search.js`, imported into `reference-search.js` (same "export from the canonical
+  file" pattern already used for `mapPexelsVideo` between `stock-search.js`/`evidence-search.js`).
+- Frontend (`app.js`): `reference` stays out of `SEARCHABLE_FAMILIES` (just `["feel"]`) onto the
+  same user-triggered pattern as evidence — auto-hydrating would re-fire a YouTube search on
   *every* workspace load for *every* reference beat, burning through the free 10k-units/day quota
   fast (`search.list` alone is 100 units). `findFootage()` routes by family
   (`/api/reference-search` vs `/api/evidence-search`) but is otherwise unchanged — both endpoints
-  return the same candidate shape, so `renderEvidence`/`evidenceCardHtml`/`openEvidencePreview`/
-  `setupTrimRow` needed no changes at all. Button label is "Find reaction clip" for this family.
+  return the same candidate shape, so `renderEvidence`/`evidenceCardHtml`/`openEvidencePreview`
+  needed no changes at all. Button label is "Find reaction clip" for this family.
 - `find-clips.js`/`GIPHY_API_KEY` are NOT removed — `feel` beats with `source:"gif"` still depend
   on them.
 
@@ -191,20 +188,33 @@ rerank prompt, same as before.
 - Any persistence beyond localStorage (projects are lost on clearing browser storage; no server-side/cross-device store)
 
 ## Known constraints from the person building this
-- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, Giphy, YouTube API) plus the Render worker. Ask before introducing anything meaningfully paid.
+- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, Giphy, YouTube API, Pexels). No paid pieces at all as of 2026-07-17 — the one that was (the Render worker) is gone. Ask before introducing anything meaningfully paid.
 - No emoji as icons anywhere — inline SVG only (see existing icon usage in the HTML files for the established style).
 - Dark "editing bay" theme (near-black warm background, amber accent, Bricolage Grotesque + IBM Plex Sans/Mono) — this was a deliberate reaction against generic AI-template looks (cream background, emoji icons, purple gradients). Keep it consistent if extending the UI.
-- Deploy: `npx wrangler pages deploy . --project-name cliphunt --branch production` from this folder (Cloudflare Pages project `cliphunt`, account `bashirmubarak08@gmail.com`; `npx wrangler login` if the token lacks pages/workers scopes). Repo is on GitHub now (github.com/duxe10/cliphunt, PUBLIC — that also removed Netlify's old "unrecognized contributor" build block). `.assetsignore` keeps `.git`/`worker`/docs out of the Pages upload. Netlify is fully decommissioned.
-- **IMPORTANT deploy-trigger asymmetry**: `git push origin master` alone does NOT deploy the site —
-  the Cloudflare Pages project (`cliphunt`) was created via direct-upload (`wrangler pages deploy`),
-  not git-connected, so pushing to `master` only updates the repo. You must ALSO run
-  `npx wrangler pages deploy . --project-name cliphunt --branch production --commit-dirty=true`
-  after every push that touches `functions/api/*`, `app.js`, or any HTML/CSS, or the live site keeps
-  running the old code. The `worker/` (Render) is the opposite — it IS git-connected and auto-
-  deploys on push to `master`, no extra step needed. Easy to forget one half of this split; always
-  verify live behavior after a push (curl the endpoint / check the browser), don't assume push = deployed.
+- Product principle (2026-07-17): don't turn into a video editor, and don't lock creators into
+  editing inside this app — that's the differentiation from tools like Kapwing/OpusClip/CapCut's
+  built-in AI features. ClipHunt hunts for clips and hands over options (a link to judge, or a
+  real file where it's legally clean to hand one over); it never tries to own the timeline. This
+  is *why* YouTube results are link-only rather than downloadable even though downloading would
+  be a "nicer" UX — it's a deliberate boundary, not a limitation to work around later.
+- Deploy: this project is now **git-connected** (added 2026-07-17) — Cloudflare Pages watches
+  `master` on github.com/duxe10/cliphunt and auto-builds/deploys on push, same as the worker used
+  to. `npx wrangler pages deploy . --project-name cliphunt --branch master --commit-dirty=true` is
+  still available for a manual direct-upload deploy (useful to force a redeploy after changing a
+  secret without a code change), but **the branch name matters**: deploying with `--branch
+  production` (the OLD convention, from before git-connect) now lands as a **Preview** deployment
+  with no access to Production secrets, not Production — always deploy with `--branch master` to
+  match the actual configured production branch. `.assetsignore` keeps `.git`/`worker`/docs out of
+  the Pages upload (the `worker` line is now vestigial since the directory's gone, harmless to
+  leave). Netlify is fully decommissioned.
 - After changing a Cloudflare secret (`GROQ_API_KEY` etc.) you must also redeploy — Pages binds
-  secrets at deploy time, so the running functions won't see a new secret until the next `wrangler
-  pages deploy`.
+  secrets at deploy time, so the running functions won't see a new secret until the next deploy.
+  A git push alone won't trigger this if nothing else changed in the commit — use the manual
+  `wrangler pages deploy --branch master` command above to force one.
 - Known gotcha from the migration: a GitHub merge once silently reverted a whole fix (evidence relevance) — if behavior regresses after a merge, check the deployed file actually contains the change (`git show <ref>:functions/api/evidence-search.js | grep footageType`), don't trust the commit graph alone.
+- Local dev (`wrangler pages dev .`) has shown real latency flakiness in at least one environment
+  (a `/api/stock-search` call to Pexels took 20+ seconds locally vs under 1s via direct curl, and
+  the dev server has wedged/stopped responding after sustained repeated requests) — this hasn't
+  been seen on the actual deployed Cloudflare edge, so treat local-dev slowness/hangs as a tooling
+  quirk to route around (redeploy and test live) rather than a code bug, unless it reproduces live too.
 - Workflow in this project: Claude Code web (Opus, via "Ultraplan") does planning/design and code review; this local session (recently switched planning/default model to Sonnet 5, per the user) does the actual implementation + deploy + live verification, since local has push/deploy access and web does not. Both read/write the same GitHub repo — "access to HANDOFF.md" just means whoever last did `git pull` has the current version; there's no live shared state beyond git.

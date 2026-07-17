@@ -55,7 +55,7 @@
         <div class="modal-play" id="modal-play">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </div>
-        <!-- Evidence preview: plays only the matched excerpt via YouTube embed. Hidden for gifs. -->
+        <!-- Evidence/reference preview: standard YouTube embed. Hidden for gifs/stock. -->
         <iframe id="modal-iframe" style="display:none; width:100%; height:100%; border:0;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
         <!-- Stock preview: plays a Pexels mp4 directly. Hidden for gifs/evidence. -->
         <video id="modal-video" controls playsinline style="display:none; width:100%; height:100%; object-fit:contain; background:#000;"></video>
@@ -63,7 +63,7 @@
       <div class="modal-body">
         <h4 id="modal-title">Clip title</h4>
         <p id="modal-sub">source · match info</p>
-        <!-- Manual trim (evidence only): pick any range and download just that. Hidden for gifs. -->
+        <!-- Trim (stock/Pexels only): pick any range and download just that, recorded client-side. -->
         <div class="trim-row" id="trim-row" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
           <span style="font-size:12px; opacity:.65; font-family:'IBM Plex Mono',monospace;">TRIM</span>
           <input type="text" id="trim-start" placeholder="0:00" style="width:60px; padding:6px 8px; background:#151512; border:1px solid #35322c; border-radius:6px; color:inherit; font-family:'IBM Plex Mono',monospace; font-size:13px;" />
@@ -75,10 +75,6 @@
         </div>
         <div class="modal-actions">
           <button class="btn btn-dark" onclick="closePreview()">Skip</button>
-          <a class="btn btn-ghost" id="modal-download-full" download target="_blank" rel="noopener" style="display:none;">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-            Download full video
-          </a>
           <a class="btn btn-primary" id="modal-download" download target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
             Download
