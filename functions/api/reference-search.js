@@ -3,9 +3,9 @@
 // reaction-gif index that can't represent an actual NAMED meme and skews to old evergreen gifs.
 // This used to ask an LLM to name a specific meme ("Surprised Pikachu"), but an LLM's meme
 // knowledge is stuck at its training cutoff and can't track what's actually current. Instead this
-// searches YouTube by EMOTION/REACTION (the same way `feel` already searches Giphy), then leans on
-// deterministic filtering heuristics — not frame/caption analysis — to surface genuine raw
-// reaction clips instead of compilations, reaction-channel commentary, or YouTube Shorts.
+// searches YouTube by EMOTION/REACTION instead, then leans on deterministic filtering heuristics
+// — not frame/caption analysis — to surface genuine raw reaction clips instead of compilations,
+// reaction-channel commentary, or YouTube Shorts.
 // Returned as plain youtube.com links — no downloading, same as evidence-search.js (see its
 // header comment for why the yt-dlp/ffmpeg worker was dropped entirely).
 import { searchYouTubeVideos, enrichCandidates, rerankCandidates } from "./evidence-search.js";

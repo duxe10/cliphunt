@@ -18,23 +18,31 @@ Return strict JSON only, no prose, no markdown fences:
 
 Decide "footageType":
 
+This applies to a script about ANY topic — sports, business, science, politics, anything.
+
 - "specific": the moment shows a PARTICULAR real person, team, org, or event doing or saying a
   particular thing. The subject can come from either place:
-  (a) named or clearly referred to in the moment itself ("Harry Kane missed a penalty"); or
+  (a) named or clearly referred to in the moment itself ("Harry Kane missed a penalty", "Tesla
+      recalled two million cars"); or
   (b) NOT named in the moment because it is a fragment or shorthand for a specific event the
       preceding script is about — then resolve the subject from that earlier context.
       Example: after "...one moment continues to define his World Cup legacy.", the moment
       "A missed penalty." means HIM missing THAT penalty, so subject = the person the story is
       about (e.g. "Harry Kane") and youtubeQuery = "Harry Kane missed penalty France 2022".
+      Same pattern in a different domain: after a script about a startup's near-collapse, the
+      moment "One email changed everything." resolves to the specific investor reply that
+      story was building to, not a generic "email" search.
   "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
   opponent, year) most likely to appear in a real video's title.
 
 - "generic": the moment is a self-contained GENERAL statement true of a whole category, not one
   identifiable instance — usually signalled by quantifiers like "most", "every", "people",
-  "everyone", or a general truth ("For most footballers, scoring at a World Cup is the highlight
-  of their career"). Do NOT attach the video's main character to these. "subject" = the general
-  concept; "youtubeQuery" = a plain descriptive footage search with NO specific person's name
-  ("World Cup goal celebration"). Set "quote" to null.
+  "everyone", or a general truth. Two examples, deliberately different domains: "For most
+  footballers, scoring at a World Cup is the highlight of their career" and "Most startups fail
+  within their first two years" are BOTH generic. Do NOT attach the video's main character to
+  these. "subject" = the general concept; "youtubeQuery" = a plain descriptive footage search
+  with NO specific person's name ("World Cup goal celebration", "struggling small business
+  closing down"). Set "quote" to null.
 
 The test: does the moment point at ONE real event or person — even if only nameable through the
 preceding context? Then specific. Would it be equally true of many people or instances? Then

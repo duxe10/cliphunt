@@ -19,9 +19,10 @@ Rules for where segments start and end:
    "For most people, X. For [subject], Y." — the second half is a deliberate contrast, not
    a continuation, even though it's topically related.
 4. Exception: short parallel/rhythmic lines that are clearly one rhetorical device (e.g. a
-   rapid-fire list like "Every tournament. Every season. Every setback.") may be grouped into
-   a single segment — but only when each line is a fragment of the same device, not when each
-   is its own complete, independent statement.
+   rapid-fire list like "Every attempt. Every setback. Every retry." — deliberately vague, works
+   for a startup story, a sports story, a science story, anything) may be grouped into a single
+   segment — but only when each line is a fragment of the same device, not when each is its own
+   complete, independent statement.
 
 Do not paraphrase — each segment's "text" must be an exact substring of the original script,
 in order, covering the whole script.
@@ -30,50 +31,33 @@ For each segment, also pick one "family":
 - "feel" — a pure emotional beat (surprise, disappointment, hype, etc), no specific referent
 - "evidence" — needs a REAL-WORLD illustrative visual. Either (a) ONE specific real person/thing
   that said or did something, or (b) a general statement about a CATEGORY of people/things doing
-  or experiencing something concrete ("most footballers", "everyone who's tried it") — even with
-  no single person named, real footage of that KIND of moment exists and should be found.
-  Example: "For most footballers, scoring at a World Cup is the highlight of their career" is
-  "evidence" (needs real footage of players scoring/celebrating) — do NOT call this "nothing"
-  just because it doesn't name one player. Ask whether real footage of that kind of moment
-  exists; if yes, it's "evidence", named person or not.
+  or experiencing something concrete — even with no single person named, real footage of that
+  KIND of moment exists and should be found. Two examples of (b), deliberately from different
+  domains — this applies to ANY topic, not just one kind of story: "For most footballers,
+  scoring at a World Cup is the highlight of their career" (needs footage of players scoring/
+  celebrating), and "Most startups fail within their first two years" (needs footage of a
+  struggling small business, a closed storefront, people packing up an office) are BOTH
+  "evidence" — do NOT call either "nothing" just because no one person is named. Ask whether
+  real footage of that kind of moment exists; if yes, it's "evidence", named person or not.
 - "reference" — matches a known meme/cultural callback
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
-  describes any real-world action, scene, or moment — named person or not — it is NOT "nothing".
+  describes any real-world action, scene, or moment — named person or not, any topic — it is
+  NOT "nothing".
 
-If family is "feel", also include a "source": "stock" or "gif", deciding which kind of clip
-this beat wants:
-- "stock" — the beat is PURE atmosphere or mood/setting, with no notable action by real people:
-  a place, a feeling of time or weather (rain on a window, a city at night, a sunrise, an empty
-  stadium, hands typing). If the beat describes people DOING something specific and real — even
-  a general category of people ("footballers celebrating a goal") — that's "evidence", not
-  "stock"; see the evidence family definition above. For "stock", "query" is a SHORT DESCRIPTIVE
-  VISUAL SCENE PHRASE, 2-5 words ("stormy sky timelapse", "empty stadium night", "city traffic
-  time lapse") — describe the shot, not a reaction word.
-- "gif" — the beat is a comedic or emotional REACTION PUNCH that a looping reaction clip nails
-  (shock, celebration, facepalm, disbelief). For "gif", "query" stays a short 1-2 word reaction
-  term per the rules below.
+If family is "feel", also include a "query": a SHORT DESCRIPTIVE VISUAL SCENE PHRASE, 2-5 words,
+for searching a real stock-footage library — describe the shot itself, not a mood word. The beat
+is atmosphere, mood, or an unnamed action a real clip can depict (rain on a window, a city at
+night, a sunrise, hands typing at a desk, a crowded office, an empty stadium). Good queries:
+"stormy sky timelapse", "empty stadium night", "hands typing on laptop", "city traffic time
+lapse". Bad queries: single mood words like "hope" or "tension" — stock-footage search matches
+what's actually shown on screen, not a feeling.
 
-If family is "feel" with source "gif", include a "query": a short 1-2 word term for searching a
-reaction-gif site. Reaction-gif search is tag-based and matches short, common words — not clever
-specific phrases (a phrase like "finally believing again" matches almost nothing and returns
-generic junk, whereas "hope" or "relief" returns real reaction gifs). So pick the single
-most-searchable common reaction word (or a two-word combo at most) that best fits THIS segment:
-e.g. "heartbreak", "nervous", "hype", "shocked", "relief". Vary the word across segments so
-different beats don't all collapse to the same term.
-
-Avoid ambiguous words whose most common meaning on a gif site is a specific holiday, event,
-or community unrelated to the beat — those return off-topic results. In particular do NOT
-use "proud" for an achievement/success beat (on gif sites "proud" overwhelmingly returns
-Pride-month content); use an unambiguous reaction word like "impressed", "amazed", or
-"standing ovation" instead. Same idea for other loaded single words — prefer the plain
-reaction over the word that a platform has repurposed.
-
-For "nothing"/"evidence"/"reference" segments, omit "query" and "source" — both are resolved
-downstream by their own dedicated search step, not by this pass.
+For "nothing"/"evidence"/"reference" segments, omit "query" — it's resolved downstream by its
+own dedicated search step, not by this pass.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","query":"...","source":"stock"}]}`;
+{"segments":[{"text":"...","family":"feel","query":"..."}]}`;
 
 // Second pass, run once per script (not per click): for evidence/reference segments only,
 // resolve "what is actually happening in this moment" using everything narrated before it —
@@ -94,10 +78,12 @@ never use a later segment, since a viewer hasn't seen it yet at this point in th
 segment is genuinely a general statement about a category rather than one specific person/event,
 say so plainly rather than forcing a specific subject onto it.
 
-Example: script narrates a player's missed World Cup penalty across several lines, then a later
-segment just says "A missed penalty." -> resolve that to "The player misses the penalty against
-[opponent], the moment the earlier narration was building to" (using the actual name/opponent
-from context), not a generic restatement.
+Example (any domain works the same way): a script narrates a founder's failed pitch meetings
+across several lines, then a later segment just says "One email changed everything." -> resolve
+that to "The investor's reply that finally gets the founder funded, after months of rejection"
+(using the actual names/details from context), not a generic restatement. Same pattern applies
+whether the script is about sports, business, science, or anything else — resolve to the specific
+real thing being referenced, whatever domain it's in.
 
 Return strict JSON only, no prose, no markdown fences:
 {"resolved":[{"i":0,"context":"..."}]}

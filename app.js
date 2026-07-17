@@ -3,7 +3,7 @@
 //   { id, title, segments, createdAt, updatedAt }
 // `segments` are the raw {text, family, query} objects straight from the Groq segment
 // function. Display fields (timestamps, durations) and clips are derived fresh on load —
-// clips are hydrated live from Giphy each time rather than persisted, so results stay
+// clips are hydrated live (Pexels/YouTube) each time rather than persisted, so results stay
 // current and history stays small.
 
 const PROJECTS_KEY = "cliphunt_projects";
@@ -54,7 +54,7 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", giphy: "GIF", tenor: "TNR", pexels: "STOCK" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -78,7 +78,6 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
-      source: s.source || null, // "stock" | "gif", feel-only — which clip source this beat wants
       context: s.context || null, // evidence/reference-only, precomputed once by segment.js's narrate pass
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
@@ -229,25 +228,19 @@ function segmentHtml(seg) {
   `;
 }
 
-// Fires real Giphy searches for feel/reference segments after the initial render,
-// then swaps each segment's "Searching…" placeholder for real results in place.
+// Fires real Pexels searches for feel segments after the initial render, then swaps each
+// segment's "Searching…" placeholder for real results in place. Gifs (Giphy) were dropped
+// entirely — low quality, too short to be useful cuts — so "feel" is Pexels-only now.
 async function hydrateClips() {
   const targets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
 
   await Promise.all(targets.map(async (seg) => {
-    const wantsStock = seg.family === "feel" && seg.source === "stock";
     try {
-      const res = wantsStock
-        ? await fetch("/api/stock-search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: seg.query || seg.text }),
-          })
-        : await fetch("/api/find-clips", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: seg.query || seg.text }),
-          });
+      const res = await fetch("/api/stock-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: seg.query || seg.text }),
+      });
       const data = await res.json();
       seg.clips = res.ok ? data.clips : [];
     } catch {
@@ -256,7 +249,7 @@ async function hydrateClips() {
   }));
 
   // Cross-segment dedup: with a wider pool per segment, greedily assign non-duplicate
-  // gifs in segment order so the same clip doesn't get reused across scenes. If a segment
+  // clips in segment order so the same clip doesn't get reused across scenes. If a segment
   // has nothing left after filtering, fall back to its own (duplicate) pool rather than
   // showing "no clips found".
   const usedIds = new Set();
@@ -407,16 +400,15 @@ function openEvidencePreview(segIdx, candIdx) {
   document.getElementById("modal-overlay").classList.add("open");
 }
 
+// "feel" clips are Pexels-only now (gifs dropped entirely), so this modal path only ever
+// renders a real stock video — no more branching on clip source.
 function openPreview(segIdx, clipIdx) {
   const seg = SEGMENTS[segIdx];
   const clip = seg.clips[clipIdx];
 
-  // Reset any evidence-preview state (iframe) so the gif/stock paths render cleanly.
   const iframe = document.getElementById("modal-iframe");
   iframe.src = "";
   iframe.style.display = "none";
-  const trimRow = document.getElementById("trim-row");
-  if (trimRow) trimRow.style.display = "none"; // shown again below, stock clips only
 
   const video = document.getElementById("modal-video");
   const thumbEl = document.getElementById("modal-thumb");
@@ -424,46 +416,21 @@ function openPreview(segIdx, clipIdx) {
   downloadBtn.removeAttribute("target");
   downloadBtn.removeAttribute("rel");
 
-  if (clip.source === "pexels") {
-    document.getElementById("modal-play").style.display = "none";
-    thumbEl.style.backgroundImage = "";
-    if (video) {
-      video.src = clip.previewUrl || clip.downloadUrl || "";
-      video.style.display = "";
-    }
-    document.getElementById("modal-title").textContent = clip.title || "Stock footage";
-    document.getElementById("modal-sub").textContent = `Pexels · ${clip.author || ""}`;
-
-    downloadBtn.href = `/api/stock-download?url=${encodeURIComponent(clip.downloadUrl)}&name=${encodeURIComponent(clip.id)}`;
-    downloadBtn.setAttribute("download", "");
-    downloadBtn.innerHTML = `${DL_ICON} Download clip`;
-    downloadBtn.style.display = "";
-
-    setupStockTrimRow(clip);
-  } else {
-    if (video) {
-      video.pause();
-      video.src = "";
-      video.style.display = "none";
-    }
-    document.getElementById("modal-play").style.display = "";
-
-    thumbEl.style.backgroundImage = clip.url ? `url('${clip.url}')` : "";
-    thumbEl.style.backgroundSize = "contain";
-    thumbEl.style.backgroundRepeat = "no-repeat";
-    thumbEl.style.backgroundPosition = "center";
-    document.getElementById("modal-title").textContent = clip.title || clip.label || "";
-    document.getElementById("modal-sub").textContent = `${clip.source} · matched to scene ${String(segIdx).padStart(2, "0")}`;
-
-    if (clip.url) {
-      downloadBtn.href = clip.url;
-      downloadBtn.setAttribute("download", "");
-      downloadBtn.innerHTML = `${DL_ICON} Download`;
-      downloadBtn.style.display = "";
-    } else {
-      downloadBtn.style.display = "none";
-    }
+  document.getElementById("modal-play").style.display = "none";
+  thumbEl.style.backgroundImage = "";
+  if (video) {
+    video.src = clip.previewUrl || clip.downloadUrl || "";
+    video.style.display = "";
   }
+  document.getElementById("modal-title").textContent = clip.title || "Stock footage";
+  document.getElementById("modal-sub").textContent = `Pexels · ${clip.author || ""}`;
+
+  downloadBtn.href = `/api/stock-download?url=${encodeURIComponent(clip.downloadUrl)}&name=${encodeURIComponent(clip.id)}`;
+  downloadBtn.setAttribute("download", "");
+  downloadBtn.innerHTML = `${DL_ICON} Download clip`;
+  downloadBtn.style.display = "";
+
+  setupStockTrimRow(clip);
 
   document.getElementById("modal-overlay").classList.add("open");
 }

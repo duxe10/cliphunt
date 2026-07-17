@@ -10,8 +10,8 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 ## Stack, deliberately
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
-- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq), `functions/api/find-clips.js` (Giphy — feel/gif path), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — feel/stock + generic-evidence path, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
-- Mostly-free constraint — Groq (llama-3.3-70b), Giphy, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `GIPHY_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
+- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation + the narrate pass, see "Segmentation" below), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, and generic-evidence's source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
+- Mostly-free constraint — Groq (llama-3.3-70b), YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
 
 ## Evidence & reference pipelines — link-only, no downloading (reworked 2026-07-17)
 There used to be a separate worker service (`worker/`, Node+Express+Docker on Render) that ran
@@ -45,31 +45,69 @@ workflow ("hunt for clips," not "edit here") rather than on owning the clip file
 
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:
-- **feel** — pure emotion beat, no specific referent → searched on Giphy
-- **evidence** — a specific real person/thing said or did the exact thing referenced → real footage from YouTube, trimmed & downloadable (WIRED UP — see Evidence pipeline above)
-- **reference** — matches a known meme/cultural callback → real raw reaction clip from YouTube, trimmed & downloadable (WIRED UP — see "Reaction clip footage" below; migrated off Giphy)
-- **nothing** — pacing beat/transition → no clip forced, and that's deliberate (a forced bad clip is worse than no clip)
+- **feel** — pure emotion beat, or atmosphere/mood/action with no specific referent → real stock footage from Pexels, downloadable and trimmable (gifs dropped entirely, see "Clip search" below)
+- **evidence** — a specific real person/thing did the exact thing referenced, OR a category-level statement needing real illustrative footage → real footage from YouTube (link-only, not downloaded) for a named subject, or Pexels (downloadable) for a category statement — see "Evidence & reference pipelines" above
+- **reference** — matches a known meme/cultural callback → real raw reaction clip from YouTube, link-only (see "Reaction clip footage" below; migrated off Giphy)
+- **nothing** — GENUINELY has no visual content of its own (connective narration, a meta aside) — not a default for "no one named," see the Segmentation section's classification-gap note below
 
 This collapsed from a more elaborate original taxonomy (subject_quote/subject_post/meme_callback/etc.) for MVP simplicity — see git history / ask if the fuller version matters later.
 
 ## Segmentation (`functions/api/segment.js`)
-Hardest part was getting segment *boundaries* right, not the classification. Lessons learned the hard way:
+Getting segment *boundaries* right was the original hard part; getting *family classification*
+right (below) turned out to have its own sharp edge too. Lessons learned the hard way:
 1. Default to splitting on every complete sentence — merging by "topic relation" over-merges (e.g. "For most footballers... / For Harry Kane..." should NOT merge, it's a deliberate contrast pivot).
 2. The ONLY real merge signal is grammatical incompleteness — a segment starting with `...` or `—`, or the previous segment ending in a dangling `—`. This is NOT reliably followed by the model (llama-3.3-70b is small/fast, and this rule fights the "split by default" rule) — so it's enforced deterministically in code (`mergeFragments()` at the bottom of `segment.js`), not left to the prompt. Don't try to fix this by wording the prompt harder — it oscillates between over-merge and under-merge across runs. Code-level regex is the actual fix.
 3. Words like "but"/"and"/"so" at the start of a sentence are NOT a fragment signal — very common as deliberate stylistic sentence-openers. Only `...`/`—` are unambiguous.
+4. **Classification gap (fixed 2026-07-17):** category-level statements with no named subject
+   ("For most footballers, scoring at a World Cup is the highlight of their career") were falling
+   through to `"nothing"` (discarded, no clip) — `"evidence"` was originally defined as needing
+   ONE named person, so a sentence with no name and no pure emotion had nowhere to land.
+   `evidence-search.js` already had a well-built generic branch for exactly this pattern, it just
+   never got reached. Fixed by explicitly widening `"evidence"` to cover category-level statements
+   alongside named-person ones, and narrowing `"nothing"` to genuinely visual-free connective
+   narration only — see the prompt itself for the current wording, it's the source of truth.
+5. **Domain bias:** every illustrative example in these prompts used to be football (Harry Kane's
+   missed penalty, "most footballers..."), since that's what got tested against first. Real risk:
+   an LLM pattern-matches to few-shot examples, so an all-sports prompt can subtly skew
+   classification/query-writing toward sports-shaped reasoning even for unrelated scripts. Every
+   example across `segment.js` and `evidence-search.js` is now paired with a second example from
+   a different domain (a startup/business one) specifically to break that anchor. If you add a new
+   example anywhere in these prompts, pair it with one from a different domain, don't add a third
+   sports one.
 
-## Clip search (`functions/api/find-clips.js`)
-- `feel` (with `source:"gif"`) is searched on Giphy (keyword search) — auto-hydrated on load.
-  `reference` no longer uses Giphy — see "Reaction clip footage" below.
-- `evidence` and `reference` are each built on their own YouTube pipeline (search → captions →
-  fuzzy-match → trim/download); see "Evidence pipeline" and "Reaction clip footage" above/below.
-  Both are user-triggered, not auto-hydrated.
-- The model generates a `query` field per feel/gif segment now, instead of dumping raw sentence text at Giphy (raw text produced generic/repeated results). IMPORTANT lesson from testing against the live Giphy index: the query must be a SHORT 1-2 word COMMON reaction term (`hope`, `nervous`, `heartbreak`), NOT a clever specific phrase. Giphy search is tag-based — a specific phrase like "nation holds breath" matches almost nothing and Giphy returns an identical generic-junk fallback set for every unmatched phrase. An earlier version of this prompt pushed toward specificity ("finally believing again" over "hope") and it made results strictly worse — don't reintroduce that.
-- Ambiguous-word guard (also in the prompt): some plain reaction words have a DOMINANT unrelated meaning on Giphy and pull off-topic content. The known one is "proud" → Giphy returns Pride-month content, so an "incredible achievement" beat that queried "proud" surfaced LGBTQ/Pride gifs. Prompt now tells the model to avoid such words and use unambiguous ones ("impressed"/"amazed"/"standing ovation" for success). If new off-topic drift shows up, it's usually another loaded single word — add it to that guidance.
-- Recency: Giphy search has NO date filter and NO recency sort (confirmed against their API docs). Its top results skew to 2013-2016 evergreen reaction gifs. `find-clips.js` returns `importDatetime`/`trendingDatetime` per clip and does a SOFT re-rank (not a hard filter): stable-sort so gifs "active in the 2020s" (uploaded OR last-trended >= 2020) float above older ones, preserving Giphy's relevance order within each group. Deliberately NOT a hard 2020+ cutoff — that deletes most of the good evergreen gifs and thins pools to nothing. Note many 2013-2016 gifs have `trendingDatetime` in 2020-2025, i.e. old uploads that are still actively used — those correctly count as "fresh".
-- Cross-segment dedup (wired through `app.js` `hydrateClips()`): each searchable segment fetches a pool of 8 candidates, then after all fetches resolve a client-side pass greedily assigns non-duplicate results (by gif `id`) in segment order, slices to 4, and falls back to a segment's own pool if everything got filtered out — so the same gif doesn't get reused project-wide. `find-clips.js` fetches `limit=8` to leave room for this. The `query` field is threaded through `buildLiveSegments()` and sent as `seg.query || seg.text`.
+## Narrator pass — resolved scene context, computed once per script (added 2026-07-17)
+`evidence-search.js`/`reference-search.js` used to re-derive "what's actually happening in this
+moment" from a raw concatenation of preceding segment text, on EVERY "Find footage" click, inside
+the same prompt that also had to classify footageType and write the search query — one call doing
+both understanding and acting, from a weak (sentence-dump) input. Fixed by adding a second Groq
+call inside `segment.js`'s handler, `narrateSegments()`: runs once per script (not per click),
+after segmentation, only over `evidence`/`reference` segments (cheap — but still needs the FULL
+segment list as input, since an earlier `feel`/`nothing` beat can carry context a later evidence
+beat depends on). For each target segment it writes one resolved plain-language sentence — pronouns
+and elliptical fragments ("A missed penalty.") resolved into the specific real thing they refer to,
+using only what came before (same "story so far" rule the old per-click version already had).
+Result lands on `segment.context`, threaded through `buildLiveSegments()` in `app.js`, and
+`findFootage()` prefers `seg.context` over the old raw-concatenation fallback (kept for projects
+created before this existed, or if the narrate call fails for a given script — best-effort, not a
+hard requirement: on failure `segment.js` just ships segments without a `context` field).
 
-## Stock footage (Pexels) — the 4th clip source (WIRED UP)
+## Clip search — Pexels only now (`functions/api/stock-search.js`, gifs dropped 2026-07-17)
+Gifs (Giphy) used to cover the `feel` family's reaction-punch beats alongside Pexels' atmosphere/
+action beats — that `"stock"`/`"gif"` split, `find-clips.js`, and `GIPHY_API_KEY` are all gone
+now. Reason: gifs were consistently low-quality and too short to be a useful cut in an actual
+edit — the exact thing this app is supposed to hand over. `feel` is Pexels-only: every beat gets
+a 2-5 word descriptive VISUAL SCENE PHRASE (describe the shot, not a mood word — Pexels indexes
+what's on screen, not a feeling) and searches real stock footage. `evidence` and `reference` are
+unaffected — each is still built on its own YouTube pipeline; see "Evidence & reference
+pipelines" above. All three are covered by "Stock footage" below for the actual search mechanics.
+- Cross-segment dedup (wired through `app.js` `hydrateClips()`): each searchable segment fetches
+  a pool of 8 candidates, then after all fetches resolve a client-side pass greedily assigns
+  non-duplicate results (by clip `id`) in segment order, slices to 4, and falls back to a
+  segment's own pool if everything got filtered out — so the same clip doesn't get reused
+  project-wide. The `query` field is threaded through `buildLiveSegments()` and sent as
+  `seg.query || seg.text`.
+
+## Stock footage (Pexels) — the ONLY `feel` source, also generic-evidence's source (WIRED UP)
 Stock lives entirely on Cloudflare — no worker, no HMAC, no yt-dlp. Pexels returns direct-CDN
 MP4s that are already short, licensed, and the right resolution, so there's nothing to trim or
 sign, just a same-origin download proxy so `<a download>` actually saves instead of playing the
@@ -82,12 +120,9 @@ CDN url in a tab (cross-origin `download` attributes are ignored by the browser)
 - `functions/api/stock-download.js` (`GET /api/stock-download?url=&name=`): streams the upstream
   CDN mp4 back with `Content-Disposition: attachment` (no buffering). Open-proxy guard: only
   fetches hosts ending in `.pexels.com` or `.vimeo.com` — never an arbitrary caller-supplied URL.
-- Routing brain lives in two places:
-  1. **Segmenter** (`segment.js`): `feel` beats now also get a `"source":"stock"|"gif"` field.
-     `"stock"` is for atmospheric/scene-setting/conceptual beats (mood, place, action — no
-     specific person or joke); `query` becomes a 2-5 word descriptive scene phrase instead of
-     the 1-2 word Giphy tag term. `"gif"` keeps the existing reaction-punch behavior unchanged.
-     `reference` never gets a `source`/`query` field at all — see "Meme footage" below, its
+- Routing lives in two places:
+  1. **Segmenter** (`segment.js`): every `feel` beat gets a `query` — a 2-5 word descriptive
+     scene phrase — and is sent to Pexels. `reference` never gets a `query` field at all — its
      identification happens downstream in its own dedicated search step, not in the segmenter.
   2. **Evidence search** (`evidence-search.js`): the `footageType:"generic"` branch (a category
      statement, no one identifiable person/event) short-circuits straight to Pexels instead of
@@ -95,13 +130,12 @@ CDN url in a tab (cross-origin `download` attributes are ignored by the browser)
      goes YouTube → enrich → rerank → plain links (see "Evidence & reference pipelines" above).
      This means the YOUTUBE_API_KEY guard in `evidence-search.js` only applies once footageType
      resolves to specific — a generic-only deploy works with just GROQ+PEXELS keys.
-- Frontend (`app.js`): `hydrateClips()` sends `feel`+`source:"stock"` beats to `/api/stock-search`
-  instead of `/api/find-clips`; `findFootage()` checks `data.source === "stock"` on the
-  evidence-search response and renders straight from `data.clips` (via the shared `clipCardHtml`/
-  `openPreview`). `openPreview` branches on `clip.source === "pexels"` to show `#modal-video` (a
-  real `<video>` playing `previewUrl`) instead of the gif `#modal-thumb`/`#modal-iframe` treatment,
-  and the download button points at `/api/stock-download?url=<downloadUrl>&name=<id>`. Stock clip
-  ids are prefixed `pexels-<id>` so they never collide with Giphy ids in cross-segment dedup.
+- Frontend (`app.js`): `hydrateClips()` sends every `feel` beat to `/api/stock-search`;
+  `findFootage()` checks `data.source === "stock"` on the evidence-search response and renders
+  straight from `data.clips` (via the shared `clipCardHtml`/`openPreview`). `openPreview` always
+  shows `#modal-video` (a real `<video>` playing `previewUrl`) and points the download button at
+  `/api/stock-download?url=<downloadUrl>&name=<id>` — no more branching on clip source, since
+  every `feel`/generic-evidence clip is Pexels now. Stock clip ids are prefixed `pexels-<id>`.
 - Needs `PEXELS_API_KEY` as a Cloudflare Pages secret (Production env) — free tier, 200 req/hour.
 
 ## Trim-to-download (Pexels/stock clips only, added 2026-07-17)
@@ -178,8 +212,6 @@ differently-tuned intent + rerank prompt, same as before.
   (`/api/reference-search` vs `/api/evidence-search`) but is otherwise unchanged — both endpoints
   return the same candidate shape, so `renderEvidence`/`evidenceCardHtml`/`openEvidencePreview`
   needed no changes at all. Button label is "Find reaction clip" for this family.
-- `find-clips.js`/`GIPHY_API_KEY` are NOT removed — `feel` beats with `source:"gif"` still depend
-  on them.
 
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
@@ -188,7 +220,7 @@ differently-tuned intent + rerank prompt, same as before.
 - Any persistence beyond localStorage (projects are lost on clearing browser storage; no server-side/cross-device store)
 
 ## Known constraints from the person building this
-- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, Giphy, YouTube API, Pexels). No paid pieces at all as of 2026-07-17 — the one that was (the Render worker) is gone. Ask before introducing anything meaningfully paid.
+- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, YouTube API, Pexels). No paid pieces at all as of 2026-07-17 — the one that was (the Render worker) is gone. Ask before introducing anything meaningfully paid.
 - No emoji as icons anywhere — inline SVG only (see existing icon usage in the HTML files for the established style).
 - Dark "editing bay" theme (near-black warm background, amber accent, Bricolage Grotesque + IBM Plex Sans/Mono) — this was a deliberate reaction against generic AI-template looks (cream background, emoji icons, purple gradients). Keep it consistent if extending the UI.
 - Product principle (2026-07-17): don't turn into a video editor, and don't lock creators into
