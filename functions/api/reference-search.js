@@ -52,13 +52,18 @@ const MAX_REACTION_SEC = 180;
 const JUNK_TITLE_RE = /compilation|top\s*\d+|best of|montage|mashup|reacts?\s+to|reaction\s+to|review|explained|breakdown|part\s*\d+|sound effects?|\bsfx\b/i;
 const SHORTS_RE = /#shorts?\b/i;
 
-export function filterRawReactionCandidates(candidates) {
+// `enrichOk` (true by default) tells this whether durationSec is trustworthy. enrichCandidates()
+// is best-effort and fails silently on a network/quota hiccup, which would otherwise leave every
+// candidate without a duration — `!Number.isFinite(c.durationSec)` would then reject everything,
+// turning one transient YouTube API failure into a hard "no candidates found" instead of falling
+// back to the title/shorts checks, which don't depend on enrichment having succeeded.
+export function filterRawReactionCandidates(candidates, enrichOk = true) {
   return candidates.filter((c) => {
     const title = c.title || "";
     const desc = c.description || "";
     if (JUNK_TITLE_RE.test(title)) return false;
     if (SHORTS_RE.test(title) || SHORTS_RE.test(desc)) return false;
-    if (!Number.isFinite(c.durationSec) || c.durationSec > MAX_REACTION_SEC) return false;
+    if (enrichOk && (!Number.isFinite(c.durationSec) || c.durationSec > MAX_REACTION_SEC)) return false;
     return true;
   });
 }
@@ -131,8 +136,8 @@ export async function onRequestPost(context) {
     return Response.json({ error: err.message }, { status: 502 });
   }
 
-  await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
-  candidates = filterRawReactionCandidates(candidates);
+  const enrichOk = await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
+  candidates = filterRawReactionCandidates(candidates, enrichOk);
 
   if (!candidates.length) {
     // Everything got filtered out — fail gracefully to the same empty-candidates state

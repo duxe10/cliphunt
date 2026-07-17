@@ -18,8 +18,17 @@ const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video scri
 real footage for it. You are given the script SO FAR (everything before the moment) to work out
 who or what it is about.
 
+The "script so far" you're given may already be a SINGLE, PRE-RESOLVED SENTENCE from a separate
+whole-script pass, not a raw dump of preceding sentences — e.g. "Harry Kane misses the penalty
+against France, the moment he stepped up for in the 2022 World Cup" instead of several loose
+sentences. When it reads as a clear, specific, already-resolved statement of who/what/when,
+TRUST IT DIRECTLY — use its stated subject/time/event rather than re-deriving your own answer
+from scratch. Only fall back to resolving from raw context yourself when what you're given
+genuinely looks like unresolved preceding narration (a loose concatenation of sentences, still
+containing pronouns or vague references), not a single clean resolved statement.
+
 Return strict JSON only, no prose, no markdown fences:
-{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"..."}
+{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"...","stockQuery":"..."}
 
 Decide "footageType":
 
@@ -38,16 +47,16 @@ This applies to a script about ANY topic — sports, business, science, politics
       moment "One email changed everything." resolves to the specific investor reply that
       story was building to, not a generic "email" search.
   "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
-  opponent, year) most likely to appear in a real video's title.
+  opponent, year) most likely to appear in a real video's title. Omit "stockQuery" (null) —
+  specific beats search YouTube, not Pexels.
 
 - "generic": the moment is a self-contained GENERAL statement true of a whole category, not one
   identifiable instance — usually signalled by quantifiers like "most", "every", "people",
   "everyone", or a general truth. Two examples, deliberately different domains: "For most
   footballers, scoring at a World Cup is the highlight of their career" and "Most startups fail
   within their first two years" are BOTH generic. Do NOT attach the video's main character to
-  these. "subject" = the general concept; "youtubeQuery" = a plain descriptive footage search
-  with NO specific person's name ("World Cup goal celebration", "struggling small business
-  closing down"). Set "quote" to null.
+  these. "subject" = the general concept. Omit "youtubeQuery" (null) — generic beats search
+  Pexels, not YouTube; write "stockQuery" instead (see below). Set "quote" to null.
 
 The test: does the moment point at ONE real event or person — even if only nameable through the
 preceding context? Then specific. Would it be equally true of many people or instances? Then
@@ -61,7 +70,17 @@ OUT LOUD — a spoken line that could appear in a video's captions. Narration, d
 actions or events, and general statements are NOT quotes; set "quote" to null. Never invent a
 quote. ("A missed penalty." describes an action, so quote is null.)
 
-"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage.`;
+"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage — a TITLE/KEYWORD
+match (a specific person/event's name + distinguishing details), only set when footageType is
+"specific".
+
+"stockQuery": 2-5 words, only set when footageType is "generic" — a SHORT DESCRIPTIVE VISUAL
+SCENE PHRASE for a real stock-footage library, not a YouTube-style keyword search. Pexels indexes
+what's actually shown on screen, not a concept or feeling — describe the shot itself. Good:
+"stadium crowd celebrating goal", "small storefront closing down with moving boxes", "empty
+office packed into cardboard boxes". Bad: a bare concept word like "success" or "failure", or a
+person's name (generic beats have no one person). Same rule segment.js's own "feel" query already
+follows — match that style, don't invent a different one.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -134,7 +153,6 @@ export async function onRequestPost(context) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
   }
 
-  const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
   const footageType = intent.footageType === "specific" ? "specific" : "generic";
   const quote =
     footageType === "specific" && intent.quote && String(intent.quote).trim()
@@ -148,8 +166,11 @@ export async function onRequestPost(context) {
     if (!env.PEXELS_API_KEY) {
       return Response.json({ error: "PEXELS_API_KEY is not set on this Cloudflare project" }, { status: 500 });
     }
+    // Pexels wants a visual-scene description, not a YouTube-style keyword search — a distinct
+    // field from youtubeQuery so one query doesn't have to serve two different search styles.
+    const stockQuery = (intent.stockQuery || intent.subject || segmentText).trim();
     try {
-      const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=8&orientation=landscape`;
+      const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(stockQuery)}&per_page=10&orientation=landscape`;
       const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
       if (!res.ok) {
         const errText = await res.text();
@@ -157,7 +178,7 @@ export async function onRequestPost(context) {
       }
       const data = await res.json();
       const clips = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
-      const ranked = await rerankStockCandidates({ segmentText, context: scriptContext, query }, clips, env);
+      const ranked = await rerankStockCandidates({ segmentText, context: scriptContext, query: stockQuery }, clips, env);
       return Response.json({ footageType, source: "stock", subject: intent.subject || null, clips: ranked });
     } catch (err) {
       return Response.json({ error: err.message }, { status: 500 });
@@ -168,7 +189,9 @@ export async function onRequestPost(context) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
-  // 2. YouTube Data API search.list (fetch 10 to rerank from).
+  const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
+
+  // 2. YouTube Data API search.list (fetch 12 to rerank from).
   let candidates;
   try {
     candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
@@ -189,12 +212,12 @@ export async function onRequestPost(context) {
   return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top });
 }
 
-// YouTube Data API search.list (fetch 10 to rerank from). Exported so reference-search.js's meme
+// YouTube Data API search.list (fetch 12 to rerank from). Exported so reference-search.js's meme
 // lookup reuses the exact same search/shape instead of a second copy of this fetch.
 export async function searchYouTubeVideos(query, apiKey) {
   const url =
     "https://www.googleapis.com/youtube/v3/search" +
-    `?part=snippet&type=video&maxResults=10&safeSearch=none` +
+    `?part=snippet&type=video&maxResults=12&safeSearch=none` +
     `&q=${encodeURIComponent(query)}&key=${apiKey}`;
   const res = await fetch(url);
   if (!res.ok) {
@@ -213,14 +236,17 @@ export async function searchYouTubeVideos(query, apiKey) {
 }
 
 // Adds duration/views/description onto each candidate via one videos.list call (1 quota unit).
+// Returns true if enrichment actually happened, so callers relying on durationSec (e.g.
+// reference-search.js's duration-cap filter) can tell "no candidates are long" apart from
+// "we don't know how long anything is" and avoid rejecting everything on a transient failure.
 export async function enrichCandidates(candidates, apiKey) {
   const ids = candidates.map((c) => c.videoId).filter(Boolean).join(",");
-  if (!ids) return;
+  if (!ids) return false;
   try {
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics,snippet&id=${ids}&key=${apiKey}`
     );
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = await res.json();
     const byId = new Map((data.items || []).map((it) => [it.id, it]));
     for (const c of candidates) {
@@ -230,8 +256,9 @@ export async function enrichCandidates(candidates, apiKey) {
       c.views = Number(it.statistics && it.statistics.viewCount) || 0;
       c.description = (it.snippet && it.snippet.description ? it.snippet.description : "").slice(0, 160);
     }
+    return true;
   } catch {
-    /* best-effort */
+    return false; // best-effort
   }
 }
 

@@ -31,7 +31,7 @@ export async function onRequestPost(context) {
   try {
     const url =
       "https://api.pexels.com/videos/search" +
-      `?query=${encodeURIComponent(query)}&per_page=8&orientation=${orientation}`;
+      `?query=${encodeURIComponent(query)}&per_page=10&orientation=${orientation}`;
     const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
 
     if (!res.ok) {
