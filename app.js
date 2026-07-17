@@ -79,6 +79,7 @@ function buildLiveSegments(raw) {
       text: s.text,
       query: s.query || null,
       source: s.source || null, // "stock" | "gif", feel-only — which clip source this beat wants
+      context: s.context || null, // evidence/reference-only, precomputed once by segment.js's narrate pass
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -305,9 +306,10 @@ async function findFootage(segIdx) {
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
-    // Only the story SO FAR (preceding segments, reading order) so back-references resolve and
-    // the model can't grab a subject from a later part of the script.
-    const context = (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
+    // Prefer the precomputed scene note from segment.js's narrate pass (already resolved, whole-
+    // script-aware, computed once) — fall back to a raw concatenation of preceding segment text
+    // for projects created before that pass existed, or if it failed for this script.
+    const context = seg.context || (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
     const endpoint = seg.family === "reference" ? "/api/reference-search" : "/api/evidence-search";
     const searchRes = await fetch(endpoint, {
       method: "POST",
