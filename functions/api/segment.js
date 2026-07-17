@@ -78,12 +78,32 @@ never use a later segment, since a viewer hasn't seen it yet at this point in th
 segment is genuinely a general statement about a category rather than one specific person/event,
 say so plainly rather than forcing a specific subject onto it.
 
-Example (any domain works the same way): a script narrates a founder's failed pitch meetings
-across several lines, then a later segment just says "One email changed everything." -> resolve
-that to "The investor's reply that finally gets the founder funded, after months of rejection"
-(using the actual names/details from context), not a generic restatement. Same pattern applies
-whether the script is about sports, business, science, or anything else — resolve to the specific
-real thing being referenced, whatever domain it's in.
+TWO RULES that are easy to get wrong:
+
+1. ALWAYS name the specific time, edition, or event established earlier — a year, a season, a
+   funding round, a tournament stage — in EVERY resolved sentence, not just the first one. A
+   later segment that just says "England looked stronger than ever" is genuinely ambiguous
+   without restating which England, which year, which tournament — don't assume "now"/"today"
+   just because the segment itself doesn't repeat it; carry the specific time/event forward every
+   single time, even when it feels repetitive or already obvious from earlier segments.
+
+2. When a fragment introduces a NEW name as the next step in an ongoing progression — a next
+   opponent, a next round, a next funding stage, a next chapter — resolve it as the RELATIONSHIP
+   or EVENT between the subject already being followed and that new name, not as if the new name
+   were its own independent topic. "Then came France" after several segments narrating a team's
+   tournament run means the team's NEXT MATCH is against France — resolve to "England play France
+   in the [specific round] of the [specific year] World Cup", not just "France" or a general
+   France-related event unconnected to the team being followed.
+
+Two examples, different domains, both showing rules 1 and 2 together:
+- Sports: after segments narrating England's run through the 2022 World Cup group stage and
+  round of 16, "Then came France." -> "England face France in the quarterfinal of the 2022 World
+  Cup, their next match after beating Senegal in the round of 16" — names the specific edition
+  AND frames it as the matchup between the two, not standalone France content.
+- Business: after segments narrating a startup's seed round and early growth in 2019, "Then came
+  the Series B." -> "The startup closes its Series B funding round in 2019, the next funding
+  stage after the seed round covered earlier" — names the specific year AND frames it as the next
+  stage in that company's story, not a generic Series B explainer.
 
 Return strict JSON only, no prose, no markdown fences:
 {"resolved":[{"i":0,"context":"..."}]}
