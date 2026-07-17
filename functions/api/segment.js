@@ -43,7 +43,12 @@ For each segment, also pick one "family":
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
   describes any real-world action, scene, or moment — named person or not, any topic — it is
-  NOT "nothing".
+  NOT "nothing". CAUTION: a short fragment shaped like a transition ("Then came France.", "Next
+  was the Series B.", "Up next: the finals.") is NOT automatically "nothing" just because it's
+  brief and transition-shaped — check whether it NAMES a real person/team/event first. If it
+  does, it's "evidence" (a real next step in the story that needs real footage), even though it
+  reads like a pacing beat. Only call it "nothing" if, after removing the transition wording,
+  nothing real and nameable is actually left.
 
 If family is "feel", also include a "query": a SHORT DESCRIPTIVE VISUAL SCENE PHRASE, 2-5 words,
 for searching a real stock-footage library — describe the shot itself, not a mood word. The beat
