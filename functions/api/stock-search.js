@@ -116,7 +116,10 @@ export async function rerankStockCandidates(intent, clips, env) {
       method: "POST",
       headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        // Same reasoning as evidence-search.js's rerankCandidates: scoring against a fixed
+        // rubric doesn't need the bigger model, and this runs on every feel-beat search too —
+        // keep it off llama-3.3-70b's shared quota.
+        model: "openai/gpt-oss-20b",
         messages: [
           { role: "system", content: STOCK_RERANK_PROMPT },
           { role: "user", content: user },

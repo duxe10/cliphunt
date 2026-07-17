@@ -271,7 +271,11 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        // Scoring against an already-well-defined rubric is mechanical, not reasoning-heavy —
+        // the fast model is plenty, and this is the highest-frequency call site (every YouTube
+        // search, evidence + reference both), so moving it off llama-3.3-70b's shared quota
+        // matters most here.
+        model: "openai/gpt-oss-20b",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: user },

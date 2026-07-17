@@ -125,7 +125,10 @@ async function narrateSegments(segments, env) {
       method: "POST",
       headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        // The narrate pass is the reasoning-heaviest step in the pipeline (relational + temporal
+        // resolution across an arbitrary-length script) — worth the stronger model. Also spreads
+        // load off llama-3.3-70b's shared quota, which every other call site here uses.
+        model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: NARRATE_PROMPT },
           { role: "user", content: userContent },
