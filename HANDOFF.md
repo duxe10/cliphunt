@@ -247,6 +247,51 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
       err generous here. Still **not yet confirmed against real usage** — re-verify actual token
       consumption on real scripts before trusting these specific numbers, same standing rule as
       every other constant in this area.
+11. **`categoryClaim` was still a shape test, not a content test — fixed 2026-07-19, now that a
+    genuinely capable model is doing this reasoning.** Live-tested: `"To this day, many England
+    fans wonder scoring there would have changed football history forever."` has the exact
+    grammatical shape of a `categoryClaim` (quantifier "many" + category "England fans" + a
+    verb) — the OLD test ("signalled by quantifier language... attached to a concrete real
+    action, not an abstract feeling") let it through, and `family:"feel"` then had to write a
+    `query` for it, producing a generic, wrong one ("football stadium fans") because the model
+    was trying to visualize the sentence's surface topic instead of its actual content. This is
+    the same shape-over-content failure mode documented repeatedly elsewhere in this file — just
+    a different trigger (a quantifier word, not a grammatical role+verb+scene pattern) hitting
+    the same underlying weakness. **The fix, deliberately different from every earlier fix of
+    this type: don't add another mechanical rule, lean on the model's own reasoning instead** —
+    now that segmentation runs on Claude Sonnet (see point 9), it's reasonable to trust it with a
+    genuinely semantic test rather than another surface pattern. Quantifier language is now a
+    *signal to notice*, not the decisive test; the decisive test is "if you point a camera at one
+    real instance, does it capture a visible external action, or just a person existing while
+    something invisible happens inside them (wondering, hoping, wanting)?" Only the former sets
+    `categoryClaim`. **A cross-reference was added deliberately**: excluding a mental state from
+    `categoryClaim` does NOT make the segment `"nothing"` (it stays `"feel"`) — the `"nothing"`
+    rule's wording ("no concrete scene a camera could point at") is close enough to this new
+    test's wording that without an explicit note, the model could plausibly conflate the two and
+    start dropping these segments entirely instead of searching stock footage for them.
+
+    Paired fix, same underlying cause: `query`-writing for `"feel"` segments whose real content is
+    an internal/reflective state (wondering, missing, regretting, "what could have been") now has
+    explicit guidance to write the SYMBOLIC representative shot an editor would actually reach for
+    (someone gazing into the distance, a hand turning an old photograph) rather than a literal
+    noun lifted from the sentence's surface topic/setting — this is what fixes the England-fans
+    query itself, on top of `categoryClaim` correctly staying `null` for it.
+
+    `findable` was NOT rewritten — no reported failure, all seven worked examples kept verbatim —
+    just given one added instruction to reason from real-world documentation/coverage patterns for
+    the specific case at hand rather than pattern-matching to the nearest worked example. Smallest
+    change that answers "make this more robust, the model can handle it" without touching anything
+    already verified working. `enforceEvidenceRule()`/`enforceFindabilityRule()` needed NO changes
+    — both operate on the output fields, not on how the model reasons its way to them.
+
+    **The generalizable lesson, worth remembering next time a smarter model gets swapped in**: not
+    every weak-model workaround needs replacing, but when a bug traces back to a rule that was
+    itself a blunt surface-pattern proxy for a real semantic test, a stronger model is often better
+    served by the real test stated plainly than by another layer of pattern-matching. The
+    deterministic code-level guardrails (`enforceEvidenceRule`/`enforceFindabilityRule`) are a
+    different kind of thing and stay — they're cheap insurance against ANY model's mistakes, not a
+    crutch for a specific model's weakness, and there's no reason to remove them just because the
+    model improved.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

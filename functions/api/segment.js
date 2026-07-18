@@ -41,24 +41,49 @@ real entity/event is identifiable. Don't guess a subject that isn't actually est
 is correct far more often than it might feel.
 
 Also name the "categoryClaim": a short phrase naming the real, general phenomenon ONLY when the
-segment makes a genuine categorical assertion about a whole CLASS of real people/things doing or
-experiencing something a camera could plausibly have captured — signalled by quantifier language
-("most", "many", "every", "typically", "usually") attached to a concrete real action, not an
-abstract feeling. Real footage of that KIND of moment exists and is worth searching for, even
-though no one specific instance is named. Two examples: "For most footballers, scoring at a World
-Cup is the highlight of their career" -> categoryClaim: "footballers celebrating scoring at a
-World Cup" (real footage of players celebrating World Cup goals exists and should be searched
-for, not stock b-roll). "Most startups fail within their first two years" -> categoryClaim: "a
-startup failing and shutting down" (real footage of a struggling small business, a closing
-storefront, people packing up an office). Set "categoryClaim" to null whenever the segment is
-ordinary, unnamed, INCIDENTAL background activity with no quantifier-signalled claim attached — a
-barista wiping down the counter as a cafe empties out for the night, a groundskeeper walking the
-pitch checking the turf before kickoff, an aide handing over a folder in a hallway, rain on a
-window, hands typing at a desk. None of these assert anything about a CLASS of people/things —
-they're one anonymous, ordinary action happening once, incidentally, as scene-setting. The test:
-does the sentence claim something is true of MANY people/instances (categoryClaim, set it), or
-does it just show ONE anonymous, incidental thing happening once with no claim attached
-(categoryClaim: null)? Don't guess a categoryClaim into a sentence that's really just atmosphere.
+segment describes a whole CLASS of real people/things DOING something a camera pointed at one real
+instance could actually capture happening. Quantifier language ("most", "many", "every",
+"typically", "usually") is a useful SIGNAL for noticing candidate sentences, but it is NOT the
+test by itself — plenty of quantifier+category sentences describe an internal, mental, or
+emotional state (wondering, hoping, believing, wishing, dreaming, feeling proud, wanting) that no
+camera could ever capture, no matter how many real people are doing it. "Many England fans wonder
+how different history would have been" has the exact grammatical shape of a categorical claim
+(quantifier + category + verb), but "wonder" happens invisibly inside someone's head — there is
+nothing for a lens to point at. The real test is content, not shape: imagine pointing a camera at
+one genuine instance of this — does it capture a visible, external, physical action or event, or
+does it just capture a person existing while something invisible happens inside them? Only the
+first counts.
+
+Two examples of genuine categoryClaims: "For most footballers, scoring at a World Cup is the
+highlight of their career" -> categoryClaim: "footballers celebrating scoring at a World Cup"
+(real, filmable: players visibly celebrating). "Most startups fail within their first two years"
+-> categoryClaim: "a startup failing and shutting down" (real, filmable: a closing storefront, an
+office being packed up). Two examples of quantifier language that does NOT qualify, because the
+actual content is a mental/emotional state, not a filmable class-level event: "Many England fans
+wonder how different history would have been" -> categoryClaim: null (wondering is invisible and
+internal — nothing external to film, no matter how many fans are doing it). "Most people just
+want to feel like their work matters" -> categoryClaim: null (wanting/feeling is internal; no
+visible class-level action here).
+
+Also set "categoryClaim" to null whenever the segment is ordinary, unnamed, INCIDENTAL background
+activity with no quantifier-signalled claim attached at all — a barista wiping down the counter as
+a cafe empties out for the night, a groundskeeper walking the pitch checking the turf before
+kickoff, an aide handing over a folder in a hallway, rain on a window, hands typing at a desk.
+None of these assert anything about a CLASS of people/things — they're one anonymous, ordinary
+action happening once, incidentally, as scene-setting.
+
+The full test, in order: (1) is a whole CLASS of real people/things being described, not one
+anonymous instance? (2) if you point a camera at one real instance, does it capture a visible
+external action/event, not an internal mental/emotional state? Only when BOTH are true, set
+categoryClaim. Don't guess a categoryClaim into a sentence that's really just atmosphere, and
+don't let quantifier language alone talk you into one that's really an internal state.
+
+Note: excluding a mental/emotional state from categoryClaim does NOT make the segment "nothing" —
+it still stays "feel" (see the "nothing" rule below). Unlike a truly abstract STATE with nothing
+to picture (a tied score, a deal "still on the table"), an internal feeling like wondering or
+missing someone IS visualizable, through a symbolic representative shot (see the query-writing
+guidance below) — it just isn't a filmable, literal, class-level ACTION, so it doesn't qualify as
+a categoryClaim.
 
 Then pick one "family":
 - "feel" — "subject" is null AND "categoryClaim" is null. Covers pure emotional beats,
@@ -116,6 +141,15 @@ values:
 Omit "findable" entirely for "feel" and "nothing" segments — "feel" always searches regardless of
 any findability judgment, so none is needed there.
 
+For each judgment, reason concretely about real-world documentation/coverage patterns rather than
+pattern-matching to whichever worked example below seems closest: ask what TYPE of source would
+need to exist for this to be findable — a viral clip on YouTube/TikTok, sports broadcast archive
+footage, news b-roll, a well-covered, Wikipedia-level event — and whether that type of source
+realistically exists for THIS specific case. The examples below illustrate the reasoning, they are
+not an exhaustive list to match against; a case that doesn't closely resemble any of them should
+still get a genuinely reasoned answer based on how documented that kind of thing actually is in
+the real world, not a default to whichever example seems nearest.
+
 Worked examples for "findable":
 - "The chat lost it when the demo video hit the front page." — an unnamed "chat", an unnamed
   demo, no platform, product, or company named anywhere: nothing here is a real, identifiable,
@@ -152,6 +186,27 @@ specific subject can actually be confirmed later. Good queries: "stormy sky time
 stadium night", "hands typing on laptop", "stadium crowd celebrating goal", "small storefront
 closing down with moving boxes", "empty office packed into cardboard boxes". Bad queries: single
 mood words like "hope" or "tension", or a person's/team's name.
+
+Special case — reflective/internal "feel" segments (wondering, missing, regretting, longing,
+remembering, imagining "what could have been"): don't default to a literal noun lifted from the
+sentence's surface topic — the sport, the setting, the industry. That describes the BACKDROP the
+feeling happens in, not the feeling itself, and reads as a generic, on-the-nose environment shot.
+Instead, write the query for the SYMBOLIC, representative shot an editor actually reaches for to
+convey that internal state on screen: someone gazing into the distance, a hand slowly turning an
+old photograph, a person staring out a rain-streaked window, someone sitting alone as light fades.
+Example: "To this day, many England fans wonder scoring there would have changed football history
+forever." The actual content of this line is wistful, reflective, "what could have been" — not
+football, not a stadium. BAD query: "football stadium fans" or "fans watching" (literal
+topic-nouns pulled from the surface subject matter, generic, misses the reflective content
+entirely). GOOD query: "person gazing into distance thoughtfully" or "hand slowly turning old
+photograph". Paired example, different domain: "Some founders spend years afterward replaying the
+moment they turned down the acquisition." BAD query: "office meeting boardroom" (literal
+topic-noun lifted from "founders"/"acquisition"). GOOD query: "person staring out rain-streaked
+window" or "hand slowly turning old photograph" — the same symbolic reflection shot works here
+too, because the underlying feeling (replaying a past what-if) is the same regardless of domain.
+The test: if the segment's real content is something happening INSIDE someone's head, write the
+query for the symbolic gesture that represents that interior state, not the literal exterior
+setting the sentence happens to mention.
 
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"..."}]}`;
