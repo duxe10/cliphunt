@@ -204,13 +204,21 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
       `GET /v1/models`' own capability listing for `claude-sonnet-5`:
       `"thinking":{"types":{"enabled":{"supported":false},"adaptive":{"supported":true}}}` — only
       `"adaptive"` is a valid `thinking.type` here, there's no `"disabled"` option at all, unlike
-      older/smaller models. **`/v1/models` is the authoritative source for this, not a fetched
-      doc page** — a first attempt trusted a doc summary claiming `effort` nests inside
-      `thinking` (`thinking:{type:"adaptive",effort:"low"}`), which the API rejected outright
-      (`thinking.adaptive.effort: Extra inputs are not permitted`); the model's own capability
-      object showed `"effort"` as a SEPARATE TOP-LEVEL field (`low`/`medium`/`high`/`xhigh`/`max`
-      all independently listed as supported), not nested under `thinking` at all. Correct shape:
-      `{ ..., effort: "low", thinking: { type: "adaptive" } }` as sibling top-level fields.
+      older/smaller models. Finding `effort`'s actual placement took THREE live attempts, each a
+      real billed call — worth reading in full so it isn't re-litigated: (1) nested inside
+      `thinking` (`thinking:{type:"adaptive",effort:"low"}`) — rejected, "Extra inputs are not
+      permitted"; (2) bare top-level (`effort:"low"`) — also rejected, same error, because a
+      conceptual doc-guide page's summary and `/v1/models`' capability-flag naming both implied
+      but never actually stated the real location; (3) the ACTUAL Messages API reference (the
+      literal parameter-by-parameter endpoint schema, a different and more authoritative doc page
+      than either of the first two sources) shows `effort` living inside a top-level
+      `output_config` object. **Correct shape:**
+      `{ ..., thinking: { type: "adaptive" }, output_config: { effort: "low" } }` — `thinking` and
+      `output_config` are both top-level, `effort` is nested in the latter only. **Lesson: for an
+      exact request-body field location, go straight to the parameter-by-parameter API reference,
+      not a conceptual guide page or a capability-flag name that merely implies a shape** — the
+      guide page and the `/v1/models` capability object were both real and both insufficient to
+      get this right on the first or second try.
 
       The default-on, unstoppable thinking silently broke both call sites on first deploy: a
       response can come back with ONLY a `"thinking"` content block and no `"text"` block at all,
