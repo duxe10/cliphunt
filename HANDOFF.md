@@ -10,8 +10,15 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 ## Stack, deliberately
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
-- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation + the narrate pass, see "Segmentation" below), `functions/api/stock-search.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, and generic-evidence's source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
-- Mostly-free constraint — Groq (llama-3.3-70b), YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
+- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation/family classification only, see "Segmentation" below), `functions/api/_groq.js` (shared Groq fetch wrapper with retry/backoff — underscore prefix means Pages excludes it from routing, import-only, see "Reliability & rate-limit lessons" below), `functions/api/stock-search.js` + `functions/api/stock-search-batch.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, and generic-evidence's source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + context resolution + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
+- Mostly-free constraint — Groq, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
+- **Groq model split (as of 2026-07-18):** `llama-3.3-70b-versatile` is no longer used anywhere —
+  its 100k-tokens/DAY quota got hit repeatedly during real use and hard-fails every call site
+  sharing it. All reasoning-heavy calls (segmentation, evidence/reference intent extraction) now
+  run on `openai/gpt-oss-120b`; all mechanical rubric-scoring (every rerank step, including the
+  batched stock rerank) runs on `openai/gpt-oss-20b`. See "Reliability & rate-limit lessons" below
+  for the full story and the traps in this specific tradeoff — the model swap fixed the daily
+  quota but exposed a WORSE per-minute (TPM) ceiling that caused most of this session's pain.
 
 ## Evidence & reference pipelines — link-only, no downloading (reworked 2026-07-17)
 There used to be a separate worker service (`worker/`, Node+Express+Docker on Render) that ran
@@ -22,12 +29,14 @@ that — `worker/`, `functions/api/sign-clip.js`, `functions/api/config.js` (exi
 redistributing someone else's YouTube video carried real copyright/ToS risk; the product decision
 was to stop taking that risk and to differentiate on NOT locking creators into an editing
 workflow ("hunt for clips," not "edit here") rather than on owning the clip file. What's kept:
-- `functions/api/evidence-search.js`: unchanged intent-extraction (elliptical-reference resolution,
-  generic→Pexels short-circuit) and unchanged YouTube search → `enrichCandidates` (duration/views)
-  → LLM `rerankCandidates` (0-100 against the beat's actual claim, demoting reactions/watchalongs/
-  compilations) — all of that search-quality work is unaffected by the download removal. The only
-  change: the top 5 reranked candidates are mapped to plain `https://www.youtube.com/watch?v=...`
-  links and returned directly — no HMAC signing, no worker handoff, no `matchSig`/`exp`.
+- `functions/api/evidence-search.js`: intent-extraction (elliptical-reference resolution,
+  generic→Pexels short-circuit) as of THIS rework was unchanged, and YouTube search →
+  `enrichCandidates` (duration/views) → LLM `rerankCandidates` (0-100 against the beat's actual
+  claim, demoting reactions/watchalongs/compilations) — all of that search-quality work is
+  unaffected by the download removal. The only change here: the top 5 reranked candidates are
+  mapped to plain `https://www.youtube.com/watch?v=...` links and returned directly — no HMAC
+  signing, no worker handoff, no `matchSig`/`exp`. (Intent-extraction's elliptical-reference
+  resolution DID change later — see "Scene context resolution" below for the current version.)
 - `functions/api/reference-search.js`: same shape — emotion/reaction query → YouTube search →
   `filterRawReactionCandidates()` (unchanged) → rerank on capture-quality (unchanged) → plain links.
 - **The rerank score/reason IS the honesty signal now**, surfacing directly in the UI (e.g. "87% ·
@@ -56,7 +65,7 @@ This collapsed from a more elaborate original taxonomy (subject_quote/subject_po
 Getting segment *boundaries* right was the original hard part; getting *family classification*
 right (below) turned out to have its own sharp edge too. Lessons learned the hard way:
 1. Default to splitting on every complete sentence — merging by "topic relation" over-merges (e.g. "For most footballers... / For Harry Kane..." should NOT merge, it's a deliberate contrast pivot).
-2. The ONLY real merge signal is grammatical incompleteness — a segment starting with `...` or `—`, or the previous segment ending in a dangling `—`. This is NOT reliably followed by the model (llama-3.3-70b is small/fast, and this rule fights the "split by default" rule) — so it's enforced deterministically in code (`mergeFragments()` at the bottom of `segment.js`), not left to the prompt. Don't try to fix this by wording the prompt harder — it oscillates between over-merge and under-merge across runs. Code-level regex is the actual fix.
+2. The ONLY real merge signal is grammatical incompleteness — a segment starting with `...` or `—`, or the previous segment ending in a dangling `—`. This is NOT reliably followed by the model regardless of which model runs segmentation (this rule fights the "split by default" rule) — so it's enforced deterministically in code (`mergeFragments()` at the bottom of `segment.js`), not left to the prompt. Don't try to fix this by wording the prompt harder — it oscillates between over-merge and under-merge across runs. Code-level regex is the actual fix.
 3. Words like "but"/"and"/"so" at the start of a sentence are NOT a fragment signal — very common as deliberate stylistic sentence-openers. Only `...`/`—` are unambiguous.
 4. **Classification gap (fixed 2026-07-17):** category-level statements with no named subject
    ("For most footballers, scoring at a World Cup is the highlight of their career") were falling
@@ -74,22 +83,134 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
    a different domain (a startup/business one) specifically to break that anchor. If you add a new
    example anywhere in these prompts, pair it with one from a different domain, don't add a third
    sports one.
+6. **`feel`/`evidence` atmosphere boundary — fixed twice, still not fully closed (2026-07-18):**
+   `"feel"` covers pure atmosphere/mood/ordinary background human activity with no narrative
+   significance (rain on a window, hands typing at a desk, an empty stadium); `"evidence"`(b)
+   covers a CATEGORY doing/experiencing something real. These overlap in a way that's genuinely
+   hard to word unambiguously: a script built from the prompt's OWN canonical `"feel"` examples
+   came back `"evidence"` for all of them after the model swap (point above) — the same prompt had
+   worked fine on the old model, so **prompt behavior is not portable across models; re-verify
+   boundary cases after any model swap, don't assume a working prompt keeps working.** Fixed once
+   by making the two bullets' exclusion lists actually match each other (they'd drifted). Tested
+   again with a genuinely novel example never in the prompt ("A barista wiped down the counter as
+   the cafe emptied out for the night") — still misclassified as `"evidence"`. Added an explicit
+   "this is a pattern, not a fixed list" instruction plus more paired examples — tested AGAIN with
+   yet another fresh example ("An aide shuffled papers at an empty podium...") — **still
+   misclassified.** Concluded (not fixed further): the model reliably reads a "[a/an + role] +
+   [specific verb] + [specific scene]" grammatical SHAPE as a narrative beat worth `"evidence"`
+   regardless of content, and more prompt examples haven't closed this. Not chasing it further for
+   now — the practical cost is low (evidence-search.js's own classifier hits the same ambiguity and
+   likely routes to the same Pexels footage anyway; the real cost is an extra click + Groq call,
+   not wrong footage). If this comes up again, a schema change (forcing an explicit "does this name
+   a specific real entity? Y/N" field) is a more promising direction than another prompt example.
 
-## Narrator pass — resolved scene context, computed once per script (added 2026-07-17)
-`evidence-search.js`/`reference-search.js` used to re-derive "what's actually happening in this
-moment" from a raw concatenation of preceding segment text, on EVERY "Find footage" click, inside
-the same prompt that also had to classify footageType and write the search query — one call doing
-both understanding and acting, from a weak (sentence-dump) input. Fixed by adding a second Groq
-call inside `segment.js`'s handler, `narrateSegments()`: runs once per script (not per click),
-after segmentation, only over `evidence`/`reference` segments (cheap — but still needs the FULL
-segment list as input, since an earlier `feel`/`nothing` beat can carry context a later evidence
-beat depends on). For each target segment it writes one resolved plain-language sentence — pronouns
-and elliptical fragments ("A missed penalty.") resolved into the specific real thing they refer to,
-using only what came before (same "story so far" rule the old per-click version already had).
-Result lands on `segment.context`, threaded through `buildLiveSegments()` in `app.js`, and
-`findFootage()` prefers `seg.context` over the old raw-concatenation fallback (kept for projects
-created before this existed, or if the narrate call fails for a given script — best-effort, not a
-hard requirement: on failure `segment.js` just ships segments without a `context` field).
+## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
+**This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
+again.** A "Narrator" pass was added 2026-07-17: a second Groq call inside `segment.js`'s handler,
+`narrateSegments()`, that resolved pronouns/elliptical fragments ("A missed penalty." → "Harry
+Kane misses a penalty against France") for EVERY `evidence`/`reference` segment in ONE batched call
+at project-creation time, instead of each "Find footage" click resolving its own context from raw
+preceding text. The reasoning at the time was sound in isolation (one call with the whole script
+in view beats many calls each re-deriving context from a sentence dump) — but it missed the actual
+reason the original per-click design existed: **keeping every individual action small and
+independent so no single request's cost scales with the whole script.** Batching broke that.
+
+Confirmed live with a real ~4.7k-character, ~90-segment script (see "Reliability & rate-limit
+lessons" below for the full chain of failures this caused): segmentation + narrate together, both
+on the same model in the same request, could require MORE tokens than that model's entire
+per-minute quota — not as an occasional contention issue, but structurally, every time, for any
+script around that length or longer. No amount of waiting or retrying fixes a single request that
+needs more tokens than an entire minute's allowance permits in one shot.
+
+**Fix: `narrateSegments()`/`NARRATE_PROMPT` were removed from `segment.js` entirely.** Segmentation
+is back to being ONLY family classification — small and fast regardless of script length. The two
+hard-won resolution rules the Narrator had learned (always carry forward the specific time/edition/
+event established earlier, not just on first mention; resolve a "next opponent/next stage"
+fragment as the relationship to the subject already being followed, not a standalone topic) were
+folded directly into `evidence-search.js`'s own per-click intent-extraction prompt instead of
+lost — see the "TWO RULES" block in its `SYSTEM_PROMPT`, same two paired sports/business examples
+as before. Each "Find footage"/"Find reaction clip" click now resolves its own segment's context
+from a raw concatenation of preceding segment text (`app.js`'s `findFootage()`), same as
+originally, just carrying the better resolution logic this time. `seg.context` no longer exists
+anywhere in the data model — it was removed from `buildLiveSegments()` and every call site that
+read it, rather than left as dead unused shape.
+
+**The lesson, generalized:** if a piece of work was deliberately kept small/incremental/per-action,
+that's very likely load-bearing for exactly the kind of scaling failure this caused — check why
+before centralizing it "for efficiency," and if you do centralize it, test against a REALISTIC
+full-size input, not a small hand-picked example, before believing it's safe.
+
+## Reliability & rate-limit lessons (2026-07-18) — read before touching Groq call sites
+The app was crashing/hanging under real use. Root-caused and fixed across several real, live-
+confirmed bugs — several fed into each other, and the mistakes here are as important as the fixes.
+
+**1. Auto-hydrate burst → batched instead.** `app.js`'s `hydrateClips()` fired one
+`/api/stock-search` call PER "feel" segment, all via `Promise.all` on EVERY workspace load — a
+script with 10-15 feel beats meant that many concurrent Groq rerank calls at once, bursting past
+Groq's per-minute limit on every reload, not just a rare edge case. Fixed with a new
+`/api/stock-search-batch` endpoint: Pexels searches still run per-segment (each needs its own
+query) but through a small concurrency pool (`PEXELS_CONCURRENCY = 4`) instead of all-at-once, and
+ALL segments' candidates get reranked in ONE combined Groq call (`rerankStockCandidatesBatch` in
+`stock-search.js`) instead of one per segment. `hydrateClips()` now calls this once per page load.
+
+**2. Shared retry wrapper (`functions/api/_groq.js`).** Every Groq call in the app now goes
+through `groqChat(env, {...})` instead of a raw `fetch()`. Two distinct retry behaviors, don't
+conflate them:
+   - **429 (rate limit):** retries only if the wait is short (capped at `MAX_WAIT_MS = 2000`).
+     A 429's `Retry-After` means different things depending on why it fired — a few seconds for a
+     brief per-minute burst (worth waiting out), or minutes for a daily-quota wall (waiting just
+     delays the same inevitable failure and makes the request hang instead of failing fast). The
+     cap is what tells these apart; don't remove it or "helpfully" honor a longer `Retry-After`.
+   - **400 `json_validate_failed`:** retries IMMEDIATELY, no wait. This is Groq's own JSON-mode
+     enforcement rejecting the model's malformed/truncated output — a stochastic generation slip,
+     not a rate limit, and resampling the same prompt often just produces valid JSON the second
+     time. Needs to peek at the response body to tell this apart from a genuinely bad request,
+     since the 400 status code alone doesn't distinguish them.
+
+**3. `max_completion_tokens` was never set — real, reproducible truncated-JSON failures on long
+scripts.** Segmentation's output has to echo back nearly the ENTIRE script verbatim (every
+segment's `"text"` is a substring of it) plus per-segment JSON overhead, so its output size scales
+with script length, not a fixed small amount. Never setting an explicit cap meant relying on
+whatever default Groq applies — reproduced live, 3/3 tries, on a real ~4.7k-character/~90-segment
+script: it consistently failed with `json_validate_failed` and an EMPTY `failed_generation`
+(truncated mid-generation, not stochastic). **This was never once caught by testing, because every
+regression test all session had been a hand-picked 1-3 sentence snippet** — scale-dependent bugs
+like this don't exist at that size. Always include at least one full-length realistic script in
+verification for this file, not just small boundary-case snippets.
+   - Fix: `max_completion_tokens` set explicitly, sized off `script.length`. (The same cap was also
+     added to the now-removed `narrateSegments()` call — moot since that whole call was reverted,
+     see the section above, but the "cap = size off actual output volume, not a flat constant"
+     principle applies to any Groq call whose output scales with input.)
+   - **Second-order mistake, also confirmed live:** the first version of this cap was padded
+     generously ("to be safe" against truncation) — `Math.ceil(script.length / 2) + 800`. That
+     itself became a NEW problem: Groq's TPM rate limiter reserves the FULL declared
+     `max_completion_tokens` value upfront as "Requested" tokens, regardless of how much the model
+     actually generates (confirmed live — adding the cap alone jumped a real request's `Requested`
+     figure from 2660 to 5837 tokens). An over-padded cap can single-handedly eat most of an
+     entire per-minute budget in one call. Tightened to `Math.ceil(script.length / 2.5) + 600` —
+     sized close to the actual minimum need (echoed text + JSON overhead ≈ input length, not 2x)
+     rather than padded "to be safe." **The general lesson: a safety margin against one failure
+     mode (truncation) can directly cause a different one (TPM exhaustion) if it consumes the same
+     limited resource — size it to the actual need, don't just pad generously and call it safe.**
+
+**4. Model-swap trap: a "bigger daily quota" model can have a WORSE per-minute quota.**
+`llama-3.3-70b-versatile` (100k tokens/DAY, 12k tokens/MINUTE) was swapped for `gpt-oss-120b`
+(200k/day, but only 8k/minute) specifically to fix the daily-quota wall — and it did — but this
+traded a rare, severe failure (blocked for the rest of a UTC day) for a milder, MORE FREQUENT one
+(blocked for up to a minute), because 8k TPM is a small, easy-to-hit ceiling once several call
+types share it. **Always check TPM, not just TPD, before moving load onto a model to fix a quota
+problem — the axis you're not looking at can be worse.** (Current published Groq free-tier
+numbers, useful as a reference next time this comes up: `llama-3.1-8b-instant` 30 RPM/6k TPM/500k
+TPD, `llama-3.3-70b-versatile` 30 RPM/12k TPM/100k TPD, `gpt-oss-120b` and `gpt-oss-20b` both 30
+RPM/8k TPM/200k TPD. `qwen/qwen3.6-27b` exists but is preview/evaluation-only — not used here on
+purpose, don't add it without flagging that risk.)
+
+**5. Don't fix a real problem by re-centralizing what was deliberately decentralized.** See the
+"Scene context resolution" section above — the batched Narrator pass, not just the token-cap
+tuning, was the actual structural cause of the worst of this session's failures. This is listed
+here too because it's as much a rate-limit lesson as a design lesson: distributing Groq calls
+across TIME (per user action) is a real, load-bearing mitigation on a free tier, same in spirit as
+distributing them across MODELS (point 4). Don't undo one kind of spreading while fixing the other.
 
 ## Clip search — Pexels only now (`functions/api/stock-search.js`, gifs dropped 2026-07-17)
 Gifs (Giphy) used to cover the `feel` family's reaction-punch beats alongside Pexels' atmosphere/
