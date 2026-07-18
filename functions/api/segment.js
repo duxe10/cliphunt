@@ -265,20 +265,21 @@ function enforceEvidenceRule(segments) {
   return segments;
 }
 
-// The model is asked to judge "findable" (see SYSTEM_PROMPT) for any segment carrying a subject,
-// a categoryClaim, or a "reference" call, precisely so this check can be driven by those
-// mechanical fields rather than by "family" — which enforceEvidenceRule() above is busy
-// correcting. Building the trigger from subject/categoryClaim/reference-ness instead of
-// seg.family makes this function commute with enforceEvidenceRule(): it produces the same result
-// regardless of which runs first, since neither function's condition depends on the other's
-// output. A "findable":"unlikely" verdict wins outright over any feel/evidence resolution, for
-// either evidence flavor.
+// The model is asked to judge "findable" (see SYSTEM_PROMPT) ONLY for segments it already
+// considers evidence/reference-shaped, so the field's mere presence already encodes that —
+// checking seg.findable directly needs no extra guard, and deliberately does NOT gate on
+// subject/categoryClaim/family: confirmed live that a segment can legitimately have NEITHER a
+// subject NOR a categoryClaim and still be "findable":"unlikely" (that's exactly what makes it
+// unlikely — "The chat lost it when the demo video hit the front page" names no one and no real
+// category, which is why nothing is searchable, not despite it). An earlier version of this
+// function required subject/categoryClaim/family==="reference" to also be true before honoring
+// "unlikely", which silently never fired for exactly that shape of segment once
+// enforceEvidenceRule() had already downgraded it to "feel" — caught live, fixed by trusting
+// "findable" on its own. This also makes the two functions trivially commute, since this one no
+// longer reads anything enforceEvidenceRule() writes.
 function enforceFindabilityRule(segments) {
   for (const seg of segments) {
-    const hasSubject = seg.subject && String(seg.subject).trim();
-    const hasCategoryClaim = seg.categoryClaim && String(seg.categoryClaim).trim();
-    const isEvidenceShaped = hasSubject || hasCategoryClaim || seg.family === "reference";
-    if (isEvidenceShaped && seg.findable === "unlikely") {
+    if (seg.findable === "unlikely") {
       seg.family = "nothing";
     }
   }
