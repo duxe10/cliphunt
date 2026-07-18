@@ -178,7 +178,6 @@ export async function onRequestPost(context) {
       model: "claude-sonnet-5",
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: script }],
-      temperature: 0.3,
       // Same "output scales with script length, not a fixed small amount" reasoning as the old
       // Groq cap (segmentation echoes back nearly the entire script verbatim) — this formula is
       // carried over unchanged from the Groq version. NOT yet re-tuned or verified against

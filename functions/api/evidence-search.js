@@ -159,7 +159,6 @@ export async function onRequestPost(context) {
       model: "claude-sonnet-5",
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userContent }],
-      temperature: 0.2,
       max_tokens: 1024, // small, fixed — one segment's intent, not a whole-script echo
     });
 

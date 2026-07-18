@@ -21,7 +21,11 @@ const RETRY_STATUS = new Set([429, 500, 502, 503, 529]); // 529 = Anthropic's "o
 // harder quota wall), so cap how long this will ever wait rather than trusting Retry-After blind.
 const MAX_WAIT_MS = 2000;
 
-export async function claudeChat(env, { model, system, messages, temperature = 0.2, max_tokens }, maxRetries = 2) {
+// No "temperature" param — confirmed live, claude-sonnet-5 rejects it outright
+// ("`temperature` is deprecated for this model"), unlike Groq/older Claude models where it's a
+// normal sampling knob. Not made conditional/model-specific here since every current call site
+// uses claude-sonnet-5 — revisit if a call site ever needs a different model that DOES support it.
+export async function claudeChat(env, { model, system, messages, max_tokens }, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -30,7 +34,7 @@ export async function claudeChat(env, { model, system, messages, temperature = 0
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ model, system, messages, temperature, max_tokens }),
+      body: JSON.stringify({ model, system, messages, max_tokens }),
     });
     if (res.ok) return res;
     if (attempt >= maxRetries) return res;
