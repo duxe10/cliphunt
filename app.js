@@ -78,7 +78,6 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
-      context: s.context || null, // evidence/reference-only, precomputed once by segment.js's narrate pass
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -246,7 +245,7 @@ async function hydrateClips() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        segments: targets.map(seg => ({ query: seg.query || seg.text, segmentText: seg.text, context: seg.context })),
+        segments: targets.map(seg => ({ query: seg.query || seg.text, segmentText: seg.text })),
       }),
     });
     const data = await res.json();
@@ -313,10 +312,13 @@ async function findFootage(segIdx) {
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
-    // Prefer the precomputed scene note from segment.js's narrate pass (already resolved, whole-
-    // script-aware, computed once) — fall back to a raw concatenation of preceding segment text
-    // for projects created before that pass existed, or if it failed for this script.
-    const context = seg.context || (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
+    // Raw concatenation of preceding segment text — evidence-search.js/reference-search.js
+    // resolve pronouns/context themselves from this, one click at a time. This used to be
+    // precomputed once upfront for the whole script by a separate "narrate" pass, but that made a
+    // single project-creation request's size scale with the whole script's length; resolving per
+    // click instead keeps each individual request small, at the cost of re-deriving context
+    // per click instead of reusing a precomputed answer.
+    const context = (CURRENT_PROJECT.segments || []).slice(0, seg.idx).map(s => s.text).join(" ");
     const endpoint = seg.family === "reference" ? "/api/reference-search" : "/api/evidence-search";
     const searchRes = await fetch(endpoint, {
       method: "POST",

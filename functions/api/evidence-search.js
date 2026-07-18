@@ -16,17 +16,21 @@ import { groqChat } from "./_groq.js";
 // Exported so reference-search.js's own rerank filter uses the same bar.
 export const MIN_RERANK_SCORE = 30;
 const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
-real footage for it. You are given the script SO FAR (everything before the moment) to work out
-who or what it is about.
+real footage for it. You are given the script SO FAR (everything before the moment, a raw
+concatenation of preceding sentences) to resolve who/what/when it's about yourself — pronouns,
+elliptical fragments, and vague references included. This resolution is done fresh per click, one
+moment at a time, rather than as a separate whole-script pass computed once upfront: a prior
+version of this pipeline did that upfront resolution as one big batched call over every
+evidence/reference moment in the script at project-creation time, which turned out to make a
+single project-creation request's size scale with the whole script's length — for a long real
+script that reliably exceeded a single model call's practical limits. Resolving per click instead
+means each individual request stays small and paced to actual usage, at the cost of re-deriving
+context each time instead of reusing a precomputed answer — worth it for the reliability.
 
-The "script so far" you're given may already be a SINGLE, PRE-RESOLVED SENTENCE from a separate
-whole-script pass, not a raw dump of preceding sentences — e.g. "Harry Kane misses the penalty
-against France, the moment he stepped up for in the 2022 World Cup" instead of several loose
-sentences. When it reads as a clear, specific, already-resolved statement of who/what/when,
-TRUST IT DIRECTLY — use its stated subject/time/event rather than re-deriving your own answer
-from scratch. Only fall back to resolving from raw context yourself when what you're given
-genuinely looks like unresolved preceding narration (a loose concatenation of sentences, still
-containing pronouns or vague references), not a single clean resolved statement.
+Occasionally the "script so far" you're given might already read as a single, clean, pre-resolved
+sentence rather than raw narration (e.g. if it was set some other way) — if so, trust it directly
+instead of re-deriving your own answer. But normally, expect raw preceding narration and resolve
+it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
 {"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"...","stockQuery":"..."}
@@ -47,6 +51,25 @@ This applies to a script about ANY topic — sports, business, science, politics
       Same pattern in a different domain: after a script about a startup's near-collapse, the
       moment "One email changed everything." resolves to the specific investor reply that
       story was building to, not a generic "email" search.
+
+      TWO RULES that are easy to get wrong when resolving (b) from context:
+      1. ALWAYS carry forward the specific time, edition, or event established earlier — a year,
+         season, funding round, tournament stage — into "youtubeQuery", not just when it's the
+         first mention. A moment like "England looked stronger than ever" is genuinely ambiguous
+         without restating which England, which year, which tournament — don't assume "now" just
+         because the moment itself doesn't repeat it.
+      2. When a fragment introduces a NEW name as the next step in an ongoing progression — a
+         next opponent, a next round, a next funding stage — resolve it as the RELATIONSHIP
+         between the subject already being followed and that new name, not as if the new name
+         were its own independent topic. "Then came France" after several moments narrating a
+         team's tournament run means the team's NEXT MATCH is against France — youtubeQuery
+         should target "England vs France [round] [year] World Cup", not generic France content.
+      Two examples, different domains, both rules together: after context narrating England's
+      2022 World Cup run through the group stage and round of 16, "Then came France." resolves to
+      subject "England" and youtubeQuery "England vs France quarterfinal 2022 World Cup" — not
+      standalone France content. After context narrating a startup's 2019 seed round, "Then came
+      the Series B." resolves to subject "the startup" and youtubeQuery naming the actual 2019
+      Series B round, not a generic Series B explainer.
   "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
   opponent, year) most likely to appear in a real video's title. Omit "stockQuery" (null) —
   specific beats search YouTube, not Pexels.

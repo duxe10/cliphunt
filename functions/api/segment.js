@@ -92,105 +92,6 @@ own dedicated search step, not by this pass.
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","query":"..."}]}`;
 
-// Second pass, run once per script (not per click): for evidence/reference segments only,
-// resolve "what is actually happening in this moment" using everything narrated before it —
-// pronouns and elliptical references sorted out ("A missed penalty." -> "Harry Kane misses a
-// penalty against France"). This used to be re-derived on every "Find footage" click from a raw
-// concatenation of preceding sentence text, inside the same prompt that ALSO had to classify
-// footageType and write a search query — asking one call to both understand the scene AND act
-// on it. Doing the understanding here instead, once, with the whole script actually in view,
-// gives evidence-search.js/reference-search.js a clean input instead of a sentence dump, so
-// their own prompts can focus purely on turning an already-understood moment into a query.
-const NARRATE_PROMPT = `You are given a video script already broken into ordered, numbered
-segments. For EACH segment listed under "RESOLVE THESE", write one short, plain-language
-sentence describing exactly what is happening in that moment — with every pronoun, "he"/"they"/
-vague reference, or fragment resolved into the specific real person/thing/event it refers to.
-
-Resolve using ONLY the segments that come BEFORE the one you're resolving (the "story so far" —
-never use a later segment, since a viewer hasn't seen it yet at this point in the video). If a
-segment is genuinely a general statement about a category rather than one specific person/event,
-say so plainly rather than forcing a specific subject onto it.
-
-TWO RULES that are easy to get wrong:
-
-1. ALWAYS name the specific time, edition, or event established earlier — a year, a season, a
-   funding round, a tournament stage — in EVERY resolved sentence, not just the first one. A
-   later segment that just says "England looked stronger than ever" is genuinely ambiguous
-   without restating which England, which year, which tournament — don't assume "now"/"today"
-   just because the segment itself doesn't repeat it; carry the specific time/event forward every
-   single time, even when it feels repetitive or already obvious from earlier segments.
-
-2. When a fragment introduces a NEW name as the next step in an ongoing progression — a next
-   opponent, a next round, a next funding stage, a next chapter — resolve it as the RELATIONSHIP
-   or EVENT between the subject already being followed and that new name, not as if the new name
-   were its own independent topic. "Then came France" after several segments narrating a team's
-   tournament run means the team's NEXT MATCH is against France — resolve to "England play France
-   in the [specific round] of the [specific year] World Cup", not just "France" or a general
-   France-related event unconnected to the team being followed.
-
-Two examples, different domains, both showing rules 1 and 2 together:
-- Sports: after segments narrating England's run through the 2022 World Cup group stage and
-  round of 16, "Then came France." -> "England face France in the quarterfinal of the 2022 World
-  Cup, their next match after beating Senegal in the round of 16" — names the specific edition
-  AND frames it as the matchup between the two, not standalone France content.
-- Business: after segments narrating a startup's seed round and early growth in 2019, "Then came
-  the Series B." -> "The startup closes its Series B funding round in 2019, the next funding
-  stage after the seed round covered earlier" — names the specific year AND frames it as the next
-  stage in that company's story, not a generic Series B explainer.
-
-Return strict JSON only, no prose, no markdown fences:
-{"resolved":[{"i":0,"context":"..."}]}
-Include an entry for every index listed under "RESOLVE THESE", in any order.`;
-
-// Only evidence/reference segments actually consume this context downstream, and feeding the
-// model fewer segments to resolve keeps the call cheap — but it still needs ALL segments (not
-// just the ones being resolved) as input, since earlier "feel"/"nothing" beats can carry the
-// context a later evidence beat depends on.
-async function narrateSegments(segments, env) {
-  const targets = segments.map((s, i) => ({ s, i })).filter(({ s }) => s.family === "evidence" || s.family === "reference");
-  if (!targets.length) return segments;
-
-  const script = segments.map((s, i) => `[${i}] ${s.text}`).join("\n");
-  const userContent = `FULL SCRIPT, IN ORDER:\n${script}\n\nRESOLVE THESE: ${targets.map((t) => t.i).join(", ")}`;
-
-  try {
-    const res = await groqChat(env, {
-      // Was gpt-oss-120b, same model as segmentation right before it in onRequestPost. Moved off
-      // it after confirming live that a realistically-sized script (~90 segments, ~70 evidence/
-      // reference targets) makes segmentation + narrate TOGETHER exceed gpt-oss-120b's own 8000
-      // TPM ceiling in a single project-creation request — not an occasional contention issue,
-      // a structural one, every time, for any script around this length or longer. Splitting
-      // onto gpt-oss-20b's separate TPM budget means each call only has to fit its own model's
-      // ceiling. Accepted risk: narrate's task is still real reasoning (temporal/relational
-      // resolution), and gpt-oss-20b was chosen elsewhere for mechanical rubric-scoring — worth
-      // re-verifying the France/quarterfinal and 2022-vs-2026 anchoring tests still hold here.
-      model: "openai/gpt-oss-20b",
-      messages: [
-        { role: "system", content: NARRATE_PROMPT },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0.2,
-      // Output scales with how many segments need resolving, not with the whole script — one
-      // short sentence per target. Sized generously per target rather than a flat constant, so a
-      // script with unusually many evidence/reference beats doesn't get cut off mid-JSON (see
-      // onRequestPost's max_completion_tokens comment for why this class of bug matters here).
-      // Same reasoning as segmentation's cap: Groq reserves the full declared value upfront
-      // against the TPM budget, so this shouldn't be padded further than the actual need — one
-      // short resolved sentence per target, not a large safety margin on top of that.
-      max_completion_tokens: Math.min(8000, targets.length * 45 + 200),
-    });
-    if (!res.ok) return segments; // best-effort: evidence-search.js falls back to raw context
-
-    const data = await res.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    const resolved = Array.isArray(parsed.resolved) ? parsed.resolved : [];
-    const byIdx = new Map(resolved.map((r) => [r.i, r.context]));
-    return segments.map((s, i) => (byIdx.has(i) ? { ...s, context: String(byIdx.get(i) || "").trim() } : s));
-  } catch {
-    return segments; // network/parse failure — ship without precomputed context, not a hard fail
-  }
-}
-
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -210,13 +111,11 @@ export async function onRequestPost(context) {
 
   try {
     const groqRes = await groqChat(env, {
-      // Was llama-3.3-70b-versatile — moved here alongside narrateSegments() below. That model's
-      // 100k-tokens/day quota got exhausted mid-session repeatedly (real, reproducible — a live
-      // 429 response confirmed it), and it was the sole model behind segmentation AND both
-      // intent-extraction calls (evidence-search.js, reference-search.js): once it's out, the
-      // whole "understand the script" pipeline hard-fails, not just one call site. Consolidating
-      // onto gpt-oss-120b (already verified for the narrate pass) trades that hard dependency for
-      // a model whose quota isn't shared with anything user-triggered per-click.
+      // Was llama-3.3-70b-versatile. That model's 100k-tokens/day quota got exhausted mid-session
+      // repeatedly (real, reproducible — a live 429 response confirmed it), and it was the sole
+      // model behind segmentation AND both intent-extraction calls (evidence-search.js,
+      // reference-search.js): once it's out, the whole "understand the script" pipeline
+      // hard-fails, not just one call site.
       model: "openai/gpt-oss-120b",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -256,8 +155,7 @@ export async function onRequestPost(context) {
     }
 
     const merged = mergeFragments(parsed.segments);
-    const withContext = await narrateSegments(merged, env);
-    return Response.json({ segments: withContext });
+    return Response.json({ segments: merged });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
