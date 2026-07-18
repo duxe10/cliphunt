@@ -12,13 +12,17 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
 - Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation/family classification only, see "Segmentation" below), `functions/api/_groq.js` (shared Groq fetch wrapper with retry/backoff — underscore prefix means Pages excludes it from routing, import-only, see "Reliability & rate-limit lessons" below), `functions/api/stock-search.js` + `functions/api/stock-search-batch.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, and generic-evidence's source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + context resolution + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
 - Mostly-free constraint — Groq, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
-- **Groq model split (as of 2026-07-18):** `llama-3.3-70b-versatile` is no longer used anywhere —
-  its 100k-tokens/DAY quota got hit repeatedly during real use and hard-fails every call site
-  sharing it. All reasoning-heavy calls (segmentation, evidence/reference intent extraction) now
-  run on `openai/gpt-oss-120b`; all mechanical rubric-scoring (every rerank step, including the
-  batched stock rerank) runs on `openai/gpt-oss-20b`. See "Reliability & rate-limit lessons" below
-  for the full story and the traps in this specific tradeoff — the model swap fixed the daily
-  quota but exposed a WORSE per-minute (TPM) ceiling that caused most of this session's pain.
+- **Groq model split (revised 2026-07-18, second pass):** segmentation (`segment.js`) is back on
+  `llama-3.3-70b-versatile` — confirmed live that even after the Narrator-batch revert, a single
+  segmentation call for a realistic script requests ~65-72% of `gpt-oss-120b`'s 8k TPM ceiling in
+  one shot, so a retry or a second call inside the same minute reliably collided and 429'd (this
+  is why testing kept failing even after the earlier fix). `llama-3.3-70b-versatile`'s 12k TPM
+  gives real headroom for the same request. This deliberately reopens the 100k-tokens/DAY quota
+  risk that caused the original move away from it (see "Reliability & rate-limit lessons" below) —
+  watch for that risk resurfacing, don't silently swap back without re-checking.
+  Evidence/reference intent-extraction stay on `openai/gpt-oss-120b`; mechanical rubric-scoring
+  (every rerank step, including the batched stock rerank) stays on `openai/gpt-oss-20b` — both are
+  per-click, lower call frequency, so they don't share segmentation's TPM pressure.
 
 ## Evidence & reference pipelines — link-only, no downloading (reworked 2026-07-17)
 There used to be a separate worker service (`worker/`, Node+Express+Docker on Render) that ran

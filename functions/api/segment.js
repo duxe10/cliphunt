@@ -111,12 +111,16 @@ export async function onRequestPost(context) {
 
   try {
     const groqRes = await groqChat(env, {
-      // Was llama-3.3-70b-versatile. That model's 100k-tokens/day quota got exhausted mid-session
-      // repeatedly (real, reproducible — a live 429 response confirmed it), and it was the sole
-      // model behind segmentation AND both intent-extraction calls (evidence-search.js,
-      // reference-search.js): once it's out, the whole "understand the script" pipeline
-      // hard-fails, not just one call site.
-      model: "openai/gpt-oss-120b",
+      // Back on llama-3.3-70b-versatile (2026-07-18, second swap) — segmentation alone was
+      // confirmed live to request ~5200-5800 tokens for a realistic script, which is 65-72% of
+      // gpt-oss-120b's 8k TPM ceiling in ONE call, leaving no room for a retry or a second call
+      // within the same minute (this is what was still breaking testing after the Narrator-batch
+      // revert). llama-3.3-70b-versatile's 12k TPM gives real headroom for the same request.
+      // Trade-off, deliberate: this reopens the 100k-tokens/DAY quota risk that caused the
+      // original move away from this model — evidence/reference/stock-rerank calls stay on
+      // gpt-oss-120b/20b so segmentation isn't sharing a quota with them again. If the daily
+      // quota starts getting hit, that's the next thing to look at — don't silently swap back.
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: script },
