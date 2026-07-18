@@ -87,26 +87,23 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
    a different domain (a startup/business one) specifically to break that anchor. If you add a new
    example anywhere in these prompts, pair it with one from a different domain, don't add a third
    sports one.
-6. **`feel`/`evidence` atmosphere boundary — fixed twice, still not fully closed (2026-07-18):**
-   `"feel"` covers pure atmosphere/mood/ordinary background human activity with no narrative
-   significance (rain on a window, hands typing at a desk, an empty stadium); `"evidence"`(b)
-   covers a CATEGORY doing/experiencing something real. These overlap in a way that's genuinely
-   hard to word unambiguously: a script built from the prompt's OWN canonical `"feel"` examples
-   came back `"evidence"` for all of them after the model swap (point above) — the same prompt had
-   worked fine on the old model, so **prompt behavior is not portable across models; re-verify
-   boundary cases after any model swap, don't assume a working prompt keeps working.** Fixed once
-   by making the two bullets' exclusion lists actually match each other (they'd drifted). Tested
-   again with a genuinely novel example never in the prompt ("A barista wiped down the counter as
-   the cafe emptied out for the night") — still misclassified as `"evidence"`. Added an explicit
-   "this is a pattern, not a fixed list" instruction plus more paired examples — tested AGAIN with
-   yet another fresh example ("An aide shuffled papers at an empty podium...") — **still
-   misclassified.** Concluded (not fixed further): the model reliably reads a "[a/an + role] +
-   [specific verb] + [specific scene]" grammatical SHAPE as a narrative beat worth `"evidence"`
-   regardless of content, and more prompt examples haven't closed this. Not chasing it further for
-   now — the practical cost is low (evidence-search.js's own classifier hits the same ambiguity and
-   likely routes to the same Pexels footage anyway; the real cost is an extra click + Groq call,
-   not wrong footage). If this comes up again, a schema change (forcing an explicit "does this name
-   a specific real entity? Y/N" field) is a more promising direction than another prompt example.
+6. **`feel`/`evidence` atmosphere boundary — actually fixed 2026-07-18, via schema not wording.**
+   Three prompt rewordings in a row failed to stop the model reading a "[a/an + role] + [specific
+   verb] + [specific scene]" grammatical SHAPE as evidence-worthy regardless of content (a barista,
+   a groundskeeper, an aide — all misclassified `"evidence"` despite naming no one real). Same
+   lesson as `mergeFragments()` elsewhere in this file: when the model won't reliably hold a rule
+   no matter how it's worded, stop wording it and enforce it in code instead. Fix: the model now
+   names a `"subject"` per segment (the one specific real entity/event, or `null` if there isn't
+   one) — a narrower, more mechanical question than "which family" — and `enforceSubjectRule()`
+   deterministically downgrades `family:"evidence"` to `"feel"` whenever `subject` came back empty.
+   This can't misfire on a real evidence claim (one always implies a nameable subject), and it
+   can no longer matter if the model's shape-bias miscalls the family label, since the subject
+   check catches it regardless. `"feel"` absorbed the old `"evidence"`(b) category-statement case
+   (`"Most startups fail..."` etc.) since both always routed to Pexels anyway — one fewer
+   ambiguous line to draw. Every non-`"nothing"` segment now gets a `"query"` (previously
+   `"feel"`-only) so a downgraded segment already has a stock-search query ready, no extra call
+   needed. Re-verify this against a real script with the specific phrasings above if it's ever
+   touched again — don't assume the fix holds without testing live, same as everywhere else here.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

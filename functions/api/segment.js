@@ -29,68 +29,41 @@ Rules for where segments start and end:
 Do not paraphrase — each segment's "text" must be an exact substring of the original script,
 in order, covering the whole script.
 
-For each segment, also pick one "family":
-- "feel" — EITHER a pure emotional beat (surprise, disappointment, hype, etc, no specific
-  referent), OR pure atmosphere/mood/scene-setting — including ordinary background human activity
-  that has no narrative significance of its own (rain on a window, a city at night, a sunrise,
-  hands typing at a desk, an empty stadium, a crowded office). Real footage of this kind of moment
-  exists too, but it's ambient: even when someone is technically visible doing something mundane
-  (typing, walking past, sitting at a desk), that action isn't what the story is ABOUT — it's just
-  a shot. This is "feel", not "evidence" — see the exclusion note in (b) below, which covers the
-  same ground from the other side.
-  This is a PATTERN, not a fixed list — it applies to any unnamed, generic person or scene doing
-  something ordinary, with no specific identity established by context and no "most/many X"
-  categorical claim being made, even in a phrasing never shown here. Two more examples,
-  deliberately in domains this prompt hasn't used yet, to show the pattern isn't limited to the
-  list above: "A barista wiped down the counter as the cafe emptied out for the night" (an
-  anonymous barista, ordinary closing-time activity — feel, even though grammatically "someone did
-  something"), and "A groundskeeper walked the pitch checking the turf before kickoff" (an
-  anonymous groundskeeper, ordinary pre-match activity — same pattern, sports domain this time).
-  Neither names a specific real person/team, and neither is a categorical claim — they're
-  incidental human motion setting a scene, exactly like hands typing at a desk.
-- "evidence" — needs a REAL-WORLD illustrative visual of people/things DOING or EXPERIENCING
-  something. Either (a) ONE specific real person/thing that said or did something, or (b) a
-  general statement about a CATEGORY of people/things doing or experiencing something concrete —
-  even with no single person named, real footage of that KIND of moment exists and should be
-  found. Two examples of (b), deliberately from different domains — this applies to ANY topic,
-  not just one kind of story: "For most footballers, scoring at a World Cup is the highlight of
-  their career" (needs footage of players scoring/celebrating), and "Most startups fail within
-  their first two years" (needs footage of a struggling small business, a closed storefront,
-  people packing up an office) are BOTH "evidence" — do NOT call either "nothing" just because
-  no one person is named. Ask whether real footage of that kind of moment exists; if yes, it's
-  "evidence", named person or not. EXCLUSION: this does NOT cover anything matching "feel"'s
-  pattern above — pure atmosphere/weather/scene-setting, OR ordinary background activity by an
-  unnamed, generic person/scene with no categorical claim attached — even though real footage of
-  it, including of someone technically doing something in it, obviously exists too. The test: is
-  the DOING itself the point the sentence is making (a goal scored, a company failing, a specific
-  meaningful act ATTRIBUTED to a named entity or a named category), or is a person just
-  incidentally, anonymously visible as scenery while something else is the point? Only the former
-  is "evidence" (b) — incidental human activity stays "feel" no matter how literally "someone is
-  doing something" it is, and no matter whether this exact wording was used as an example above.
-- "reference" — matches a known meme/cultural callback
+For each segment, also name the "subject": the ONE specific, nameable real person, team,
+organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
+pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
+"A missed penalty." has subject "Harry Kane"). Set "subject" to null when no single specific
+real entity/event is identifiable — this covers pure atmosphere/mood, general statements about a
+CATEGORY of people/things ("For most footballers...", "Most startups fail..."), and ordinary
+unnamed background activity (a barista closing up, a groundskeeper checking the pitch) alike:
+none of these name ONE real entity, so all of them get "subject": null, even though a person is
+grammatically "doing something" in some of them. Don't guess a subject that isn't actually
+established — null is correct far more often than it might feel.
+
+Then pick one "family":
+- "feel" — "subject" is null. Covers pure emotional beats, atmosphere/mood/scene-setting, general
+  category-level statements, and ordinary unnamed background activity — anything without ONE
+  nameable real entity/event behind it. All of it gets real stock footage.
+- "evidence" — "subject" is set: a specific real person/team/org/event doing or saying a
+  particular thing.
+- "reference" — matches a known meme/cultural callback (subject is usually null or the meme's name).
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
-  describes any real-world action, scene, or moment — named person or not, any topic — it is
-  NOT "nothing". CAUTION: a short fragment shaped like a transition ("Then came France.", "Next
-  was the Series B.", "Up next: the finals.") is NOT automatically "nothing" just because it's
-  brief and transition-shaped — check whether it NAMES a real person/team/event first. If it
-  does, it's "evidence" (a real next step in the story that needs real footage), even though it
-  reads like a pacing beat. Only call it "nothing" if, after removing the transition wording,
-  nothing real and nameable is actually left.
+  describes any real-world action, scene, or moment it is NOT "nothing" — check whether it names
+  or resolves to a subject first (then it's "evidence"), and if not, it's "feel", not "nothing".
+  Only call it "nothing" if, after removing transition wording, nothing visual is actually left.
 
-If family is "feel", also include a "query": a SHORT DESCRIPTIVE VISUAL SCENE PHRASE, 2-5 words,
-for searching a real stock-footage library — describe the shot itself, not a mood word. The beat
-is atmosphere, mood, or an unnamed action a real clip can depict (rain on a window, a city at
-night, a sunrise, hands typing at a desk, a crowded office, an empty stadium). Good queries:
-"stormy sky timelapse", "empty stadium night", "hands typing on laptop", "city traffic time
-lapse". Bad queries: single mood words like "hope" or "tension" — stock-footage search matches
-what's actually shown on screen, not a feeling.
-
-For "nothing"/"evidence"/"reference" segments, omit "query" — it's resolved downstream by its
-own dedicated search step, not by this pass.
+Also include a "query" for every segment EXCEPT "nothing": a SHORT DESCRIPTIVE VISUAL SCENE
+PHRASE, 2-5 words, for searching a real stock-footage library — describe the shot itself, not a
+mood word or an abstract claim, and never include "subject"'s name in it. This is the primary
+search for "feel" segments, and a fallback for "evidence"/"reference" segments in case no
+specific subject can actually be confirmed later. Good queries: "stormy sky timelapse", "empty
+stadium night", "hands typing on laptop", "stadium crowd celebrating goal", "small storefront
+closing down with moving boxes", "empty office packed into cardboard boxes". Bad queries: single
+mood words like "hope" or "tension", or a person's/team's name.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","query":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"query":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -159,7 +132,8 @@ export async function onRequestPost(context) {
     }
 
     const merged = mergeFragments(parsed.segments);
-    return Response.json({ segments: merged });
+    const corrected = enforceSubjectRule(merged);
+    return Response.json({ segments: corrected });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
@@ -184,4 +158,23 @@ function mergeFragments(segments) {
     merged.push({ ...seg, text });
   }
   return merged;
+}
+
+// The model is unreliable at holding the feel/evidence line on its own — confirmed live,
+// repeatedly, that it reads a "[a/an + role] + [specific verb] + [specific scene]" sentence SHAPE
+// as evidence-worthy regardless of whether a real entity is actually named (a barista, a
+// groundskeeper, an aide — all misclassified "evidence" despite naming no one). Rewording the
+// prompt harder didn't fix it (same lesson as mergeFragments() above), so this rule is enforced
+// deterministically instead: "evidence" without a "subject" isn't a coherent evidence claim, so
+// it's downgraded to "feel" here in code rather than trusted to the model's own family label.
+// This can't misfire on a legitimate evidence segment, since a real "evidence" claim always
+// implies a nameable subject by definition.
+function enforceSubjectRule(segments) {
+  for (const seg of segments) {
+    const hasSubject = seg.subject && String(seg.subject).trim();
+    if (seg.family === "evidence" && !hasSubject) {
+      seg.family = "feel";
+    }
+  }
+  return segments;
 }
