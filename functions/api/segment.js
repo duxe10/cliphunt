@@ -38,6 +38,16 @@ For each segment, also pick one "family":
   (typing, walking past, sitting at a desk), that action isn't what the story is ABOUT — it's just
   a shot. This is "feel", not "evidence" — see the exclusion note in (b) below, which covers the
   same ground from the other side.
+  This is a PATTERN, not a fixed list — it applies to any unnamed, generic person or scene doing
+  something ordinary, with no specific identity established by context and no "most/many X"
+  categorical claim being made, even in a phrasing never shown here. Two more examples,
+  deliberately in domains this prompt hasn't used yet, to show the pattern isn't limited to the
+  list above: "A barista wiped down the counter as the cafe emptied out for the night" (an
+  anonymous barista, ordinary closing-time activity — feel, even though grammatically "someone did
+  something"), and "A groundskeeper walked the pitch checking the turf before kickoff" (an
+  anonymous groundskeeper, ordinary pre-match activity — same pattern, sports domain this time).
+  Neither names a specific real person/team, and neither is a categorical claim — they're
+  incidental human motion setting a scene, exactly like hands typing at a desk.
 - "evidence" — needs a REAL-WORLD illustrative visual of people/things DOING or EXPERIENCING
   something. Either (a) ONE specific real person/thing that said or did something, or (b) a
   general statement about a CATEGORY of people/things doing or experiencing something concrete —
@@ -48,15 +58,15 @@ For each segment, also pick one "family":
   their first two years" (needs footage of a struggling small business, a closed storefront,
   people packing up an office) are BOTH "evidence" — do NOT call either "nothing" just because
   no one person is named. Ask whether real footage of that kind of moment exists; if yes, it's
-  "evidence", named person or not. EXCLUSION: this does NOT cover pure atmosphere/weather/scene-
-  setting, OR ordinary background human activity with no narrative significance of its own (rain
-  on a window, an empty stadium, a sunrise, a city skyline at night, hands typing at a desk, a
-  crowded office) — those are "feel", not "evidence", even though real footage of them — including
-  of someone technically doing something in them — obviously exists too. The test: is the DOING
-  itself the point the sentence is making (a goal scored, a company failing, a specific meaningful
-  act), or is a person just incidentally visible as scenery while something else is the point? Only
-  the former is "evidence" (b) — incidental human activity stays "feel" no matter how literally
-  "someone is doing something" it is.
+  "evidence", named person or not. EXCLUSION: this does NOT cover anything matching "feel"'s
+  pattern above — pure atmosphere/weather/scene-setting, OR ordinary background activity by an
+  unnamed, generic person/scene with no categorical claim attached — even though real footage of
+  it, including of someone technically doing something in it, obviously exists too. The test: is
+  the DOING itself the point the sentence is making (a goal scored, a company failing, a specific
+  meaningful act ATTRIBUTED to a named entity or a named category), or is a person just
+  incidentally, anonymously visible as scenery while something else is the point? Only the former
+  is "evidence" (b) — incidental human activity stays "feel" no matter how literally "someone is
+  doing something" it is, and no matter whether this exact wording was used as an example above.
 - "reference" — matches a known meme/cultural callback
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
