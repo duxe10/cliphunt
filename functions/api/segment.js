@@ -155,9 +155,16 @@ async function narrateSegments(segments, env) {
 
   try {
     const res = await groqChat(env, {
-      // The narrate pass is the reasoning-heaviest step in the pipeline (relational + temporal
-      // resolution across an arbitrary-length script) — worth the stronger model.
-      model: "openai/gpt-oss-120b",
+      // Was gpt-oss-120b, same model as segmentation right before it in onRequestPost. Moved off
+      // it after confirming live that a realistically-sized script (~90 segments, ~70 evidence/
+      // reference targets) makes segmentation + narrate TOGETHER exceed gpt-oss-120b's own 8000
+      // TPM ceiling in a single project-creation request — not an occasional contention issue,
+      // a structural one, every time, for any script around this length or longer. Splitting
+      // onto gpt-oss-20b's separate TPM budget means each call only has to fit its own model's
+      // ceiling. Accepted risk: narrate's task is still real reasoning (temporal/relational
+      // resolution), and gpt-oss-20b was chosen elsewhere for mechanical rubric-scoring — worth
+      // re-verifying the France/quarterfinal and 2022-vs-2026 anchoring tests still hold here.
+      model: "openai/gpt-oss-20b",
       messages: [
         { role: "system", content: NARRATE_PROMPT },
         { role: "user", content: userContent },
