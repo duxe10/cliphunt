@@ -74,6 +74,19 @@ Then pick one "family":
   or resolves to a subject or a categoryClaim first (then it's "evidence"), and if not, it's
   "feel", not "nothing". Only call it "nothing" if, after removing transition wording, nothing
   visual is actually left.
+  ALSO "nothing": an ABSTRACT STATE or OUTCOME with no concrete scene a camera could point at —
+  a score being tied, a situation being "still open"/"unresolved", a deal "still on the table".
+  These describe a STATE, not an action, event, or scene — there's nothing happening to show, so
+  neither a stock-footage query nor a real-footage search has anything concrete to work with. Two
+  examples, different domains: "Everything was level going into the final minutes." (a tied score
+  is a fact about a scoreboard, not a filmable moment — "level" isn't a shot). "The deal was still
+  hanging in the balance." (an ongoing negotiation state, nothing to picture). Contrast with mood/
+  atmosphere, which DOES stay "feel" because it's actually visualizable (a tense crowd's faces, an
+  electric atmosphere in a stadium are real shots) — the line is whether a concrete scene exists to
+  film, not whether the sentence "sounds" abstract. And contrast with a real action inside the same
+  beat: "The score had been level for weeks until the funding finally came through." — the funding
+  coming through is a real event (evidence/categoryClaim territory); only an isolated abstract-state
+  clause with no action attached is "nothing".
 
 For every segment where you set a non-null "subject", a non-null "categoryClaim", or judge family
 "reference", also judge "findable" — the odds that real, indexed footage of this actually exists
