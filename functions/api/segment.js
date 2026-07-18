@@ -174,7 +174,10 @@ async function narrateSegments(segments, env) {
       // short sentence per target. Sized generously per target rather than a flat constant, so a
       // script with unusually many evidence/reference beats doesn't get cut off mid-JSON (see
       // onRequestPost's max_completion_tokens comment for why this class of bug matters here).
-      max_completion_tokens: Math.min(8000, targets.length * 60 + 300),
+      // Same reasoning as segmentation's cap: Groq reserves the full declared value upfront
+      // against the TPM budget, so this shouldn't be padded further than the actual need — one
+      // short resolved sentence per target, not a large safety margin on top of that.
+      max_completion_tokens: Math.min(8000, targets.length * 45 + 200),
     });
     if (!res.ok) return segments; // best-effort: evidence-search.js falls back to raw context
 
@@ -226,9 +229,17 @@ export async function onRequestPost(context) {
       // whatever default cap Groq applies, which a long real script (confirmed live: ~90 segments
       // from a ~4.7k-character script) can exceed mid-generation, coming back as truncated,
       // invalid JSON ("json_validate_failed" with an empty failed_generation) — not a rare fluke,
-      // reproduced 3/3 tries on the same script. Sized off script length with headroom for the
-      // JSON overhead, capped at gpt-oss-120b's practical ceiling under its own 8000 TPM budget.
-      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2) + 800),
+      // reproduced 3/3 tries on the same script.
+      //
+      // The first version of this (script.length/2 + 800) fixed the truncation bug but then
+      // itself became the problem: Groq's TPM accounting reserves the FULL declared cap upfront
+      // as "Requested" (confirmed live — adding this cap alone jumped Requested from 2660 to
+      // 5837 tokens), so an over-padded cap eats most of the entire 8000/minute budget in one
+      // call, leaving near-zero margin for any contention at all. Tightened to roughly match the
+      // actual minimum need (echoed text + JSON overhead ≈ script length in tokens, not 2x) rather
+      // than padding heavily "to be safe" — safety here has to be balanced against the TPM ceiling
+      // itself, not just against truncation risk in isolation.
+      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 600),
     });
 
     if (!groqRes.ok) {
