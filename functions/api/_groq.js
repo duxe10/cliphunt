@@ -17,18 +17,37 @@ const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_WAIT_MS = 2000;
 
 export async function groqChat(env, { model, messages, temperature = 0.2, response_format = { type: "json_object" } }, maxRetries = 2) {
-  let res;
   for (let attempt = 0; ; attempt++) {
-    res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, messages, temperature, response_format }),
     });
-    if (res.ok || !RETRY_STATUS.has(res.status) || attempt >= maxRetries) return res;
-    const retryAfter = Number(res.headers.get("retry-after"));
-    const waitMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 400 * 2 ** attempt + Math.random() * 200;
-    if (waitMs > MAX_WAIT_MS) return res; // not a brief burst — fail now, don't make them wait for it
-    await sleep(waitMs);
+    if (res.ok) return res;
+    if (attempt >= maxRetries) return res;
+
+    if (RETRY_STATUS.has(res.status)) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 400 * 2 ** attempt + Math.random() * 200;
+      if (waitMs > MAX_WAIT_MS) return res; // not a brief burst — fail now, don't make them wait for it
+      await sleep(waitMs);
+      continue;
+    }
+
+    // Groq's JSON-mode enforcement occasionally rejects its own model's output as invalid
+    // ("json_validate_failed") — a stochastic generation slip, not a request problem. Unlike a
+    // rate limit, this is worth an IMMEDIATE retry (no wait): resampling the same prompt often
+    // just produces valid JSON the second time. Needs peeking at the body since the status alone
+    // (400) doesn't distinguish this from a genuinely malformed request.
+    if (res.status === 400) {
+      const bodyText = await res.text();
+      let code;
+      try { code = JSON.parse(bodyText)?.error?.code; } catch { /* not JSON — fall through */ }
+      if (code === "json_validate_failed") continue;
+      return new Response(bodyText, { status: res.status, statusText: res.statusText, headers: res.headers });
+    }
+
+    return res;
   }
 }
 
