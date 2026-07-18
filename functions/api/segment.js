@@ -179,16 +179,15 @@ export async function onRequestPost(context) {
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: script }],
       // Same "output scales with script length, not a fixed small amount" reasoning as the old
-      // Groq cap (segmentation echoes back nearly the entire script verbatim) — base formula
-      // carried over from the Groq version, but the cap and flat buffer are both raised well
-      // beyond that (8000->16000, +900->+2500): confirmed live that claude-sonnet-5's default
-      // adaptive thinking (see _claude.js) shares this SAME max_tokens budget, and a response
-      // that runs out of budget mid-thought returns ONLY a thinking block with no text at all —
-      // not a truncated JSON error, a total failure. This needs enough headroom for low-effort
-      // thinking AND the full echoed-text answer to both fit, not just the answer alone. Not
-      // measured against a real dense script yet — re-confirm and retune, same as every other
-      // number in this formula historically.
-      max_tokens: Math.min(16000, Math.ceil(script.length / 2.5) + 2500),
+      // Groq cap (segmentation echoes back nearly the entire script verbatim), but this number
+      // does NOT need Groq-style tight tuning: Anthropic bills by tokens actually GENERATED, not
+      // the declared max_tokens ceiling (confirmed live — Groq's TPM accounting reserved the
+      // whole declared cap upfront regardless of use, which is what forced the tight Groq-era
+      // formula; that constraint doesn't apply here). Raised generously (16000->32000 cap,
+      // +2500->+6000 buffer) after a real truncation ("Unterminated string in JSON") at the old
+      // cap — a real answer needs room for low-effort thinking (see _claude.js) PLUS the full
+      // echoed-text JSON, and there's no cost reason to keep this tight the way Groq's was.
+      max_tokens: Math.min(32000, Math.ceil(script.length / 1.5) + 6000),
     });
 
     if (!claudeRes.ok) {

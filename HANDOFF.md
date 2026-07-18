@@ -235,11 +235,18 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
       into that same confusing downstream message — same "fail loudly, don't silently paper over
       it" instinct as this file's other lessons.
     - **`max_tokens` must budget for thinking AND the answer, not just the answer** — since both
-      share the same cap. Bumped generously on both call sites (segmentation:
-      `Math.min(16000, Math.ceil(script.length/2.5)+2500)`, up from a Groq-tuned 8000/+900;
-      evidence-search: 1024 -> 4096) as a first pass, **not yet confirmed against real usage** —
-      re-verify actual token consumption on real scripts before trusting these numbers, per this
-      file's standing rule for every constant in this area.
+      share the same cap. First pass (`Math.min(16000, Math.ceil(script.length/2.5)+2500)`) still
+      truncated a real response mid-JSON (`Unterminated string in JSON`) — bumped again to
+      `Math.min(32000, Math.ceil(script.length/1.5)+6000)` (segmentation) / `4096`
+      (evidence-search). **Important, and different from the Groq-era rule right above this
+      section:** Anthropic bills by tokens actually GENERATED, not the declared `max_tokens`
+      ceiling — Groq's TPM accounting reserved the whole declared cap upfront regardless of
+      actual use, which is exactly why the old Groq-era formula had to stay tight (the "over-
+      padded cap eats the TPM budget" lesson two sections up). That constraint doesn't apply to
+      Claude, so there's no cost reason to keep this number tight the way the Groq one had to be —
+      err generous here. Still **not yet confirmed against real usage** — re-verify actual token
+      consumption on real scripts before trusting these specific numbers, same standing rule as
+      every other constant in this area.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
