@@ -21,7 +21,7 @@
 // part that was failing. This account is on a small real Anthropic balance, not a free tier —
 // see _claude.js's header comment.
 import { groqChat } from "./_groq.js";
-import { claudeChat, extractJson } from "./_claude.js";
+import { claudeChat, extractText, extractJson } from "./_claude.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
@@ -168,7 +168,7 @@ export async function onRequestPost(context) {
     }
 
     const data = await claudeRes.json();
-    intent = JSON.parse(extractJson(data.content?.[0]?.text) || "{}");
+    intent = JSON.parse(extractJson(extractText(data)));
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
   }

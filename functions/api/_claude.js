@@ -51,6 +51,20 @@ export async function claudeChat(env, { model, system, messages, max_tokens }, m
   }
 }
 
+// Confirmed live: a successful response's actual JSON answer isn't reliably content[0] — a
+// reasoning-capable model like claude-sonnet-5 can put a non-"text" block (e.g. "thinking")
+// first, and content[0].text is then undefined. Blindly reading content[0].text let that fail
+// SILENTLY: undefined -> extractJson("") -> "" -> the "{}" fallback at each call site -> valid
+// but EMPTY parsed JSON -> "Model did not return a segments array", with no hint that the real
+// text was sitting a block or two later. Find the actual text block by type instead of position.
+// Throws (rather than returning undefined) so a genuinely textless response fails loudly with a
+// clear message, instead of silently degrading into that same confusing downstream error.
+export function extractText(data) {
+  const block = (data.content || []).find((b) => b.type === "text");
+  if (!block) throw new Error(`No text content block in Claude response (got: ${(data.content || []).map((b) => b.type).join(", ") || "none"})`);
+  return block.text;
+}
+
 // Claude is instructed to return raw JSON with no markdown fences, but strips this defensively
 // anyway — occasionally wraps output in ```json ... ``` despite the instruction. Grabs the
 // fenced body if present, otherwise returns the text unchanged for JSON.parse to handle (and

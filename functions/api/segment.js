@@ -5,7 +5,7 @@
 // most failure-prone call all session (TPM limits, the barista/groundskeeper shape-bias, the
 // abstract-state gap), and the one call per script, so cost stays predictable per project. This
 // is a real billed Anthropic balance, not a free tier — see _claude.js's header comment.
-import { claudeChat, extractJson } from "./_claude.js";
+import { claudeChat, extractText, extractJson } from "./_claude.js";
 
 const SYSTEM_PROMPT = `You break a video script into distinct moments for a clip-matching tool.
 Each segment should be something a video editor would treat as a single cut decision —
@@ -194,7 +194,7 @@ export async function onRequestPost(context) {
     }
 
     const data = await claudeRes.json();
-    const content = extractJson(data.content?.[0]?.text) || "{}";
+    const content = extractJson(extractText(data));
     const parsed = JSON.parse(content);
 
     if (!Array.isArray(parsed.segments)) {
