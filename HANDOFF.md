@@ -200,22 +200,32 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
       model", a hard 400) — unlike Groq/older Claude models where it's a normal sampling knob.
       Dropped entirely from `claudeChat()` rather than made conditional, since every call site
       here targets `claude-sonnet-5`.
-    - **Adaptive thinking is ON BY DEFAULT and CANNOT be disabled** on this model (confirmed via
-      Anthropic's own docs — `thinking:{type:"disabled"}` isn't supported on `claude-sonnet-5`,
-      unlike older/smaller models). This silently broke both call sites on first deploy: a
+    - **Adaptive thinking is ON BY DEFAULT and CANNOT be disabled** on this model — confirmed via
+      `GET /v1/models`' own capability listing for `claude-sonnet-5`:
+      `"thinking":{"types":{"enabled":{"supported":false},"adaptive":{"supported":true}}}` — only
+      `"adaptive"` is a valid `thinking.type` here, there's no `"disabled"` option at all, unlike
+      older/smaller models. **`/v1/models` is the authoritative source for this, not a fetched
+      doc page** — a first attempt trusted a doc summary claiming `effort` nests inside
+      `thinking` (`thinking:{type:"adaptive",effort:"low"}`), which the API rejected outright
+      (`thinking.adaptive.effort: Extra inputs are not permitted`); the model's own capability
+      object showed `"effort"` as a SEPARATE TOP-LEVEL field (`low`/`medium`/`high`/`xhigh`/`max`
+      all independently listed as supported), not nested under `thinking` at all. Correct shape:
+      `{ ..., effort: "low", thinking: { type: "adaptive" } }` as sibling top-level fields.
+
+      The default-on, unstoppable thinking silently broke both call sites on first deploy: a
       response can come back with ONLY a `"thinking"` content block and no `"text"` block at all,
       because thinking consumed the entire `max_tokens` budget before reaching an answer — not a
       truncated-JSON error, a response with nothing to parse. Compounded by a second bug: the
       code originally read `content[0].text` positionally, so when thinking came first that was
       silently `undefined`, fell through an `|| "{}"` fallback, and surfaced as the confusing
       **"Model did not return a segments array"** — nothing in that message pointed at the real
-      cause. Fixed two ways together: `claudeChat()` now explicitly requests
-      `thinking:{type:"adaptive",effort:"low"}` (a deliberate cost control, not just a
-      reliability fix — thinking tokens are real billed spend on a small account, so this bounds
-      it rather than leaving it to the model), and `extractText()` (`_claude.js`) finds the
-      actual `"text"`-type block by type instead of position, throwing a clear diagnostic error
-      if none exists instead of degrading silently into that same confusing downstream message —
-      same "fail loudly, don't silently paper over it" instinct as this file's other lessons.
+      cause. Fixed two ways together: `claudeChat()` now explicitly requests `effort:"low"` (a
+      deliberate cost control, not just a reliability fix — thinking tokens are real billed spend
+      on a small account, so this bounds it rather than leaving it to the model), and
+      `extractText()` (`_claude.js`) finds the actual `"text"`-type block by type instead of
+      position, throwing a clear diagnostic error if none exists instead of degrading silently
+      into that same confusing downstream message — same "fail loudly, don't silently paper over
+      it" instinct as this file's other lessons.
     - **`max_tokens` must budget for thinking AND the answer, not just the answer** — since both
       share the same cap. Bumped generously on both call sites (segmentation:
       `Math.min(16000, Math.ceil(script.length/2.5)+2500)`, up from a Groq-tuned 8000/+900;

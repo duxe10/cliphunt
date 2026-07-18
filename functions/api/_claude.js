@@ -26,13 +26,16 @@ const MAX_WAIT_MS = 2000;
 // normal sampling knob. Not made conditional/model-specific here since every current call site
 // uses claude-sonnet-5 — revisit if a call site ever needs a different model that DOES support it.
 //
-// "thinking" — confirmed via Anthropic's docs (2026-07-18, after a live failure: a response with
-// ONLY a "thinking" block and no "text" block at all, because thinking silently ate the whole
-// max_tokens budget): claude-sonnet-5 has ADAPTIVE thinking enabled by default and — unlike
-// older/smaller models — CANNOT be set to "disabled" at all, only tuned via "effort". Explicitly
-// requesting "low" here rather than leaving it to whatever the model decides on its own, since
-// thinking tokens are real billed spend on a small account — this is a cost control, not just a
-// reliability fix. Callers must still budget max_tokens generously enough that low-effort
+// "thinking"/"effort" — confirmed live (a response with ONLY a "thinking" block and no "text" at
+// all, because thinking silently ate the whole max_tokens budget) plus GET /v1/models' own
+// capability listing for claude-sonnet-5 (the authoritative source — a doc page first led to a
+// wrong nested shape that the API rejected outright, "thinking.adaptive.effort: Extra inputs are
+// not permitted"; verify against /v1/models directly, not a fetched doc, next time this is
+// unclear): claude-sonnet-5's "thinking" capability only supports "types":{"adaptive"} (NOT
+// "enabled", so it can't be disabled), and "effort" is a SEPARATE TOP-LEVEL request field, not
+// nested inside "thinking". Requesting "low" explicitly rather than leaving it to the model,
+// since thinking tokens are real billed spend on a small account — this is a cost control, not
+// just a reliability fix. Callers must still budget max_tokens generously enough that low-effort
 // thinking PLUS the actual answer both fit — see call-site comments for specific values.
 export async function claudeChat(env, { model, system, messages, max_tokens }, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
@@ -43,7 +46,7 @@ export async function claudeChat(env, { model, system, messages, max_tokens }, m
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ model, system, messages, max_tokens, thinking: { type: "adaptive", effort: "low" } }),
+      body: JSON.stringify({ model, system, messages, max_tokens, effort: "low", thinking: { type: "adaptive" } }),
     });
     if (res.ok) return res;
     if (attempt >= maxRetries) return res;
