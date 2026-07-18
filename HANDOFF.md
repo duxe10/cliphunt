@@ -11,7 +11,19 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
 - Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation/family classification only, see "Segmentation" below), `functions/api/_groq.js` (shared Groq fetch wrapper with retry/backoff — underscore prefix means Pages excludes it from routing, import-only, see "Reliability & rate-limit lessons" below), `functions/api/stock-search.js` + `functions/api/stock-search-batch.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + context resolution + YouTube Data API + LLM rerank, for BOTH `specific` and `generic` beats as of 2026-07-18 — see point 7 under "Segmentation" below), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
-- Mostly-free constraint — Groq, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
+- Groq (free tier), YouTube Data API, and Pexels keys live in **Cloudflare Pages secrets**
+  (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no
+  longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare
+  secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must
+  **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg
+  worker (Render) was decommissioned, see below.
+- **No longer strictly free-tier (2026-07-18):** segmentation and evidence-search's intent
+  extraction moved to Claude Sonnet (`ANTHROPIC_API_KEY`, real billed balance, currently small —
+  treat as scarce) — see "Model split" under "Segmentation" below for which call sites moved and
+  why, and `functions/api/_claude.js`'s header comment for the request-shape differences from
+  Groq. Everything else (rerank, reference-search, stock search) stays on free-tier Groq/Pexels/
+  YouTube. Cost-consciousness still applies, just with a real dollar number behind it now instead
+  of a quota wall.
 - **Groq model split (revised 2026-07-18, second pass):** segmentation (`segment.js`) is back on
   `llama-3.3-70b-versatile` — confirmed live that even after the Narrator-batch revert, a single
   segmentation call for a realistic script requests ~65-72% of `gpt-oss-120b`'s 8k TPM ceiling in
@@ -161,6 +173,30 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
    `categoryClaim` on every segment, `findable` on a subset) — estimated, not measured; re-confirm
    against Groq's actual reported "Requested" tokens on a real dense script before trusting it, per
    this file's own established practice for every other number in that formula.
+8. **Abstract states/outcomes need `"nothing"`, not `"feel"` (2026-07-18).** `"Everything was
+   level going into the final minutes."` was landing as `"feel"` with a useless query — "level"
+   describes a fact about a scoreboard, not a scene a camera could point at. Widened `"nothing"`'s
+   definition to cover abstract states/outcomes with no concrete visual (a tied score, a deal
+   "still on the table"), distinct from mood/atmosphere (stays `"feel"` — a tense crowd's faces
+   ARE a real shot) and from a real action in the same beat (stays `"evidence"`/`categoryClaim`
+   territory). Prompt-only, no new field — this is a conceptual "is there a scene to film"
+   judgment, not the kind of grammatical-shape pattern-matching that needed code enforcement
+   elsewhere in this file. Confirmed live on the worked examples; re-verify if it turns out to
+   need a mechanical field after all (same escalation path as `subject`/`categoryClaim`).
+9. **Model split — segmentation moved to Claude Sonnet (2026-07-18).** Segmentation was the
+   highest-stakes, most failure-prone call all session on Groq (TPM ceiling fights, the shape-bias
+   misclassifications in points 6-8). Moved to `claude-sonnet-5` via `functions/api/_claude.js` —
+   a genuinely different request shape from Groq's OpenAI-compatible API (system prompt is a
+   top-level `system` field, `max_tokens` not `max_completion_tokens`, response text at
+   `content[0].text` not `choices[0].message.content`, no native JSON mode — `extractJson()`
+   strips an occasional ```json fence before `JSON.parse`). This account is on a small **real
+   billed** Anthropic balance, not a free tier — `ANTHROPIC_API_KEY` must be set as a Cloudflare
+   Pages secret (same redeploy-after-secret-change rule as every other key here). The
+   `max_tokens` formula was carried over unchanged from the old Groq cap on the same "output
+   scales with script length" reasoning, but is **not yet verified against Claude's own
+   limits/pricing** — treat it as a starting point. Evidence-search's intent extraction moved
+   too (see its own file header comment); reranking and reference-search stay on free-tier Groq
+   deliberately — see "Model split" note at the top of `evidence-search.js`.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
@@ -395,7 +431,7 @@ differently-tuned intent + rerank prompt, same as before.
 - Any persistence beyond localStorage (projects are lost on clearing browser storage; no server-side/cross-device store)
 
 ## Known constraints from the person building this
-- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, YouTube API, Pexels). No paid pieces at all as of 2026-07-17 — the one that was (the Render worker) is gone. Ask before introducing anything meaningfully paid.
+- Cost-conscious but no longer strictly $0 (heading toward a sellable product): free tiers where possible (Cloudflare Pages, Groq, YouTube API, Pexels). As of 2026-07-18, one deliberately-scoped paid piece exists: Claude Sonnet for segmentation + evidence-search intent extraction, on a small real Anthropic balance — see "Model split" under "Segmentation" above. Ask before expanding Claude usage to more call sites or introducing anything else paid.
 - No emoji as icons anywhere — inline SVG only (see existing icon usage in the HTML files for the established style).
 - Dark "editing bay" theme (near-black warm background, amber accent, Bricolage Grotesque + IBM Plex Sans/Mono) — this was a deliberate reaction against generic AI-template looks (cream background, emoji icons, purple gradients). Keep it consistent if extending the UI.
 - Product principle (2026-07-17): don't turn into a video editor, and don't lock creators into

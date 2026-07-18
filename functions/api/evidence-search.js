@@ -12,7 +12,16 @@
 // score/reason already answers "does this actually back up the claim?", so there's no separate
 // verification step to rebuild — it's the same signal, just surfaced in the UI instead of feeding
 // a caption-match step).
+//
+// Model split (2026-07-18): intent extraction (context resolution — the hard, reasoning-heavy
+// part, see the "TWO RULES" block below) moved to Claude Sonnet, targeting the exact kind of
+// context-resolution failure that motivated the swap (a fragment resolving to the wrong event
+// from the surrounding script). Reranking (mechanical 0-100 scoring against an already-resolved
+// claim) stays on Groq's gpt-oss-20b — cheap, high-frequency (every YouTube search), and not the
+// part that was failing. This account is on a small real Anthropic balance, not a free tier —
+// see _claude.js's header comment.
 import { groqChat } from "./_groq.js";
+import { claudeChat, extractJson } from "./_claude.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
@@ -135,36 +144,32 @@ export async function onRequestPost(context) {
   if (!segmentText || !segmentText.trim()) {
     return Response.json({ error: "No segmentText provided" }, { status: 400 });
   }
-  if (!env.GROQ_API_KEY) {
-    return Response.json({ error: "GROQ_API_KEY is not set on this Cloudflare project" }, { status: 500 });
+  if (!env.ANTHROPIC_API_KEY) {
+    return Response.json({ error: "ANTHROPIC_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
-  // 1. Groq extracts intent.
+  // 1. Claude extracts intent (see header comment for why this call site moved off Groq).
   const userContent = scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
     : `The moment:\n${segmentText}`;
 
   let intent;
   try {
-    const groqRes = await groqChat(env, {
-      // Was llama-3.3-70b-versatile — see segment.js's onRequestPost for why: that model's daily
-      // quota is small and was shared with segmentation + reference-search's own intent call, so
-      // exhausting it broke footage-finding entirely, not just degraded it.
-      model: "openai/gpt-oss-120b",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
+    const claudeRes = await claudeChat(env, {
+      model: "claude-sonnet-5",
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userContent }],
       temperature: 0.2,
+      max_tokens: 1024, // small, fixed — one segment's intent, not a whole-script echo
     });
 
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      return Response.json({ error: `Groq error: ${errText}` }, { status: 502 });
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return Response.json({ error: `Claude error: ${errText}` }, { status: 502 });
     }
 
-    const data = await groqRes.json();
-    intent = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+    const data = await claudeRes.json();
+    intent = JSON.parse(extractJson(data.content?.[0]?.text) || "{}");
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
   }

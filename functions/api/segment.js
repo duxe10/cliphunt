@@ -1,7 +1,11 @@
 // Cloudflare Pages Function — POST /api/segment
 // Ported from netlify/functions/segment.js (Netlify handler -> Pages onRequestPost,
 // process.env -> context.env). Prompt + mergeFragments logic is unchanged.
-import { groqChat } from "./_groq.js";
+// Moved to Claude Sonnet (2026-07-18) from Groq's llama-3.3-70b-versatile — the highest-stakes,
+// most failure-prone call all session (TPM limits, the barista/groundskeeper shape-bias, the
+// abstract-state gap), and the one call per script, so cost stays predictable per project. This
+// is a real billed Anthropic balance, not a free tier — see _claude.js's header comment.
+import { claudeChat, extractJson } from "./_claude.js";
 
 const SYSTEM_PROMPT = `You break a video script into distinct moments for a clip-matching tool.
 Each segment should be something a video editor would treat as a single cut decision —
@@ -165,58 +169,33 @@ export async function onRequestPost(context) {
   if (!script || !script.trim()) {
     return Response.json({ error: "No script provided" }, { status: 400 });
   }
-  if (!env.GROQ_API_KEY) {
-    return Response.json({ error: "GROQ_API_KEY is not set on this Cloudflare project" }, { status: 500 });
+  if (!env.ANTHROPIC_API_KEY) {
+    return Response.json({ error: "ANTHROPIC_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
   try {
-    const groqRes = await groqChat(env, {
-      // Back on llama-3.3-70b-versatile (2026-07-18, second swap) — segmentation alone was
-      // confirmed live to request ~5200-5800 tokens for a realistic script, which is 65-72% of
-      // gpt-oss-120b's 8k TPM ceiling in ONE call, leaving no room for a retry or a second call
-      // within the same minute (this is what was still breaking testing after the Narrator-batch
-      // revert). llama-3.3-70b-versatile's 12k TPM gives real headroom for the same request.
-      // Trade-off, deliberate: this reopens the 100k-tokens/DAY quota risk that caused the
-      // original move away from this model — evidence/reference/stock-rerank calls stay on
-      // gpt-oss-120b/20b so segmentation isn't sharing a quota with them again. If the daily
-      // quota starts getting hit, that's the next thing to look at — don't silently swap back.
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: script },
-      ],
+    const claudeRes = await claudeChat(env, {
+      model: "claude-sonnet-5",
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: script }],
       temperature: 0.3,
-      // Segmentation's output has to echo back nearly the ENTIRE script verbatim (every segment's
-      // "text" is a substring of it) plus per-segment family/query JSON overhead — so its length
-      // scales with the script's, not a fixed small size. Never setting this meant relying on
-      // whatever default cap Groq applies, which a long real script (confirmed live: ~90 segments
-      // from a ~4.7k-character script) can exceed mid-generation, coming back as truncated,
-      // invalid JSON ("json_validate_failed" with an empty failed_generation) — not a rare fluke,
-      // reproduced 3/3 tries on the same script.
-      //
-      // The first version of this (script.length/2 + 800) fixed the truncation bug but then
-      // itself became the problem: Groq's TPM accounting reserves the FULL declared cap upfront
-      // as "Requested" (confirmed live — adding this cap alone jumped Requested from 2660 to
-      // 5837 tokens), so an over-padded cap eats most of the entire 8000/minute budget in one
-      // call, leaving near-zero margin for any contention at all. Tightened to roughly match the
-      // actual minimum need (echoed text + JSON overhead ≈ script length in tokens, not 2x) rather
-      // than padding heavily "to be safe" — safety here has to be balanced against the TPM ceiling
-      // itself, not just against truncation risk in isolation.
-      // Bumped 600 -> 900 (2026-07-18, third pass) when "categoryClaim" (every segment) and
-      // "findable" (a subset) were added — two more small JSON keys of real output cost on top
-      // of the shape this constant was tuned for. Estimated, not measured — re-confirm against
-      // Groq's actual reported "Requested" tokens on a real dense script, same as every other
-      // number in this formula; don't trust the arithmetic alone.
-      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 900),
+      // Same "output scales with script length, not a fixed small amount" reasoning as the old
+      // Groq cap (segmentation echoes back nearly the entire script verbatim) — this formula is
+      // carried over unchanged from the Groq version. NOT yet re-tuned or verified against
+      // Claude's own limits/pricing (Anthropic's max_tokens semantics and rate limits differ from
+      // Groq's TPM accounting) — this is a starting point, not a confirmed-safe number. This
+      // account is on a small real balance; watch actual usage/cost on the first few real scripts
+      // rather than assuming this cap is right.
+      max_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 900),
     });
 
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      return Response.json({ error: `Groq error: ${errText}` }, { status: 502 });
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return Response.json({ error: `Claude error: ${errText}` }, { status: 502 });
     }
 
-    const data = await groqRes.json();
-    const content = data.choices?.[0]?.message?.content || "{}";
+    const data = await claudeRes.json();
+    const content = extractJson(data.content?.[0]?.text) || "{}";
     const parsed = JSON.parse(content);
 
     if (!Array.isArray(parsed.segments)) {
