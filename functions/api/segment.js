@@ -31,12 +31,13 @@ in order, covering the whole script.
 
 For each segment, also pick one "family":
 - "feel" — EITHER a pure emotional beat (surprise, disappointment, hype, etc, no specific
-  referent), OR pure atmosphere/mood/scene-setting with no notable action by a real person or
-  named category of people (rain on a window, a city at night, a sunrise, hands typing at a
-  desk, an empty stadium, a crowded office). Real footage of this kind of moment exists too, but
-  it's ambient — nobody is DOING or EXPERIENCING something in it, it's just a shot. This is
-  "feel", not "evidence", even though a real clip of it exists — see the exclusion note in (b)
-  below.
+  referent), OR pure atmosphere/mood/scene-setting — including ordinary background human activity
+  that has no narrative significance of its own (rain on a window, a city at night, a sunrise,
+  hands typing at a desk, an empty stadium, a crowded office). Real footage of this kind of moment
+  exists too, but it's ambient: even when someone is technically visible doing something mundane
+  (typing, walking past, sitting at a desk), that action isn't what the story is ABOUT — it's just
+  a shot. This is "feel", not "evidence" — see the exclusion note in (b) below, which covers the
+  same ground from the other side.
 - "evidence" — needs a REAL-WORLD illustrative visual of people/things DOING or EXPERIENCING
   something. Either (a) ONE specific real person/thing that said or did something, or (b) a
   general statement about a CATEGORY of people/things doing or experiencing something concrete —
@@ -48,10 +49,14 @@ For each segment, also pick one "family":
   people packing up an office) are BOTH "evidence" — do NOT call either "nothing" just because
   no one person is named. Ask whether real footage of that kind of moment exists; if yes, it's
   "evidence", named person or not. EXCLUSION: this does NOT cover pure atmosphere/weather/scene-
-  setting with no actor doing anything notable (rain on a window, an empty stadium, a sunrise,
-  a city skyline at night) — those are "feel", not "evidence", even though real footage of them
-  obviously exists too. "evidence" (b) needs someone/something DOING or EXPERIENCING something;
-  ambient scene with no actor stays "feel".
+  setting, OR ordinary background human activity with no narrative significance of its own (rain
+  on a window, an empty stadium, a sunrise, a city skyline at night, hands typing at a desk, a
+  crowded office) — those are "feel", not "evidence", even though real footage of them — including
+  of someone technically doing something in them — obviously exists too. The test: is the DOING
+  itself the point the sentence is making (a goal scored, a company failing, a specific meaningful
+  act), or is a person just incidentally visible as scenery while something else is the point? Only
+  the former is "evidence" (b) — incidental human activity stays "feel" no matter how literally
+  "someone is doing something" it is.
 - "reference" — matches a known meme/cultural callback
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
