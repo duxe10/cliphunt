@@ -1,14 +1,17 @@
 // Cloudflare Pages Function — POST /api/evidence-search
-// "generic" beats (a category statement, not one identifiable person/event) skip YouTube entirely
-// and route to clean licensed Pexels b-roll instead — see the branch right after intent extraction
-// below. "specific" beats search YouTube, get quality-enriched and LLM-reranked against the beat's
-// claim, and are returned as plain youtube.com links — no downloading, trimming, or server-side
-// video handling of any kind (that used to hand off to a yt-dlp/ffmpeg worker; dropped entirely —
-// downloading someone else's YouTube video carried real copyright/ToS risk this app doesn't need
-// to take on. The rerank score/reason already answers "does this actually back up the claim?", so
-// there's no separate verification step to rebuild — it's the same signal, just surfaced in the UI
-// instead of feeding a caption-match step).
-import { mapPexelsVideo, rerankStockCandidates } from "./stock-search.js";
+// Both "specific" (one named real subject) and "generic" (a genuine categorical claim about a
+// class of real people/things — see segment.js's "categoryClaim") beats search YouTube for real
+// captured footage (2026-07-18: generic beats used to route to Pexels stock instead, but stock
+// b-roll isn't authentic footage of the claim — "most footballers... scoring" needs real players
+// actually celebrating a real World Cup goal, not generic stock). The only difference between the
+// two flavors is the query/subject framing fed into the search and rerank below, not the source.
+// Both get quality-enriched and LLM-reranked against the beat's claim, and are returned as plain
+// youtube.com links — no downloading, trimming, or server-side video handling of any kind (that
+// used to hand off to a yt-dlp/ffmpeg worker; dropped entirely — downloading someone else's
+// YouTube video carried real copyright/ToS risk this app doesn't need to take on. The rerank
+// score/reason already answers "does this actually back up the claim?", so there's no separate
+// verification step to rebuild — it's the same signal, just surfaced in the UI instead of feeding
+// a caption-match step).
 import { groqChat } from "./_groq.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
@@ -33,7 +36,7 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"...","stockQuery":"..."}
+{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"..."}
 
 Decide "footageType":
 
@@ -71,16 +74,17 @@ This applies to a script about ANY topic — sports, business, science, politics
       the Series B." resolves to subject "the startup" and youtubeQuery naming the actual 2019
       Series B round, not a generic Series B explainer.
   "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
-  opponent, year) most likely to appear in a real video's title. Omit "stockQuery" (null) —
-  specific beats search YouTube, not Pexels.
+  opponent, year) most likely to appear in a real video's title.
 
 - "generic": the moment is a self-contained GENERAL statement true of a whole category, not one
   identifiable instance — usually signalled by quantifiers like "most", "every", "people",
   "everyone", or a general truth. Two examples, deliberately different domains: "For most
   footballers, scoring at a World Cup is the highlight of their career" and "Most startups fail
   within their first two years" are BOTH generic. Do NOT attach the video's main character to
-  these. "subject" = the general concept. Omit "youtubeQuery" (null) — generic beats search
-  Pexels, not YouTube; write "stockQuery" instead (see below). Set "quote" to null.
+  these. "subject" = the general concept/category (e.g. "footballers scoring at a World Cup",
+  "startups failing"). "youtubeQuery" = 3-6 words describing the KIND of real moment to search
+  for — a concrete action + category, not a person's name (e.g. "footballers celebrating World Cup
+  goal", "startup shutting down failed business"). Set "quote" to null.
 
 The test: does the moment point at ONE real event or person — even if only nameable through the
 preceding context? Then specific. Would it be equally true of many people or instances? Then
@@ -94,17 +98,10 @@ OUT LOUD — a spoken line that could appear in a video's captions. Narration, d
 actions or events, and general statements are NOT quotes; set "quote" to null. Never invent a
 quote. ("A missed penalty." describes an action, so quote is null.)
 
-"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage — a TITLE/KEYWORD
-match (a specific person/event's name + distinguishing details), only set when footageType is
-"specific".
-
-"stockQuery": 2-5 words, only set when footageType is "generic" — a SHORT DESCRIPTIVE VISUAL
-SCENE PHRASE for a real stock-footage library, not a YouTube-style keyword search. Pexels indexes
-what's actually shown on screen, not a concept or feeling — describe the shot itself. Good:
-"stadium crowd celebrating goal", "small storefront closing down with moving boxes", "empty
-office packed into cardboard boxes". Bad: a bare concept word like "success" or "failure", or a
-person's name (generic beats have no one person). Same rule segment.js's own "feel" query already
-follows — match that style, don't invent a different one.`;
+"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage — for "specific",
+a TITLE/KEYWORD match (a specific person/event's name + distinguishing details); for "generic", a
+concrete action + category describing the KIND of real moment (see above). Set for both
+footageTypes — this endpoint always searches YouTube, never Pexels stock.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -177,32 +174,6 @@ export async function onRequestPost(context) {
     footageType === "specific" && intent.quote && String(intent.quote).trim()
       ? String(intent.quote).trim()
       : null;
-
-  // Generic beats (category statements, no one identifiable person/event) skip YouTube/the
-  // worker entirely — clean licensed Pexels b-roll is a better (and copyright-safe) fit, and
-  // needs no HMAC signing since there's no worker call to authorize.
-  if (footageType === "generic") {
-    if (!env.PEXELS_API_KEY) {
-      return Response.json({ error: "PEXELS_API_KEY is not set on this Cloudflare project" }, { status: 500 });
-    }
-    // Pexels wants a visual-scene description, not a YouTube-style keyword search — a distinct
-    // field from youtubeQuery so one query doesn't have to serve two different search styles.
-    const stockQuery = (intent.stockQuery || intent.subject || segmentText).trim();
-    try {
-      const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(stockQuery)}&per_page=10&orientation=landscape`;
-      const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
-      if (!res.ok) {
-        const errText = await res.text();
-        return Response.json({ error: `Pexels error: ${errText}` }, { status: 502 });
-      }
-      const data = await res.json();
-      const clips = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
-      const ranked = await rerankStockCandidates({ segmentText, context: scriptContext, query: stockQuery }, clips, env);
-      return Response.json({ footageType, source: "stock", subject: intent.subject || null, clips: ranked });
-    } catch (err) {
-      return Response.json({ error: err.message }, { status: 500 });
-    }
-  }
 
   if (!env.YOUTUBE_API_KEY) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });

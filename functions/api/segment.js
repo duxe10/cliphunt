@@ -33,25 +33,99 @@ For each segment, also name the "subject": the ONE specific, nameable real perso
 organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
 pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
 "A missed penalty." has subject "Harry Kane"). Set "subject" to null when no single specific
-real entity/event is identifiable — this covers pure atmosphere/mood, general statements about a
-CATEGORY of people/things ("For most footballers...", "Most startups fail..."), and ordinary
-unnamed background activity (a barista closing up, a groundskeeper checking the pitch) alike:
-none of these name ONE real entity, so all of them get "subject": null, even though a person is
-grammatically "doing something" in some of them. Don't guess a subject that isn't actually
-established — null is correct far more often than it might feel.
+real entity/event is identifiable. Don't guess a subject that isn't actually established — null
+is correct far more often than it might feel.
+
+Also name the "categoryClaim": a short phrase naming the real, general phenomenon ONLY when the
+segment makes a genuine categorical assertion about a whole CLASS of real people/things doing or
+experiencing something a camera could plausibly have captured — signalled by quantifier language
+("most", "many", "every", "typically", "usually") attached to a concrete real action, not an
+abstract feeling. Real footage of that KIND of moment exists and is worth searching for, even
+though no one specific instance is named. Two examples: "For most footballers, scoring at a World
+Cup is the highlight of their career" -> categoryClaim: "footballers celebrating scoring at a
+World Cup" (real footage of players celebrating World Cup goals exists and should be searched
+for, not stock b-roll). "Most startups fail within their first two years" -> categoryClaim: "a
+startup failing and shutting down" (real footage of a struggling small business, a closing
+storefront, people packing up an office). Set "categoryClaim" to null whenever the segment is
+ordinary, unnamed, INCIDENTAL background activity with no quantifier-signalled claim attached — a
+barista wiping down the counter as a cafe empties out for the night, a groundskeeper walking the
+pitch checking the turf before kickoff, an aide handing over a folder in a hallway, rain on a
+window, hands typing at a desk. None of these assert anything about a CLASS of people/things —
+they're one anonymous, ordinary action happening once, incidentally, as scene-setting. The test:
+does the sentence claim something is true of MANY people/instances (categoryClaim, set it), or
+does it just show ONE anonymous, incidental thing happening once with no claim attached
+(categoryClaim: null)? Don't guess a categoryClaim into a sentence that's really just atmosphere.
 
 Then pick one "family":
-- "feel" — "subject" is null. Covers pure emotional beats, atmosphere/mood/scene-setting, general
-  category-level statements, and ordinary unnamed background activity — anything without ONE
-  nameable real entity/event behind it. All of it gets real stock footage.
-- "evidence" — "subject" is set: a specific real person/team/org/event doing or saying a
-  particular thing.
-- "reference" — matches a known meme/cultural callback (subject is usually null or the meme's name).
+- "feel" — "subject" is null AND "categoryClaim" is null. Covers pure emotional beats,
+  atmosphere/mood/scene-setting, and ordinary unnamed incidental background activity — anything
+  without ONE nameable real entity/event AND without a genuine categorical claim behind it. All of
+  it gets real stock footage.
+- "evidence" — EITHER "subject" is set (a specific real person/team/org/event doing or saying a
+  particular thing), OR "categoryClaim" is set (a genuine categorical claim about a class of real
+  people/things doing something a camera could capture). Both flavors search for real captured
+  footage — a named subject's exact moment, or authentic footage of that KIND of moment happening
+  to real people — never stock b-roll, in either case.
+- "reference" — matches a known meme/cultural callback (subject and categoryClaim are usually
+  both null).
 - "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
   setup clause that only makes sense combined with the next segment's visual. If a sentence
   describes any real-world action, scene, or moment it is NOT "nothing" — check whether it names
-  or resolves to a subject first (then it's "evidence"), and if not, it's "feel", not "nothing".
-  Only call it "nothing" if, after removing transition wording, nothing visual is actually left.
+  or resolves to a subject or a categoryClaim first (then it's "evidence"), and if not, it's
+  "feel", not "nothing". Only call it "nothing" if, after removing transition wording, nothing
+  visual is actually left.
+
+For every segment where you set a non-null "subject", a non-null "categoryClaim", or judge family
+"reference", also judge "findable" — the odds that real, indexed footage of this actually exists
+to be found, as distinct from whether it's grammatically "evidence"/"reference"-shaped. Three
+values:
+- "likely" — named subject: a genuinely high-profile, well-documented real person/event.
+  categoryClaim: real footage of this KIND of event is common and broadly documented, not a
+  fringe/rare occurrence (World Cup goal celebrations, startups failing, weddings, graduations —
+  all common, heavily filmed real-life categories). reference: an actual, currently-recognizable
+  named meme/viral clip. Confident real footage exists and is realistically searchable.
+- "unsure" — plausible and specific enough to be worth a search in any of the three shapes above,
+  but you can't be confident footage was ever filmed, uploaded, or indexed under a findable
+  title. Default here whenever you're not clearly at "likely" or "unlikely" — searching is cheap,
+  so "unsure" is the safe default, not "unlikely".
+- "unlikely" — named subject: unnamed, small-scale, private, local, purely fictional/hypothetical,
+  or otherwise has no realistic chance of existing as real, indexed footage — narrative color, not
+  a real searchable thing, even if it reads like something specific happened. categoryClaim: an
+  extremely niche, rare, or obscure category unlikely to ever have been filmed or indexed at scale
+  (e.g. "most left-handed calligraphers develop a particular callus" — too small/rare a documented
+  category to expect real footage). reference: a private, unnamed reaction with no real named
+  meme or clip behind it.
+
+Omit "findable" entirely for "feel" and "nothing" segments — "feel" always searches regardless of
+any findability judgment, so none is needed there.
+
+Worked examples for "findable":
+- "The chat lost it when the demo video hit the front page." — an unnamed "chat", an unnamed
+  demo, no platform, product, or company named anywhere: nothing here is a real, identifiable,
+  indexed thing to search for, even though it reads like a specific moment happened.
+  family "evidence"-shaped, findable:"unlikely".
+- "Neymar broke down in tears after Brazil's 2014 World Cup semi-final collapse against Germany."
+  — a famous, extensively broadcast, heavily re-uploaded real event. findable:"likely".
+- "The founder broke down on a Twitch stream when the acquisition offer finally came through." —
+  a real, specific, plausible event (streams do get clipped and uploaded), but not famous enough
+  to be sure it was indexed under a findable title. findable:"unsure" — worth a search, keep the
+  result only if something real actually matches.
+- "For most footballers, scoring at a World Cup is the highlight of their career." —
+  categoryClaim set; World Cup goal celebrations are an extremely common, heavily broadcast real
+  category. findable:"likely".
+- "Most startups fail within their first two years." — categoryClaim set; footage of struggling
+  small businesses/closures is a common, broadly documented real category (news b-roll, vlogs).
+  findable:"likely".
+- "It was giving major 'Distracted Boyfriend' energy." (reference) — an actual, still-current,
+  genuinely searchable meme. findable:"likely".
+- "Everyone in the group chat had THAT reaction." (reference) — a private, unnamed reaction with
+  no real named meme or clip behind it. findable:"unlikely".
+
+This is a companion judgment to "subject"/"categoryClaim", not a substitute for either: a segment
+can have a real subject or a real categoryClaim and still be "unlikely" if the specific event or
+category is too small/private/rare to have realistic footage. When genuinely torn, prefer
+"unsure" over "unlikely" — the cost of a search that comes back empty is low, the cost of
+skipping a real findable clip is not.
 
 Also include a "query" for every segment EXCEPT "nothing": a SHORT DESCRIPTIVE VISUAL SCENE
 PHRASE, 2-5 words, for searching a real stock-footage library — describe the shot itself, not a
@@ -63,7 +137,7 @@ closing down with moving boxes", "empty office packed into cardboard boxes". Bad
 mood words like "hope" or "tension", or a person's/team's name.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"query":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -115,7 +189,12 @@ export async function onRequestPost(context) {
       // actual minimum need (echoed text + JSON overhead ≈ script length in tokens, not 2x) rather
       // than padding heavily "to be safe" — safety here has to be balanced against the TPM ceiling
       // itself, not just against truncation risk in isolation.
-      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 600),
+      // Bumped 600 -> 900 (2026-07-18, third pass) when "categoryClaim" (every segment) and
+      // "findable" (a subset) were added — two more small JSON keys of real output cost on top
+      // of the shape this constant was tuned for. Estimated, not measured — re-confirm against
+      // Groq's actual reported "Requested" tokens on a real dense script, same as every other
+      // number in this formula; don't trust the arithmetic alone.
+      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 900),
     });
 
     if (!groqRes.ok) {
@@ -132,7 +211,8 @@ export async function onRequestPost(context) {
     }
 
     const merged = mergeFragments(parsed.segments);
-    const corrected = enforceSubjectRule(merged);
+    const evidenceResolved = enforceEvidenceRule(merged);
+    const corrected = enforceFindabilityRule(evidenceResolved);
     return Response.json({ segments: corrected });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
@@ -164,16 +244,42 @@ function mergeFragments(segments) {
 // repeatedly, that it reads a "[a/an + role] + [specific verb] + [specific scene]" sentence SHAPE
 // as evidence-worthy regardless of whether a real entity is actually named (a barista, a
 // groundskeeper, an aide — all misclassified "evidence" despite naming no one). Rewording the
-// prompt harder didn't fix it (same lesson as mergeFragments() above), so this rule is enforced
-// deterministically instead: "evidence" without a "subject" isn't a coherent evidence claim, so
-// it's downgraded to "feel" here in code rather than trusted to the model's own family label.
-// This can't misfire on a legitimate evidence segment, since a real "evidence" claim always
-// implies a nameable subject by definition.
-function enforceSubjectRule(segments) {
+// prompt harder didn't fix it (same lesson as mergeFragments() above), so this is enforced
+// deterministically instead, built from the two mechanical source fields rather than trusted to
+// the model's own "family" word. Bidirectional, since either failure direction is possible:
+// downgrade "evidence" -> "feel" when NEITHER "subject" NOR "categoryClaim" is actually set (the
+// shape-bias false positive above); upgrade "feel" -> "evidence" when EITHER is set but the
+// model's own family word didn't follow through (a real categoryClaim correctly identified, but
+// mislabeled "feel" anyway). Never touches "reference"/"nothing".
+function enforceEvidenceRule(segments) {
   for (const seg of segments) {
     const hasSubject = seg.subject && String(seg.subject).trim();
-    if (seg.family === "evidence" && !hasSubject) {
+    const hasCategoryClaim = seg.categoryClaim && String(seg.categoryClaim).trim();
+    const isRealEvidence = hasSubject || hasCategoryClaim;
+    if (seg.family === "evidence" && !isRealEvidence) {
       seg.family = "feel";
+    } else if (seg.family === "feel" && isRealEvidence) {
+      seg.family = "evidence";
+    }
+  }
+  return segments;
+}
+
+// The model is asked to judge "findable" (see SYSTEM_PROMPT) for any segment carrying a subject,
+// a categoryClaim, or a "reference" call, precisely so this check can be driven by those
+// mechanical fields rather than by "family" — which enforceEvidenceRule() above is busy
+// correcting. Building the trigger from subject/categoryClaim/reference-ness instead of
+// seg.family makes this function commute with enforceEvidenceRule(): it produces the same result
+// regardless of which runs first, since neither function's condition depends on the other's
+// output. A "findable":"unlikely" verdict wins outright over any feel/evidence resolution, for
+// either evidence flavor.
+function enforceFindabilityRule(segments) {
+  for (const seg of segments) {
+    const hasSubject = seg.subject && String(seg.subject).trim();
+    const hasCategoryClaim = seg.categoryClaim && String(seg.categoryClaim).trim();
+    const isEvidenceShaped = hasSubject || hasCategoryClaim || seg.family === "reference";
+    if (isEvidenceShaped && seg.findable === "unlikely") {
+      seg.family = "nothing";
     }
   }
   return segments;

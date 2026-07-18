@@ -10,7 +10,7 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 ## Stack, deliberately
 - Plain HTML/CSS/JS frontend (`index.html`, `new-project.html`, `workspace.html`, `style.css`, `app.js`) — no framework, no build step.
 - Data model: real multi-project history in localStorage under one key, `cliphunt_projects` (array of `{id, title, segments, createdAt, updatedAt}`). No mock/demo data — the old hardcoded "harry" demo project and `MOCK_SEGMENTS` were removed. `app.js` is loaded on all three pages and dispatches by which root element is present (`#project-grid` → dashboard list, `#segments` → workspace). new-project.html appends a project and routes to `workspace.html?id=<id>`; the dashboard lists projects newest-first; workspace loads by `?id=` and its Delete button removes the project. Only raw `segments` are persisted — clips are hydrated live on each workspace load (kept fresh, not stored). A one-time `migrateLegacy()` upgrades the pre-history single-project keys (`cliphunt_title`/`cliphunt_segments`).
-- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation/family classification only, see "Segmentation" below), `functions/api/_groq.js` (shared Groq fetch wrapper with retry/backoff — underscore prefix means Pages excludes it from routing, import-only, see "Reliability & rate-limit lessons" below), `functions/api/stock-search.js` + `functions/api/stock-search-batch.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, and generic-evidence's source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + context resolution + YouTube Data API + LLM rerank for `specific` beats, or Pexels for `generic` beats), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
+- Cloudflare Pages Functions for anything needing a secret API key, under `functions/api/` (routed as `/api/*`): `functions/api/segment.js` (Groq — segmentation/family classification only, see "Segmentation" below), `functions/api/_groq.js` (shared Groq fetch wrapper with retry/backoff — underscore prefix means Pages excludes it from routing, import-only, see "Reliability & rate-limit lessons" below), `functions/api/stock-search.js` + `functions/api/stock-search-batch.js` + `functions/api/stock-download.js` (Pexels — the only `feel` source, see "Stock footage" below), `functions/api/evidence-search.js` (Groq intent + context resolution + YouTube Data API + LLM rerank, for BOTH `specific` and `generic` beats as of 2026-07-18 — see point 7 under "Segmentation" below), `functions/api/reference-search.js` (same YouTube pipeline, reaction-focused). These are ESM (`onRequestPost`/`onRequestGet`, `context.env` for secrets), ported from the old Netlify handlers.
 - Mostly-free constraint — Groq, YouTube Data API, and Pexels all have free tiers; keys live only in **Cloudflare Pages secrets** (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg worker (Render) was decommissioned, see below.
 - **Groq model split (revised 2026-07-18, second pass):** segmentation (`segment.js`) is back on
   `llama-3.3-70b-versatile` — confirmed live that even after the Narrator-batch revert, a single
@@ -34,13 +34,14 @@ redistributing someone else's YouTube video carried real copyright/ToS risk; the
 was to stop taking that risk and to differentiate on NOT locking creators into an editing
 workflow ("hunt for clips," not "edit here") rather than on owning the clip file. What's kept:
 - `functions/api/evidence-search.js`: intent-extraction (elliptical-reference resolution,
-  generic→Pexels short-circuit) as of THIS rework was unchanged, and YouTube search →
-  `enrichCandidates` (duration/views) → LLM `rerankCandidates` (0-100 against the beat's actual
-  claim, demoting reactions/watchalongs/compilations) — all of that search-quality work is
-  unaffected by the download removal. The only change here: the top 5 reranked candidates are
-  mapped to plain `https://www.youtube.com/watch?v=...` links and returned directly — no HMAC
-  signing, no worker handoff, no `matchSig`/`exp`. (Intent-extraction's elliptical-reference
-  resolution DID change later — see "Scene context resolution" below for the current version.)
+  generic→Pexels short-circuit at the time of THIS rework, later removed — see point 7 under
+  "Segmentation" below) was unchanged, and YouTube search → `enrichCandidates` (duration/views) →
+  LLM `rerankCandidates` (0-100 against the beat's actual claim, demoting reactions/watchalongs/
+  compilations) — all of that search-quality work is unaffected by the download removal. The only
+  change here: the top 5 reranked candidates are mapped to plain
+  `https://www.youtube.com/watch?v=...` links and returned directly — no HMAC signing, no worker
+  handoff, no `matchSig`/`exp`. (Intent-extraction's elliptical-reference resolution DID change
+  later — see "Scene context resolution" below for the current version.)
 - `functions/api/reference-search.js`: same shape — emotion/reaction query → YouTube search →
   `filterRawReactionCandidates()` (unchanged) → rerank on capture-quality (unchanged) → plain links.
 - **The rerank score/reason IS the honesty signal now**, surfacing directly in the UI (e.g. "87% ·
@@ -59,7 +60,7 @@ workflow ("hunt for clips," not "edit here") rather than on owning the clip file
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:
 - **feel** — pure emotion beat, or atmosphere/mood/action with no specific referent → real stock footage from Pexels, downloadable and trimmable (gifs dropped entirely, see "Clip search" below)
-- **evidence** — a specific real person/thing did the exact thing referenced, OR a category-level statement needing real illustrative footage → real footage from YouTube (link-only, not downloaded) for a named subject, or Pexels (downloadable) for a category statement — see "Evidence & reference pipelines" above
+- **evidence** — a specific real person/thing did the exact thing referenced, OR a genuine category-level claim about a class of real people/things needing real illustrative footage → real footage from YouTube (link-only, not downloaded), for EITHER a named subject or a category claim (2026-07-18: category claims used to short-circuit to Pexels stock instead — that was reverted, stock b-roll isn't authentic footage of the claim, see point 7 under "Segmentation" below) — see "Evidence & reference pipelines" above
 - **reference** — matches a known meme/cultural callback → real raw reaction clip from YouTube, link-only (see "Reaction clip footage" below; migrated off Giphy)
 - **nothing** — GENUINELY has no visual content of its own (connective narration, a meta aside) — not a default for "no one named," see the Segmentation section's classification-gap note below
 
@@ -100,10 +101,66 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
    can no longer matter if the model's shape-bias miscalls the family label, since the subject
    check catches it regardless. `"feel"` absorbed the old `"evidence"`(b) category-statement case
    (`"Most startups fail..."` etc.) since both always routed to Pexels anyway — one fewer
-   ambiguous line to draw. Every non-`"nothing"` segment now gets a `"query"` (previously
-   `"feel"`-only) so a downgraded segment already has a stock-search query ready, no extra call
-   needed. Re-verify this against a real script with the specific phrasings above if it's ever
-   touched again — don't assume the fix holds without testing live, same as everywhere else here.
+   ambiguous line to draw **(revised same day — see point 7: this specific call turned out to be
+   wrong, category claims needed to stay a distinct evidence flavor, not merge into feel)**. Every
+   non-`"nothing"` segment now gets a `"query"` (previously `"feel"`-only) so a downgraded segment
+   already has a stock-search query ready, no extra call needed. Re-verify this against a real
+   script with the specific phrasings above if it's ever touched again — don't assume the fix
+   holds without testing live, same as everywhere else here.
+7. **Category claims need real YouTube footage, not stock — and a findability gate for both
+   evidence flavors (2026-07-18, third pass).** Point 6's fix was right to stop the model
+   misreading incidental scene-setting (a barista, a groundskeeper, an aide) as `"evidence"`, but
+   it over-corrected by merging category-level claims ("For most footballers, scoring at a World
+   Cup is the highlight of their career") into `"feel"` too, on the reasoning that both ultimately
+   routed to Pexels anyway. That reasoning broke once someone actually looked at the *product*
+   question: a category claim like that deserves real footage of players actually celebrating a
+   real World Cup goal, not generic stock b-roll — Pexels was never the right source for it, it
+   was just where the OLD `evidence-search.js` generic branch happened to route. So `"evidence"`
+   now covers two flavors, both searching YouTube, distinguished by two mechanical fields
+   (same pattern as `"subject"` in point 6, not left to prompt wording): `"subject"` (a named
+   entity, unchanged) or `"categoryClaim"` (a short phrase naming the real phenomenon, set only
+   when the segment makes a genuine quantifier-signalled claim about a class of real people/things
+   — `null` for the barista/groundskeeper/aide-style incidental activity, which must stay `"feel"`).
+   `enforceEvidenceRule()` (replacing `enforceSubjectRule()`) is now bidirectional: downgrades
+   `"evidence"` → `"feel"` when NEITHER field is set, and upgrades `"feel"` → `"evidence"` when
+   EITHER is set but the model's own family word didn't follow through.
+
+   Second, separate problem folded into the same pass: some evidence/reference-shaped segments
+   describe something that will never realistically have real, indexed footage regardless of
+   flavor — e.g. "The chat lost it when the demo video hit the front page" names an unnamed
+   "chat" and an unnamed demo, nothing real or searchable, but reads specific enough to trigger a
+   wasted click + Groq call + quota-limited YouTube search that was always going to come back
+   empty. Fixed with a third field, `"findable"` (`"likely"|"unsure"|"unlikely"`), asked whenever
+   `subject`/`categoryClaim` is set or family is `"reference"` — biased firmly toward `"unsure"` as
+   the safe default (searching is cheap; skipping a real find isn't). `enforceFindabilityRule()`
+   downgrades straight to `"nothing"` on `"unlikely"`, intercepting the segment before the frontend
+   ever shows a doomed "Find footage" button. **Built its trigger condition from the raw
+   `subject`/`categoryClaim`/`family==="reference"` fields, not from `family` itself** — this makes
+   it commute with `enforceEvidenceRule()` (order-independent, provably), rather than depending on
+   which of the two functions happens to run first. `"unsure"`/`"likely"` segments are unaffected —
+   the existing per-click search+rerank+`MIN_RERANK_SCORE` threshold in `evidence-search.js`/
+   `reference-search.js` already implements "search, verify against real results, empty if nothing
+   matches" (confirmed by reading both files — no changes needed there). `"feel"` gets no
+   findability gate at all, deliberately — Pexels search is cheap, auto-triggered, and already
+   fails open on any rerank error (see `stock-search.js`'s `rerankStockCandidates`), so there's no
+   wasted-click/wasted-quota cost to guard against for that family.
+
+   Consequence for `evidence-search.js`: its `footageType:"generic"` branch, which used to
+   short-circuit straight to Pexels, is deleted entirely — both `"specific"` and `"generic"` now
+   run the same `searchYouTubeVideos` → `enrichCandidates` → `rerankCandidates` → `MIN_RERANK_SCORE`
+   pipeline, differing only in the `youtubeQuery` framing (a person/event name vs. a concrete
+   action + category phrase). `RERANK_PROMPT` needed no changes — it already scored "does this
+   illustrate THIS concept" for the generic case, it just never got real YouTube candidates to
+   score before. `stockQuery`, `mapPexelsVideo`/`rerankStockCandidates` imports, and the
+   `PEXELS_API_KEY` guard are gone from this file; `app.js` needed no changes at all, since the
+   Pexels branch's distinct response shape (`source:"stock"`, `clips`) disappeared along with it
+   and generic now returns the exact same `{subject, footageType, quote, candidates}` shape
+   `renderEvidence()` already handled.
+
+   `max_completion_tokens`'s flat constant bumped `600` → `900` in this same pass (two new keys —
+   `categoryClaim` on every segment, `findable` on a subset) — estimated, not measured; re-confirm
+   against Groq's actual reported "Requested" tokens on a real dense script before trusting it, per
+   this file's own established practice for every other number in that formula.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
@@ -229,7 +286,7 @@ pipelines" above. All three are covered by "Stock footage" below for the actual 
   project-wide. The `query` field is threaded through `buildLiveSegments()` and sent as
   `seg.query || seg.text`.
 
-## Stock footage (Pexels) — the ONLY `feel` source, also generic-evidence's source (WIRED UP)
+## Stock footage (Pexels) — the ONLY `feel` source (WIRED UP)
 Stock lives entirely on Cloudflare — no worker, no HMAC, no yt-dlp. Pexels returns direct-CDN
 MP4s that are already short, licensed, and the right resolution, so there's nothing to trim or
 sign, just a same-origin download proxy so `<a download>` actually saves instead of playing the
@@ -237,27 +294,23 @@ CDN url in a tab (cross-origin `download` attributes are ignored by the browser)
 - `functions/api/stock-search.js` (`POST /api/stock-search`, body `{query, orientation?}`):
   calls `GET api.pexels.com/videos/search` with header `Authorization: <PEXELS_API_KEY>` (raw
   key, NOT `Bearer` — that's Pexels' convention, not this app's). Exports `mapPexelsVideo(v)`
-  (best `<=1080p` mp4 as `downloadUrl`, an `sd`-quality mp4 as `previewUrl`) so evidence-search's
-  generic branch (below) can reuse the exact same mapping instead of duplicating it.
+  (best `<=1080p` mp4 as `downloadUrl`, an `sd`-quality mp4 as `previewUrl`).
 - `functions/api/stock-download.js` (`GET /api/stock-download?url=&name=`): streams the upstream
   CDN mp4 back with `Content-Disposition: attachment` (no buffering). Open-proxy guard: only
   fetches hosts ending in `.pexels.com` or `.vimeo.com` — never an arbitrary caller-supplied URL.
-- Routing lives in two places:
-  1. **Segmenter** (`segment.js`): every `feel` beat gets a `query` — a 2-5 word descriptive
-     scene phrase — and is sent to Pexels. `reference` never gets a `query` field at all — its
-     identification happens downstream in its own dedicated search step, not in the segmenter.
-  2. **Evidence search** (`evidence-search.js`): the `footageType:"generic"` branch (a category
-     statement, no one identifiable person/event) short-circuits straight to Pexels instead of
-     YouTube — returns `{footageType:"generic", source:"stock", clips}`. `footageType:"specific"`
-     goes YouTube → enrich → rerank → plain links (see "Evidence & reference pipelines" above).
-     This means the YOUTUBE_API_KEY guard in `evidence-search.js` only applies once footageType
-     resolves to specific — a generic-only deploy works with just GROQ+PEXELS keys.
-- Frontend (`app.js`): `hydrateClips()` sends every `feel` beat to `/api/stock-search`;
-  `findFootage()` checks `data.source === "stock"` on the evidence-search response and renders
-  straight from `data.clips` (via the shared `clipCardHtml`/`openPreview`). `openPreview` always
-  shows `#modal-video` (a real `<video>` playing `previewUrl`) and points the download button at
-  `/api/stock-download?url=<downloadUrl>&name=<id>` — no more branching on clip source, since
-  every `feel`/generic-evidence clip is Pexels now. Stock clip ids are prefixed `pexels-<id>`.
+- Routing: **Segmenter** (`segment.js`) is the only place Pexels gets used now — every `feel`
+  beat gets a `query` (a 2-5 word descriptive scene phrase) and is sent to Pexels. (2026-07-18:
+  `evidence-search.js` used to have a second Pexels route here too — a `footageType:"generic"`
+  short-circuit for category-level claims — removed, see point 7 under "Segmentation"; ALL
+  `evidence` now goes to YouTube regardless of flavor.) `reference` never gets a `query` field at
+  all — its identification happens downstream in its own dedicated search step, not in the
+  segmenter.
+- Frontend (`app.js`): `hydrateClips()` sends every `feel` beat to `/api/stock-search` and renders
+  via `clipCardHtml`/`openPreview`. `openPreview` shows `#modal-video` (a real `<video>` playing
+  `previewUrl`) and points the download button at `/api/stock-download?url=<downloadUrl>&name=<id>`.
+  Stock clip ids are prefixed `pexels-<id>`. `findFootage()`'s `data.source === "stock"` check is
+  now dead code (evidence-search.js never returns that shape anymore) — harmless but unreachable,
+  optional cleanup if this file gets touched again.
 - Needs `PEXELS_API_KEY` as a Cloudflare Pages secret (Production env) — free tier, 200 req/hour.
 
 ## Trim-to-download (Pexels/stock clips only, added 2026-07-17)
