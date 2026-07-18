@@ -16,12 +16,12 @@ const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
 // making the request (and the user staring at "Searching…") sit through a wait that can't help.
 const MAX_WAIT_MS = 2000;
 
-export async function groqChat(env, { model, messages, temperature = 0.2, response_format = { type: "json_object" } }, maxRetries = 2) {
+export async function groqChat(env, { model, messages, temperature = 0.2, response_format = { type: "json_object" }, max_completion_tokens }, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, temperature, response_format }),
+      body: JSON.stringify({ model, messages, temperature, response_format, ...(max_completion_tokens ? { max_completion_tokens } : {}) }),
     });
     if (res.ok) return res;
     if (attempt >= maxRetries) return res;

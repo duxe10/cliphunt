@@ -163,6 +163,11 @@ async function narrateSegments(segments, env) {
         { role: "user", content: userContent },
       ],
       temperature: 0.2,
+      // Output scales with how many segments need resolving, not with the whole script — one
+      // short sentence per target. Sized generously per target rather than a flat constant, so a
+      // script with unusually many evidence/reference beats doesn't get cut off mid-JSON (see
+      // onRequestPost's max_completion_tokens comment for why this class of bug matters here).
+      max_completion_tokens: Math.min(8000, targets.length * 60 + 300),
     });
     if (!res.ok) return segments; // best-effort: evidence-search.js falls back to raw context
 
@@ -208,6 +213,15 @@ export async function onRequestPost(context) {
         { role: "user", content: script },
       ],
       temperature: 0.3,
+      // Segmentation's output has to echo back nearly the ENTIRE script verbatim (every segment's
+      // "text" is a substring of it) plus per-segment family/query JSON overhead — so its length
+      // scales with the script's, not a fixed small size. Never setting this meant relying on
+      // whatever default cap Groq applies, which a long real script (confirmed live: ~90 segments
+      // from a ~4.7k-character script) can exceed mid-generation, coming back as truncated,
+      // invalid JSON ("json_validate_failed" with an empty failed_generation) — not a rare fluke,
+      // reproduced 3/3 tries on the same script. Sized off script length with headroom for the
+      // JSON overhead, capped at gpt-oss-120b's practical ceiling under its own 8000 TPM budget.
+      max_completion_tokens: Math.min(8000, Math.ceil(script.length / 2) + 800),
     });
 
     if (!groqRes.ok) {
