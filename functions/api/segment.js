@@ -179,13 +179,16 @@ export async function onRequestPost(context) {
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: script }],
       // Same "output scales with script length, not a fixed small amount" reasoning as the old
-      // Groq cap (segmentation echoes back nearly the entire script verbatim) — this formula is
-      // carried over unchanged from the Groq version. NOT yet re-tuned or verified against
-      // Claude's own limits/pricing (Anthropic's max_tokens semantics and rate limits differ from
-      // Groq's TPM accounting) — this is a starting point, not a confirmed-safe number. This
-      // account is on a small real balance; watch actual usage/cost on the first few real scripts
-      // rather than assuming this cap is right.
-      max_tokens: Math.min(8000, Math.ceil(script.length / 2.5) + 900),
+      // Groq cap (segmentation echoes back nearly the entire script verbatim) — base formula
+      // carried over from the Groq version, but the cap and flat buffer are both raised well
+      // beyond that (8000->16000, +900->+2500): confirmed live that claude-sonnet-5's default
+      // adaptive thinking (see _claude.js) shares this SAME max_tokens budget, and a response
+      // that runs out of budget mid-thought returns ONLY a thinking block with no text at all —
+      // not a truncated JSON error, a total failure. This needs enough headroom for low-effort
+      // thinking AND the full echoed-text answer to both fit, not just the answer alone. Not
+      // measured against a real dense script yet — re-confirm and retune, same as every other
+      // number in this formula historically.
+      max_tokens: Math.min(16000, Math.ceil(script.length / 2.5) + 2500),
     });
 
     if (!claudeRes.ok) {

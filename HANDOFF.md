@@ -187,16 +187,41 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
    highest-stakes, most failure-prone call all session on Groq (TPM ceiling fights, the shape-bias
    misclassifications in points 6-8). Moved to `claude-sonnet-5` via `functions/api/_claude.js` —
    a genuinely different request shape from Groq's OpenAI-compatible API (system prompt is a
-   top-level `system` field, `max_tokens` not `max_completion_tokens`, response text at
-   `content[0].text` not `choices[0].message.content`, no native JSON mode — `extractJson()`
-   strips an occasional ```json fence before `JSON.parse`). This account is on a small **real
-   billed** Anthropic balance, not a free tier — `ANTHROPIC_API_KEY` must be set as a Cloudflare
-   Pages secret (same redeploy-after-secret-change rule as every other key here). The
-   `max_tokens` formula was carried over unchanged from the old Groq cap on the same "output
-   scales with script length" reasoning, but is **not yet verified against Claude's own
-   limits/pricing** — treat it as a starting point. Evidence-search's intent extraction moved
-   too (see its own file header comment); reranking and reference-search stay on free-tier Groq
-   deliberately — see "Model split" note at the top of `evidence-search.js`.
+   top-level `system` field, `max_tokens` not `max_completion_tokens`, no native JSON mode —
+   `extractJson()` strips an occasional ```json fence before `JSON.parse`). This account is on a
+   small **real billed** Anthropic balance, not a free tier — `ANTHROPIC_API_KEY` must be set as
+   a Cloudflare Pages secret (same redeploy-after-secret-change rule as every other key here).
+   Evidence-search's intent extraction moved too (see its own file header comment); reranking and
+   reference-search stay on free-tier Groq deliberately — see "Model split" note at the top of
+   `evidence-search.js`. **Two more real bugs found live in the same pass, see point 10.**
+10. **`claude-sonnet-5` quirks that broke this on first deploy (2026-07-18) — read before touching
+    `_claude.js` or its two call sites again.**
+    - **`temperature` is rejected outright** on this model ("`temperature` is deprecated for this
+      model", a hard 400) — unlike Groq/older Claude models where it's a normal sampling knob.
+      Dropped entirely from `claudeChat()` rather than made conditional, since every call site
+      here targets `claude-sonnet-5`.
+    - **Adaptive thinking is ON BY DEFAULT and CANNOT be disabled** on this model (confirmed via
+      Anthropic's own docs — `thinking:{type:"disabled"}` isn't supported on `claude-sonnet-5`,
+      unlike older/smaller models). This silently broke both call sites on first deploy: a
+      response can come back with ONLY a `"thinking"` content block and no `"text"` block at all,
+      because thinking consumed the entire `max_tokens` budget before reaching an answer — not a
+      truncated-JSON error, a response with nothing to parse. Compounded by a second bug: the
+      code originally read `content[0].text` positionally, so when thinking came first that was
+      silently `undefined`, fell through an `|| "{}"` fallback, and surfaced as the confusing
+      **"Model did not return a segments array"** — nothing in that message pointed at the real
+      cause. Fixed two ways together: `claudeChat()` now explicitly requests
+      `thinking:{type:"adaptive",effort:"low"}` (a deliberate cost control, not just a
+      reliability fix — thinking tokens are real billed spend on a small account, so this bounds
+      it rather than leaving it to the model), and `extractText()` (`_claude.js`) finds the
+      actual `"text"`-type block by type instead of position, throwing a clear diagnostic error
+      if none exists instead of degrading silently into that same confusing downstream message —
+      same "fail loudly, don't silently paper over it" instinct as this file's other lessons.
+    - **`max_tokens` must budget for thinking AND the answer, not just the answer** — since both
+      share the same cap. Bumped generously on both call sites (segmentation:
+      `Math.min(16000, Math.ceil(script.length/2.5)+2500)`, up from a Groq-tuned 8000/+900;
+      evidence-search: 1024 -> 4096) as a first pass, **not yet confirmed against real usage** —
+      re-verify actual token consumption on real scripts before trusting these numbers, per this
+      file's standing rule for every constant in this area.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

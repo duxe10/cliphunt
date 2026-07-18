@@ -159,7 +159,12 @@ export async function onRequestPost(context) {
       model: "claude-sonnet-5",
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userContent }],
-      max_tokens: 1024, // small, fixed — one segment's intent, not a whole-script echo
+      // Bumped 1024 -> 4096 (2026-07-18): claude-sonnet-5's default adaptive thinking (see
+      // _claude.js) shares this same budget, and 1024 wasn't enough room for low-effort thinking
+      // PLUS the small intent JSON to both fit — confirmed live as a response with ONLY a
+      // thinking block and no text at all. The actual JSON answer here is still small (one
+      // segment's intent), the extra headroom is for thinking, not for a bigger answer.
+      max_tokens: 4096,
     });
 
     if (!claudeRes.ok) {

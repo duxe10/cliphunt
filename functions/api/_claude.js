@@ -25,6 +25,15 @@ const MAX_WAIT_MS = 2000;
 // ("`temperature` is deprecated for this model"), unlike Groq/older Claude models where it's a
 // normal sampling knob. Not made conditional/model-specific here since every current call site
 // uses claude-sonnet-5 — revisit if a call site ever needs a different model that DOES support it.
+//
+// "thinking" — confirmed via Anthropic's docs (2026-07-18, after a live failure: a response with
+// ONLY a "thinking" block and no "text" block at all, because thinking silently ate the whole
+// max_tokens budget): claude-sonnet-5 has ADAPTIVE thinking enabled by default and — unlike
+// older/smaller models — CANNOT be set to "disabled" at all, only tuned via "effort". Explicitly
+// requesting "low" here rather than leaving it to whatever the model decides on its own, since
+// thinking tokens are real billed spend on a small account — this is a cost control, not just a
+// reliability fix. Callers must still budget max_tokens generously enough that low-effort
+// thinking PLUS the actual answer both fit — see call-site comments for specific values.
 export async function claudeChat(env, { model, system, messages, max_tokens }, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -34,7 +43,7 @@ export async function claudeChat(env, { model, system, messages, max_tokens }, m
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ model, system, messages, max_tokens }),
+      body: JSON.stringify({ model, system, messages, max_tokens, thinking: { type: "adaptive", effort: "low" } }),
     });
     if (res.ok) return res;
     if (attempt >= maxRetries) return res;
