@@ -50,6 +50,22 @@ pronoun can resolve to an established person), but not manufactured to paper ove
 inherited from a NEXT segment this one is merely setting up for ("It wasn't just a missed
 penalty." references a penalty but doesn't depict it happening now — it's a rhetorical stepping
 stone into whatever comes next).
+
+An anchor CAN be inherited from the IMMEDIATELY PRECEDING segment, the same way "subject"
+resolves a pronoun to an established person — but only when this segment is a direct, continuous
+extension of that same physical moment, not a later reference back to it. "He stood at the
+podium, hands trembling as the crowd fell silent. In that moment, it finally felt like all those
+years had led somewhere." — the second segment has no anchor of its own, but it's explicitly still
+inside the first segment's scene ("in that moment") — inherits "standing at the podium, hands
+trembling", stays "feel", query built from the inherited anchor plus the payoff (e.g. "person at
+podium, hands trembling, emotional release"). Contrast: "He scored the winning goal in the final
+minute. Three years later, he still couldn't explain why that moment meant so much." — the second
+segment is a LATER reflection on the earlier scene, not a continuation of it (a new time, a new
+vantage point, nothing physically happening now) — does not inherit the goal-scoring anchor, and
+"couldn't explain why it meant so much" is itself a bare internal state with nothing of its own to
+anchor to — stays "nothing". The test: is this segment still physically INSIDE the moment the
+previous one established (same instant, same scene, just continuing), or has it stepped OUTSIDE
+that moment to reflect on it from later/elsewhere? Only the former inherits the anchor.
 If either part fails, there is nothing here for a camera, a stock-footage search, or a real-
 footage search to find — a resolvable name, a quantifier+category grammar shape, or an
 emotionally loaded phrase is not sufficient on its own to rescue it. This is the test "subject",

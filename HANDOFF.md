@@ -498,6 +498,33 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     marginal benefit on an already very long prompt. If the live logging ever shows the model
     failing to generalize past near-verbatim matches of the canonical set, that's the signal to
     revisit this more thoroughly; nothing currently indicates that's happening.
+17. **Anchor inheritance from a preceding segment — a real gap, not yet exercised live
+    (2026-07-19).** `"subject"` has always explicitly resolved from earlier context (a pronoun
+    continuing an established story). The concreteness gate's part (2) never clarified whether a
+    physical ANCHOR gets the same treatment — it explicitly forbids borrowing an anchor from a
+    NEXT segment (the missed-penalty rhetorical-setup example), but said nothing about a PRECEDING
+    one. Real scripts hit this constantly: an action beat followed immediately by a pure-reaction
+    beat with no anchor of its own ("He stood at the podium, hands trembling... In that moment, it
+    finally felt like all those years had led somewhere.") — without inheritance, the second
+    segment would wrongly drop to `"nothing"` despite being clearly, continuously inside the first
+    segment's scene.
+
+    Fixed by extending the same resolution pattern `"subject"` already uses, with an explicit
+    boundary so it doesn't become a loophole: an anchor inherits from the immediately preceding
+    segment ONLY when this segment is a direct, continuous extension of that same physical moment
+    (same instant, same scene) — not a later reflection on it. Worked contrast pair: the podium
+    example (inherits, stays `"feel"`) against "He scored the winning goal in the final minute.
+    Three years later, he still couldn't explain why that moment meant so much." (does NOT
+    inherit — a later reflection from a different time/vantage point, not a continuation; the
+    second segment is also independently a bare internal state with nothing of its own to anchor
+    to, so it lands on `"nothing"` either way). The test given to the model: is this segment still
+    physically INSIDE the moment the previous one established, or has it stepped OUTSIDE to
+    reflect on it from later/elsewhere?
+
+    This was identified by self-audit, not a live failure — no test script run this session
+    happened to exercise consecutive action-then-reaction segments, so this gap existed
+    undetected. Worth specifically testing a real multi-segment script with this exact pattern
+    (an action beat immediately followed by a reaction beat) before trusting this holds.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
