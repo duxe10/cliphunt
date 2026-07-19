@@ -54,7 +54,7 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -343,21 +343,46 @@ async function findFootage(segIdx) {
       return;
     }
 
-    seg.evidence = { candidates: search.candidates || [] };
+    seg.evidence = { candidates: search.candidates || [], images: search.images || [] };
     renderEvidence(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
   }
 }
 
+// Renders YouTube video candidates and Google Images photo results together in one queue —
+// same concatenation pattern as renderReferenceFootage() below; the src-chip (YT/IMG) is the
+// only source distinction, consistent with every other clip-queue in the app.
 function renderEvidence(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container || !seg.evidence) return;
-  const { candidates } = seg.evidence;
-  container.innerHTML = candidates.length
-    ? `<div class="clip-queue">${candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("")}</div>`
+  const candidates = seg.evidence.candidates || [];
+  const images = seg.evidence.images || [];
+  const cards =
+    candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("") +
+    images.map((img) => imageCardHtml(img)).join("");
+  container.innerHTML = cards
+    ? `<div class="clip-queue">${cards}</div>`
     : `<p class="no-clip-msg">No footage candidates found.</p>`;
+}
+
+// A photo result card is a plain external link to the image's SOURCE PAGE — no preview modal, no
+// full-res display, no download. The thumbnail shown is Google's own hosted thumb; the full-res
+// original is never fetched or hotlinked (same link-only rule as YouTube evidence — this app
+// points at content it doesn't have rights to redistribute, it doesn't serve it).
+function imageCardHtml(img) {
+  const thumbStyle = img.thumb
+    ? `background-image:url('${escapeHtml(img.thumb)}'); background-size:cover; background-position:center;`
+    : "";
+  return `
+    <a class="clip-card" href="${escapeHtml(img.pageUrl)}" target="_blank" rel="noopener">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-image">${SOURCE_LABEL.image}</span>
+      </div>
+      <div class="clip-label">${escapeHtml(img.title || "")}</div>
+      <div class="clip-sub">${escapeHtml(img.domain || "")}</div>
+    </a>`;
 }
 
 // Renders BOTH result sets for a "reference" beat together in one queue — YouTube reaction

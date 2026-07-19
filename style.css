@@ -429,6 +429,11 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .src-youtube { background: #ff9a76; }
 .src-pexels { background: #7fd99a; }
+.src-image { background: #8fb8ff; }
+
+/* Google Images result cards are plain external links (see imageCardHtml) — undo anchor
+   defaults so they render identically to the div-based cards in the same queue. */
+a.clip-card { text-decoration: none; color: inherit; display: block; }
 
 .clip-label {
   font-size: 11px;

@@ -854,6 +854,55 @@ only ends up with no clip if BOTH searches come up empty.
   design's response shape doesn't use it either (both result sets are always present together,
   never switched), so it would have stayed permanently dead and confusing if left in place.
 
+## Google Images on evidence beats (SerpAPI, added 2026-07-19)
+Google's Programmable Search Engine was ruled out first — its "search the entire web" option was
+killed for all new engines in Jan 2026 (new engines are capped at 50 fixed domains; whole-web
+needs enterprise Vertex pricing), so SerpAPI's `google_images` engine is the whole-web image
+source instead. **Free plan: 250 searches/month, no card** — every evidence "Find footage" click
+spends one, so this is the tightest quota in the app (~8/day); identical searches within an hour
+hit SerpAPI's cache free. Upgrade path is $25/mo for 1,000 if the product ever needs it.
+- **Scope: evidence beats ONLY, deliberately.** An images-for-reference-beats variant (meme
+  stills via the same emotion+"reaction meme" query logic) was planned and then explicitly cut
+  by the user before building ("drop the meme/feel part... just evidence for now") — if it comes
+  back, the design was: third intent field in `reference-search.js`, same common-vs-unusual
+  emotion judgment as the YouTube query, meme-native-domain preference (knowyourmeme/imgflip/
+  i.redd.it) in the filter profile.
+- `functions/api/_serpapi.js` (underscore = import-only, same as `_groq.js`): one export,
+  `searchGoogleImages(env, query)`. Fixed params do the type filtering AT GOOGLE — 
+  `image_type=photo` (excludes animated gifs/clipart/lineart at the source, per the user's
+  explicit "no gifs" requirement), `imgsz=l` (no icons/tiny thumbs), `safe=active`. Code-level
+  backstops behind that: a `.gif` extension check on the original URL, and a blocked-domain regex
+  (Pinterest = aggregator pointing at pins not sources; Getty/Alamy/Shutterstock/iStock/
+  Dreamstime/123rf/Depositphotos = watermarked-preview-only, useless to an editor). NEVER throws;
+  missing `SERPAPI_KEY`, quota exhaustion, or any fetch failure resolves to `[]` — images are
+  additive, so `evidence-search.js` deliberately does NOT hard-guard the key the way it guards
+  `ANTHROPIC_API_KEY`/`YOUTUBE_API_KEY` (same reasoning as `PEXELS_API_KEY` in
+  `reference-search.js`).
+- **No LLM rerank on images, deliberately** (unlike every other result type): with no vision, a
+  rerank could only score title+domain metadata — weak signal for an extra per-click Groq call.
+  Google Images' own ranking for a well-formed specific query is kept as-is; the deterministic
+  domain/type filters do the real quality work. Revisit only if live results are actually bad.
+- `evidence-search.js`: the Claude intent extraction gained an `"imageQuery"` field (rides the
+  existing call — NOT a new Claude call site) — same subject/year/event as `youtubeQuery` but
+  phrased for a still photo (drop video-title words, name the frozen instant). Falls back to
+  `youtubeQuery` if absent. The SerpAPI fetch starts before the YouTube pipeline and runs
+  concurrently with all of it (search+enrich+rerank), awaited only at response time. Response
+  gains `images: [...]`; the per-click log line now includes `imageQuery`, and `_serpapi.js` logs
+  raw/kept counts per search.
+- Frontend (`app.js`): `renderEvidence()` concatenates `imageCardHtml()` cards after the YouTube
+  candidates in the same `.clip-queue` (same pattern as `renderReferenceFootage()`), distinguished
+  by a new "IMG" `src-chip` (`.src-image`, blue). **An image card is a plain `<a target="_blank">`
+  to the image's SOURCE PAGE** — no preview modal, no full-res display, no download. The thumbnail
+  shown is Google's own hosted thumb (`encrypted-tbn`/data URI); the full-res `original` URL is
+  never returned by the API at all, so the frontend can't accidentally hotlink it — same link-only
+  boundary as YouTube evidence, enforced at the data shape, not just the UI.
+- Setup: `SERPAPI_KEY` as a Cloudflare Pages secret (Production), then force a redeploy
+  (`npx wrangler pages deploy . --project-name cliphunt --branch master --commit-dirty=true`) —
+  secrets bind at deploy time, standing rule.
+- Not yet verified live at the time of writing — needs a real script's evidence beats clicked
+  through with the secret set: confirm the IMG cards render, the queries in the tail log are
+  photo-shaped (not video-title-shaped), and junk domains actually get filtered.
+
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional

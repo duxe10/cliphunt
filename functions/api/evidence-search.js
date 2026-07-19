@@ -13,6 +13,12 @@
 // verification step to rebuild — it's the same signal, just surfaced in the UI instead of feeding
 // a caption-match step).
 //
+// 2026-07-19: also returns `images` — Google Images photo results via SerpAPI (see _serpapi.js),
+// searched concurrently with the YouTube pipeline using the intent's `imageQuery`. Additive and
+// fail-open: any SerpAPI problem (missing key, quota, fetch error) yields images:[] without
+// affecting the YouTube result. Evidence beats only — deliberately NOT added to reference-search
+// (user cut that scope; see HANDOFF "Google Images on evidence beats").
+//
 // Model split (2026-07-18): intent extraction (context resolution — the hard, reasoning-heavy
 // part, see the "TWO RULES" block below) moved to Claude Sonnet, targeting the exact kind of
 // context-resolution failure that motivated the swap (a fragment resolving to the wrong event
@@ -22,6 +28,7 @@
 // see _claude.js's header comment.
 import { groqChat } from "./_groq.js";
 import { claudeChat, extractText, extractJson } from "./_claude.js";
+import { searchGoogleImages } from "./_serpapi.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
@@ -45,7 +52,7 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"..."}
+{"footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"...","imageQuery":"..."}
 
 Decide "footageType":
 
@@ -110,7 +117,16 @@ quote. ("A missed penalty." describes an action, so quote is null.)
 "youtubeQuery": 3-6 words, the best real YouTube search to surface this footage — for "specific",
 a TITLE/KEYWORD match (a specific person/event's name + distinguishing details); for "generic", a
 concrete action + category describing the KIND of real moment (see above). Set for both
-footageTypes — this endpoint always searches YouTube, never Pexels stock.`;
+footageTypes — this endpoint always searches YouTube, never Pexels stock.
+
+"imageQuery": 3-7 words, the best Google Images search for a real PHOTOGRAPH of this moment — the
+same subject and distinguishing details (year, opponent, event) as youtubeQuery, but phrased for a
+still image rather than a video: drop video-title words like "highlights", "full match",
+"interview", "reaction", and name the frozen instant a photographer would have captured (e.g.
+"Harry Kane penalty miss France 2022" for the video becomes "Harry Kane dejected after penalty
+miss France 2022" for the photo — the visible moment, not the narrative). Both rules from (b)
+above apply here identically: carry the established time/edition/event forward, and resolve a
+progression fragment as the relationship to the subject being followed. Set for both footageTypes.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -180,8 +196,8 @@ export async function onRequestPost(context) {
     // store.
     console.log(
       `[evidence-search] footageType=${intent.footageType} subject=${JSON.stringify(intent.subject ?? null)} ` +
-      `youtubeQuery=${JSON.stringify(intent.youtubeQuery ?? null)} quote=${JSON.stringify(intent.quote ?? null)} ` +
-      `moment=${JSON.stringify(segmentText.slice(0, 100))}`
+      `youtubeQuery=${JSON.stringify(intent.youtubeQuery ?? null)} imageQuery=${JSON.stringify(intent.imageQuery ?? null)} ` +
+      `quote=${JSON.stringify(intent.quote ?? null)} moment=${JSON.stringify(segmentText.slice(0, 100))}`
     );
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
@@ -199,7 +215,14 @@ export async function onRequestPost(context) {
 
   const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
 
-  // 2. YouTube Data API search.list (fetch 12 to rerank from).
+  // 2. Google Images (SerpAPI) kicks off here so it runs CONCURRENTLY with the whole YouTube
+  //    pipeline below (search + enrich + rerank), not after it. searchGoogleImages never throws
+  //    and resolves to [] on any failure/missing key (see _serpapi.js) — images are additive, a
+  //    SerpAPI problem must never break the core YouTube result. Falls back to youtubeQuery if
+  //    the model omitted imageQuery, so an older cached intent shape still gets images.
+  const imagesPromise = searchGoogleImages(env, (intent.imageQuery || query).trim());
+
+  // 3. YouTube Data API search.list (fetch 12 to rerank from).
   let candidates;
   try {
     candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
@@ -207,7 +230,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: err.message }, { status: 502 });
   }
 
-  // 2b/2c. Enrich with quality signals, then LLM re-rank against the beat's intent. Both
+  // 3b/3c. Enrich with quality signals, then LLM re-rank against the beat's intent. Both
   //        best-effort — on failure candidates keep YouTube's order and an unfiltered score of 0,
   //        which the MIN_RERANK_SCORE filter below would wrongly drop — so track whether rerank
   //        actually ran before applying it.
@@ -217,7 +240,9 @@ export async function onRequestPost(context) {
   const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
   const top = filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
 
-  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top });
+  const images = await imagesPromise;
+
+  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top, images });
 }
 
 // YouTube Data API search.list (fetch 12 to rerank from). Exported so reference-search.js's meme
