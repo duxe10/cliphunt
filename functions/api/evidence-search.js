@@ -174,6 +174,15 @@ export async function onRequestPost(context) {
 
     const data = await claudeRes.json();
     intent = JSON.parse(extractJson(extractText(data)));
+    // Live-tail visibility only (wrangler pages deployment tail), same discipline as segment.js's
+    // per-segment log — captures the model's own query-generation output (raw, pre-normalization)
+    // so a vague/wrong youtubeQuery can be diagnosed straight from this line without a durable
+    // store.
+    console.log(
+      `[evidence-search] footageType=${intent.footageType} subject=${JSON.stringify(intent.subject ?? null)} ` +
+      `youtubeQuery=${JSON.stringify(intent.youtubeQuery ?? null)} quote=${JSON.stringify(intent.quote ?? null)} ` +
+      `moment=${JSON.stringify(segmentText.slice(0, 100))}`
+    );
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
   }

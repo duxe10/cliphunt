@@ -350,6 +350,74 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     reported cases (the resilience/dream/hope/pressure/missed-penalty examples), genuinely novel
     stress tests in non-sports domains, AND the existing regression set (footballers/startups
     categoryClaim, barista/groundskeeper feel, chat-lost-it findability) before trusting it holds.
+13. **Point 12 live-tested: mostly right, two real follow-up bugs — tuned 2026-07-19, not
+    re-patched.** The "nation watching decades of disappointment" segment actually worked
+    correctly (found the "watching" anchor, correctly stayed `feel`) — the reported problem was
+    query QUALITY, not classification: it generated `"crowd watching"`, too generic. Separately,
+    `family:"nothing"` was reported as firing "a little too much" across broader testing, with no
+    specific failing sentence available to diagnose against this time.
+
+    **The query-vagueness bug had a concrete, verifiable root cause, not a guess**: the
+    query-writing paragraph stated a hard "2-5 words" cap, but 2 of its own 6 "good" example
+    queries were 6-7 words, and both worked examples in the anchor+tone section were also 7 words
+    — the prompt's own examples already contradicted its stated rule, giving the model a
+    legitimate reason to default short when unsure. Fixed: loosened to "roughly 3-7 words," with
+    explicit guidance to err toward the fuller end whenever an anchor needs an emotional tone/arc
+    layered onto it — a query too short to carry both loses the tone first, which is what makes a
+    query read as generic. `"crowd watching"`-style output (a bare verb-only anchor, technically
+    tied to the text but generic enough to match any scene) is now a named bad-example category.
+    Added a third worked example to the anchor+tone section for the specific shape that was
+    under-represented (only 2 examples existed, both "anchor as the plain main clause of a short
+    sentence" — the reported case is a different, harder shape: an anchor buried inside a longer
+    collective/retrospective claim), using the reported sentence itself: BAD `"crowd watching"` vs
+    GOOD `"dejected fans slowly turning hopeful"` — same anchor, but carrying the arc the text
+    actually describes.
+
+    **The `nothing`-over-triggering fix is a counted structural adjustment, not a guess** — no
+    specific failing sentence was available this time, so before proposing anything the actual
+    file was counted rather than assumed (same discipline point 12 established): distinct
+    "route to nothing" example sentences appear ~11 times but are repeated across sections ~20+
+    times total, while the "anchor buried inside abstract/collective framing" pattern — the exact
+    shape of the one confirmed report — appeared exactly ONCE, in a parenthetical, never built
+    into a full worked example anywhere. This is the same example-density-imbalance failure shape
+    documented in points 6/11/12, just biasing the model in the opposite direction this time
+    (toward `nothing` instead of toward `evidence`). Fixed with an explicit tie-breaker inserted
+    right after the concreteness gate: when abstract/collective framing and a physical anchor both
+    appear in the same sentence, **the anchor wins** — read the whole sentence for a hidden anchor
+    before concluding `nothing`, don't stop at the first clause that sounds abstract. Illustrated
+    with the reported sentence plus two new cross-domain examples (a founder/investors case, a
+    family/doctor case — deliberately non-sports, per point 5's "pair examples across domains, no
+    third sports one" rule), and cross-referenced directly from the `nothing` bullet's own
+    bare-internal-state sub-clause so the two sections can't drift apart again.
+
+    **`reason` generalized from `nothing`-only to every family.** Direct ask: "we have
+    classification reasons and query generated saved so we can improve better." For `feel`, names
+    the anchor found (or its absence) plus the emotional tone/arc; for `evidence`, what made
+    `subject`/`categoryClaim` pass the gate; for `reference`, the recognized meme; for `nothing`,
+    unchanged. The actual diagnostic value: a vague query paired with a thin `reason` means the
+    anchor itself was weak (a reasoning problem); a vague query paired with a specific `reason`
+    means the query PHRASING was weak despite sound reasoning (a different, more mechanical
+    problem) — this is what makes future tuning passes evidence-based instead of another guess.
+
+    **Live logging added, deliberately NOT durable storage** — user's explicit choice: a real-time
+    `console.log` per segment in `segment.js` (family/subject/categoryClaim/findable/query/reason,
+    tagged with a short `reqId`), visible via `wrangler pages deployment tail --project-name
+    cliphunt`, one line per segment so it's greppable mid-stream. Logged AFTER both enforcement
+    functions run, so it reflects final decided values, not raw pre-enforcement model output.
+    `evidence-search.js` got a parallel log of its own raw intent-extraction output
+    (`footageType`/`subject`/`youtubeQuery`/`quote`) right after parsing, before `footageType`
+    normalization — that endpoint doesn't get a `reason` field of its own; those four fields
+    already are its reasoning trail, and a redundant field would be scope creep. No env flag/debug
+    gate on either — `console.log` on Workers costs nothing whether or not anyone is tailing, and
+    the ask was zero-friction visibility, not a gated mode. If this needs to survive across
+    sessions later (not just live-tailed during active testing), Cloudflare KV or Analytics Engine
+    are the next step — deliberately not built now, matching this project's standing "don't add
+    infrastructure ahead of a real need" principle.
+
+    **Confirmed unaffected, same reasoning as points 11/12**: `enforceEvidenceRule()`,
+    `enforceFindabilityRule()`, `mergeFragments()`, and `app.js` need no changes — none of them
+    read or touch `reason`/`query`, and `mergeFragments()`'s full-spread already passes new fields
+    through untouched.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

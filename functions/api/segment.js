@@ -54,6 +54,31 @@ emotionally loaded phrase is not sufficient on its own to rescue it. This is the
 "categoryClaim", "feel"'s query-writing, and "nothing" all apply below — treat it as one gate, not
 four separate judgment calls.
 
+Tie-breaker, since this is the single most common way this gate gets misapplied: when a segment
+mixes BOTH abstract/emotional/collective framing (a retrospective claim, a quantifier over a
+group, a claim about a feeling) AND a physical anchor buried somewhere else in the same sentence —
+often in a subordinate clause, a participial phrase, or modifying the group rather than one person
+— the anchor wins. Read the FULL sentence for a hidden anchor before concluding "nothing"; don't
+stop scanning at the first clause that sounds abstract. "For a nation that had spent decades
+watching disappointment after disappointment, it finally felt like something had changed" sounds,
+on a first read, like a bare abstract feeling ("it finally felt like something had changed") — but
+"watching disappointment after disappointment" is a real, physical, present-in-the-text anchor (a
+crowd's repeated act of watching), buried in the earlier clause, so this stays "feel", not
+"nothing". The abstract-sounding half of a sentence does not cancel out a real anchor sitting in
+the other half.
+
+Two more examples of the same tie-breaker, different domains, to guard against reading this as a
+sports-only pattern: "For a founder who had spent years being told no by every investor in the
+room, watching them finally reach for their checkbooks felt like vindication." — sounds like a bare
+feeling ("felt like vindication"), but "watching them finally reach for their checkbooks" is a real
+anchor buried in the setup clause; stays "feel", query built from that anchor plus the arc (years
+of no, now reaching for checkbooks) — e.g. "investors leaning in reaching for checkbooks", not
+"investors watching" alone. "For a family that had sat through appointment after appointment with
+no answers, the doctor walking in with a smile said everything before she spoke." — anchor: "the
+doctor walking in with a smile"; stays "feel", query built from the anchor plus the arc (long
+uncertainty into relief) — e.g. "doctor entering exam room, family looking up", not "doctor walking
+in" alone.
+
 For each segment, also name the "subject": the ONE specific, nameable real person, team,
 organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
 pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
@@ -155,7 +180,9 @@ Then pick one "family":
     segment's own text — no gesture, no posture, no setting, nothing happening while the feeling
     happens: "gives me a little hope", "the dream was alive", "the pressure couldn't have been
     greater", "many fans wonder how different history would have been" (standing alone, with
-    nothing else described happening).
+    nothing else described happening). Before landing on this bullet, re-run the tie-breaker
+    above: scan the WHOLE sentence, not just whichever clause sounds most abstract, for a physical
+    anchor sitting elsewhere in it.
   - a resolvable name or evidence-sounding noun phrase used only rhetorically or transitionally,
     not depicted as actually happening in this segment: "It wasn't just a missed penalty."
     (references a penalty to set up a contrast, doesn't depict it happening now). "That resilience
@@ -170,11 +197,23 @@ Then pick one "family":
   event (evidence/categoryClaim territory); only an isolated abstract-state or bare-internal-state
   clause with no anchor is "nothing".
 
-For "nothing" segments only, also include a brief "reason" — a handful of words naming which
-failure above applies (e.g. "abstract state, no action", "bare internal state, no anchor",
-"rhetorical setup, not depicted now", "reputation judgment, no action", "connective narration
-only"). This isn't shown to the end user; it exists so the classification can be audited directly
-from the API response.
+Every segment — not just "nothing" ones — should also include a brief "reason": a handful of
+words tracing the classification/query back to what's actually in the text, not a restatement of
+the family or query itself. For "feel", name the anchor (or "atmosphere, no single anchor" when
+there genuinely isn't one) and, if there's an anchor, the emotional tone/arc layered onto it —
+e.g. "anchor: sat alone in locker room; tone: quiet regret", "anchor buried in abstract claim:
+watching disappointment; tone: hope emerging". For "evidence", name what made "subject" or
+"categoryClaim" pass the concreteness test — e.g. "resolved subject: Harry Kane; action: training
+alone at 6am", "categoryClaim: startups failing; visible action: office packed into boxes". For
+"reference", name the recognized meme/clip — e.g. "recognized meme: Distracted Boyfriend". For
+"nothing", keep naming which failure above applies, unchanged — e.g. "abstract state, no action",
+"bare internal state, no anchor", "rhetorical setup, not depicted now", "reputation judgment, no
+action", "connective narration only". This field is never shown to the end user; it exists purely
+so the classification AND the query can be audited straight from the API response — a vague
+"feel"/"evidence" query paired with a thin or generic "reason" points at weak reasoning (the
+anchor itself was thin), while a vague query paired with a specific, well-anchored "reason" points
+at a phrasing problem in the query itself, not a classification problem. Keep it to a handful of
+words, same length as before — this is a diagnostic tag, not a second explanation.
 
 For every segment where you set a non-null "subject", a non-null "categoryClaim", or judge family
 "reference", also judge "findable" — the odds that real, indexed footage of this actually exists
@@ -238,13 +277,20 @@ category is too small/private/rare to have realistic footage. When genuinely tor
 skipping a real findable clip is not.
 
 Also include a "query" for every segment EXCEPT "nothing": a SHORT DESCRIPTIVE VISUAL SCENE
-PHRASE, 2-5 words, for searching a real stock-footage library — describe the shot itself, not a
-mood word or an abstract claim, and never include "subject"'s name in it. This is the primary
-search for "feel" segments, and a fallback for "evidence"/"reference" segments in case no
-specific subject can actually be confirmed later. Good queries: "stormy sky timelapse", "empty
-stadium night", "hands typing on laptop", "stadium crowd celebrating goal", "small storefront
-closing down with moving boxes", "empty office packed into cardboard boxes". Bad queries: single
-mood words like "hope" or "tension", or a person's/team's name.
+PHRASE, roughly 3-7 words, for searching a real stock-footage library — describe the shot itself,
+not a mood word or an abstract claim, and never include "subject"'s name in it. Err toward the
+fuller end of that range whenever a physical anchor needs an emotional tone or arc layered onto
+it (see the anchor+tone special case below) — a query too short to carry both the anchor and the
+tone loses the tone first, which is exactly what makes a query read as generic instead of
+specific. This is the primary search for "feel" segments, and a fallback for "evidence"/
+"reference" segments in case no specific subject can actually be confirmed later. Good queries:
+"stormy sky timelapse", "empty stadium night", "hands typing on laptop", "stadium crowd
+celebrating goal", "small storefront closing down with moving boxes", "empty office packed into
+cardboard boxes", "dejected fans slowly turning hopeful". Bad queries: single mood words like
+"hope" or "tension", a person's/team's name, or a verb-only anchor with no emotional or
+situational specificity ("crowd watching", "people waiting", "someone walking") — technically tied
+to the text, but generic enough to match literally any scene, which defeats the point of building
+the query from a specific anchor in the first place.
 
 Special case — reflective/internal "feel" segments (wondering, missing, regretting, longing,
 remembering) that PASS the concreteness test because a genuine physical anchor is actually present
@@ -262,6 +308,27 @@ what's actually described). GOOD query: "person sitting alone in empty locker ro
 directly from the anchor that's actually in the text, not invented. Paired example, different
 domain: "Long after the acquisition closed, she sat by the window each night, replaying the call
 in her head." Anchor: "sat by the window". GOOD query: "person sitting alone by window at dusk".
+
+A third, distinct shape of this same pattern deserves its own example because it's the one most
+likely to produce a vague query if under-practiced: an anchor buried INSIDE a longer,
+collective/retrospective, abstract-sounding claim, rather than sitting as the plain main clause of
+a short sentence the way the two examples above do. "For a nation that had spent decades watching
+disappointment after disappointment, it finally felt like something had changed." On a first read
+this sounds like a bare abstract feeling ("finally felt like something had changed") — but
+"watching disappointment after disappointment" is a real, physical, present-in-the-text anchor (a
+crowd/nation's repeated act of watching, disappointment turning toward something changing), just
+buried in the earlier clause instead of stated plainly up front. This stays "feel", not "nothing"
+— the abstract-sounding second half doesn't cancel out the real anchor in the first half. BAD
+query: "crowd watching" — true to the bare verb, but generic enough to match any crowd watching
+anything, and drops the emotional arc (decades of disappointment, then a turn toward hope) that's
+the actual point of the sentence. GOOD query: "dejected fans slowly turning hopeful" — same
+anchor, but carrying the specific arc the text describes, the same way tone gets layered onto the
+anchor in the two examples above. The lesson generalizes past this one sentence: whenever the
+anchor is a watching/waiting/hoping-type verb sitting inside a longer claim about a GROUP's
+experience over time, the bare verb alone is not a finished query — find the arc or contrast the
+text actually describes (disappointment into change, doubt into belief, waiting into release) and
+fold it in.
+
 The test: does the segment's own text describe someone doing something physical WHILE the
 internal state happens? If yes, build the query from that physical anchor plus tone. If the
 segment is a BARE internal/emotional/aspirational claim with no physical anchor described
@@ -271,7 +338,7 @@ founders spend years replaying the moment they turned down the offer", "gives me
 concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -323,6 +390,26 @@ export async function onRequestPost(context) {
     const merged = mergeFragments(parsed.segments);
     const evidenceResolved = enforceEvidenceRule(merged);
     const corrected = enforceFindabilityRule(evidenceResolved);
+
+    // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
+    // just real-time eyes on what the model actually decided per segment while testing. One line
+    // per segment (not one JSON blob for the whole script) so each is independently greppable
+    // mid-stream (e.g. `wrangler pages deployment tail --project-name cliphunt | grep family=nothing`)
+    // without scrolling one giant line. A short reqId ties every segment in one script back
+    // together when several test scripts run back to back in the same tail session. Logged AFTER
+    // both enforcement functions so this reflects final decided values, not raw pre-enforcement
+    // model output.
+    const reqId = Math.random().toString(36).slice(2, 8);
+    console.log(`[segment] reqId=${reqId} script_len=${script.length} segments=${corrected.length}`);
+    corrected.forEach((seg, i) => {
+      console.log(
+        `[segment] reqId=${reqId} #${i} family=${seg.family} ` +
+        `subject=${JSON.stringify(seg.subject ?? null)} categoryClaim=${JSON.stringify(seg.categoryClaim ?? null)} ` +
+        `findable=${seg.findable ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
+        `reason=${JSON.stringify(seg.reason ?? null)} text=${JSON.stringify(seg.text.slice(0, 100))}`
+      );
+    });
+
     return Response.json({ segments: corrected });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
