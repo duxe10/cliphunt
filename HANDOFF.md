@@ -293,6 +293,64 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     crutch for a specific model's weakness, and there's no reason to remove them just because the
     model improved.
 
+    **Superseded/generalized the next day — see point 12.** This fix only touched `categoryClaim`.
+    The user caught, correctly, that this risked being a one-off patch rather than a structural
+    fix — and follow-up live testing on new sentences (never seen in this conversation) proved it:
+    `subject` had the exact same latent bug (a resolvable name was sufficient to trigger `evidence`
+    regardless of whether the attached content was an actual action), just never exercised by the
+    one reported case. Point 12 replaces both fields' separate content-tests with one unified gate.
+12. **One unifying concreteness gate, replacing the per-field patches in points 6 and 11
+    (2026-07-19).** Point 11's fix only checked `categoryClaim`'s content — `subject` still let a
+    resolvable name through with no check on whether the attached content was an actual depictable
+    action. Live-tested and confirmed: "That resilience is the reason teammates and managers
+    trusted him" resolves "him" to a real player, so `subject` got set and `evidence` fired, even
+    though the actual content is a retrospective character/trust judgment with nothing to film.
+    Same root cause hit `feel`'s query-writing from a different angle: bare aspirational/emotional
+    claims with zero physical anchor ("the dream was alive", "gives me a little hope", "the
+    pressure couldn't have been greater") were getting a query forced out of them — inventing a
+    generic "reflective" shot untethered from anything the text actually says, rather than being
+    recognized as having nothing to film.
+
+    **The fix**: one gate, stated once, near the top of the prompt, that `subject`, `categoryClaim`,
+    `feel`'s query-writing, and `nothing` all defer to instead of each running their own version of
+    "is this real enough": can you point to ONE concrete, physically depictable thing doing or
+    happening, using only the words actually in this segment? Two parts — (1) concrete, not an
+    internal state/judgment/aspiration, (2) actually present in this segment's own text, not
+    invented or borrowed from a segment it's merely setting up for. `subject` now requires the
+    *content* attached to a resolved name to pass this test, not just the name itself. `nothing`'s
+    four historical special-cases (connective narration, abstract state, bare internal claims,
+    rhetorical name-dropping) are now explicitly framed as ONE failure mode in different grammar,
+    not four separate rules — this made the prompt shorter and more consistent, not longer, which
+    is a good sign a genuinely structural fix was found rather than another special case bolted on.
+
+    New `reason` field (nothing-only, a few words, e.g. "reputation judgment, no action") lets the
+    classification be audited straight from the API response — not read by any code, not rendered
+    in the UI, survives `mergeFragments()`'s full-spread and both enforcement functions untouched
+    since neither deletes fields. Added specifically because the user is actively auditing whether
+    this reasoning generalizes, not pattern-matches — direct visibility into *why* a segment landed
+    on `nothing` is what makes that audit possible without guessing.
+
+    **Consequence, handled explicitly**: two of the file's own existing worked examples ("Many
+    England fans wonder...", "Some founders spend years afterward replaying...") flip from `feel`
+    to `nothing` under the new rule — both have zero physical anchor on their own. Left as stale
+    would have contradicted the new rule; moved into `nothing`'s own example list instead, and the
+    query-writing section's examples were replaced with genuinely anchored ones (a person sitting
+    in a locker room / by a window — anchor present, unlike the old pair).
+
+    **Confirmed unaffected, same reasoning as point 11**: `enforceEvidenceRule()` and
+    `enforceFindabilityRule()` need no changes — both inspect only whether fields are non-empty and
+    only ever reassign `family`, never caring how the model arrived at a value. `app.js` needs no
+    changes — it already whitelists fields into a smaller display object, dropping `subject`/
+    `categoryClaim`/`reason` silently; the raw API response is where the new field is visible.
+
+    **Methodological note, worth repeating given it's now happened twice**: verification for a
+    prompt-reasoning fix must include sentences genuinely novel to the conversation, not just the
+    reported failures — a fix that only passes on the exact sentences that motivated it hasn't been
+    shown to generalize, it's been shown to memorize. Re-verify this specific fix against the
+    reported cases (the resilience/dream/hope/pressure/missed-penalty examples), genuinely novel
+    stress tests in non-sports domains, AND the existing regression set (footballers/startups
+    categoryClaim, barista/groundskeeper feel, chat-lost-it findability) before trusting it holds.
+
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
 again.** A "Narrator" pass was added 2026-07-17: a second Groq call inside `segment.js`'s handler,

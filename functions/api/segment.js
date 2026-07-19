@@ -33,26 +33,56 @@ Rules for where segments start and end:
 Do not paraphrase — each segment's "text" must be an exact substring of the original script,
 in order, covering the whole script.
 
+Before naming a subject or categoryClaim, or choosing a family, run one test on the segment's
+actual content — this is the single test that governs every judgment below, not a separate check
+for each field: can you point to ONE concrete, physically depictable thing that is doing or
+happening, using only the words actually in THIS segment? Two parts, both required:
+(1) CONCRETE, not abstract — the thing must be an action, event, or physical scene (a body doing
+something, an object, a setting, a crowd's visible reaction) — not a mental state, a value
+judgment, a reputation claim, a vague aspiration, or an abstract intensity ("gives me a little
+hope", "the dream was alive", "the pressure couldn't have been greater", "trusted him" as a
+character judgment).
+(2) PRESENT IN THIS SEGMENT, not borrowed or invented — the concrete thing has to actually be
+there in this segment's own words, resolved from earlier context the way "subject" already is (a
+pronoun can resolve to an established person), but not manufactured to paper over a gap, and not
+inherited from a NEXT segment this one is merely setting up for ("It wasn't just a missed
+penalty." references a penalty but doesn't depict it happening now — it's a rhetorical stepping
+stone into whatever comes next).
+If either part fails, there is nothing here for a camera, a stock-footage search, or a real-
+footage search to find — a resolvable name, a quantifier+category grammar shape, or an
+emotionally loaded phrase is not sufficient on its own to rescue it. This is the test "subject",
+"categoryClaim", "feel"'s query-writing, and "nothing" all apply below — treat it as one gate, not
+four separate judgment calls.
+
 For each segment, also name the "subject": the ONE specific, nameable real person, team,
 organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
 pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
-"A missed penalty." has subject "Harry Kane"). Set "subject" to null when no single specific
-real entity/event is identifiable. Don't guess a subject that isn't actually established — null
-is correct far more often than it might feel.
+"A missed penalty." has subject "Harry Kane") — but only when the concreteness test above
+actually passes for this segment: a resolvable name is necessary, never sufficient. The content
+attached to that name must itself be a depictable action or event, not an abstract trait,
+reputation, or character judgment about them. "That resilience is the reason teammates and
+managers trusted him" resolves "him" to a real player, but the actual content is a retrospective
+trust/character judgment with nothing to film — subject: null, despite the clean pronoun
+resolution. Contrast: "He was still out training alone at 6am, months after the injury." — same
+kind of resolved person-reference, but this time there's a concrete action to point a camera at
+(training alone, early morning) — subject: "[player name]". Likewise, an evidence-sounding noun
+phrase used only as a rhetorical or transitional reference doesn't count: "It wasn't just a missed
+penalty." doesn't depict the penalty happening now, it gestures at it to set up a contrast —
+subject: null. Set "subject" to null whenever no single specific real entity/event survives the
+concreteness test, or when none is identifiable at all. Don't guess a subject that isn't actually
+established — null is correct far more often than it might feel.
 
-Also name the "categoryClaim": a short phrase naming the real, general phenomenon ONLY when the
-segment describes a whole CLASS of real people/things DOING something a camera pointed at one real
-instance could actually capture happening. Quantifier language ("most", "many", "every",
-"typically", "usually") is a useful SIGNAL for noticing candidate sentences, but it is NOT the
-test by itself — plenty of quantifier+category sentences describe an internal, mental, or
-emotional state (wondering, hoping, believing, wishing, dreaming, feeling proud, wanting) that no
-camera could ever capture, no matter how many real people are doing it. "Many England fans wonder
-how different history would have been" has the exact grammatical shape of a categorical claim
-(quantifier + category + verb), but "wonder" happens invisibly inside someone's head — there is
-nothing for a lens to point at. The real test is content, not shape: imagine pointing a camera at
-one genuine instance of this — does it capture a visible, external, physical action or event, or
-does it just capture a person existing while something invisible happens inside them? Only the
-first counts.
+Also name the "categoryClaim": this is the concreteness test above, applied to a whole CLASS of
+real people/things instead of one resolved individual. Name a short phrase for the real, general
+phenomenon ONLY when the segment describes a whole CLASS of real people/things DOING something a
+camera pointed at one real instance could actually capture happening — both parts of the
+concreteness test still apply: (1) is what they're doing a visible, external action, not an
+internal/mental/emotional state, and (2) is that action actually described in this segment's own
+text, not invented. Quantifier language ("most", "many", "every", "typically", "usually") is a
+useful SIGNAL for noticing candidate sentences, but it is NOT the test by itself — plenty of
+quantifier+category sentences describe an internal, mental, or emotional state (wondering, hoping,
+believing, wishing, dreaming, feeling proud, wanting) that no camera could ever capture, no matter
+how many real people are doing it.
 
 Two examples of genuine categoryClaims: "For most footballers, scoring at a World Cup is the
 highlight of their career" -> categoryClaim: "footballers celebrating scoring at a World Cup"
@@ -72,50 +102,79 @@ kickoff, an aide handing over a folder in a hallway, rain on a window, hands typ
 None of these assert anything about a CLASS of people/things — they're one anonymous, ordinary
 action happening once, incidentally, as scene-setting.
 
-The full test, in order: (1) is a whole CLASS of real people/things being described, not one
-anonymous instance? (2) if you point a camera at one real instance, does it capture a visible
-external action/event, not an internal mental/emotional state? Only when BOTH are true, set
-categoryClaim. Don't guess a categoryClaim into a sentence that's really just atmosphere, and
-don't let quantifier language alone talk you into one that's really an internal state.
+The full test — the same concreteness test above, specialized for a CLASS: (1) is a whole CLASS
+of real people/things being described, not one anonymous instance? (2) if you point a camera at
+one real instance, does it capture a visible external action/event, not an internal mental/
+emotional state or an abstract judgment? Only when BOTH are true, set categoryClaim. Don't guess a
+categoryClaim into a sentence that's really just atmosphere, and don't let quantifier language
+alone talk you into one that's really an internal state.
 
-Note: excluding a mental/emotional state from categoryClaim does NOT make the segment "nothing" —
-it still stays "feel" (see the "nothing" rule below). Unlike a truly abstract STATE with nothing
-to picture (a tied score, a deal "still on the table"), an internal feeling like wondering or
-missing someone IS visualizable, through a symbolic representative shot (see the query-writing
-guidance below) — it just isn't a filmable, literal, class-level ACTION, so it doesn't qualify as
-a categoryClaim.
+Note: excluding a mental/emotional state from categoryClaim does NOT automatically make the
+segment "feel" — check it against the concreteness test too. An internal state is only "feel"
+(not "nothing") when the segment's own text also contains a genuine physical anchor to build a
+query around — a gesture, a posture, an action someone is actually described doing while the
+internal state happens ("spent decades watching disappointment" has "watching" as a real anchor;
+"many England fans wonder how different history would have been" has no anchor at all — nothing
+is described happening, just the wondering itself). When a real anchor exists, the segment is
+"feel" and the query is built from that anchor plus the emotional context (see the query-writing
+guidance below) — not a literal topic-noun, but not invented from nothing either. When NO anchor
+exists anywhere in the segment's own words — a bare mental/emotional/aspirational claim with
+nothing described happening ("gives me a little hope", "the dream was alive") — the segment is
+"nothing": there's nothing for even a symbolic shot to hang on to that isn't fabricated.
 
 Then pick one "family":
-- "feel" — "subject" is null AND "categoryClaim" is null. Covers pure emotional beats,
-  atmosphere/mood/scene-setting, and ordinary unnamed incidental background activity — anything
-  without ONE nameable real entity/event AND without a genuine categorical claim behind it. All of
-  it gets real stock footage.
+- "feel" — "subject" is null AND "categoryClaim" is null, AND the concreteness test above still
+  finds a real, present-in-the-text anchor to work with: atmosphere, mood, scene-setting, ordinary
+  unnamed incidental background activity, or an internal/emotional state that's genuinely anchored
+  to a physical gesture or setting described in the segment (see the query-writing guidance
+  below). All of it gets real stock footage.
 - "evidence" — EITHER "subject" is set (a specific real person/team/org/event doing or saying a
-  particular thing), OR "categoryClaim" is set (a genuine categorical claim about a class of real
-  people/things doing something a camera could capture). Both flavors search for real captured
-  footage — a named subject's exact moment, or authentic footage of that KIND of moment happening
-  to real people — never stock b-roll, in either case.
+  particular thing, with a genuine depictable action attached — not just a resolvable name), OR
+  "categoryClaim" is set (a genuine categorical claim about a class of real people/things doing
+  something a camera could capture). Both flavors search for real captured footage — a named
+  subject's exact moment, or authentic footage of that KIND of moment happening to real people —
+  never stock b-roll, in either case. Because "subject" and "categoryClaim" already passed the
+  concreteness test above by the time you reach this point, no further content check is needed
+  here — just check whether either field is actually set.
 - "reference" — matches a known meme/cultural callback (subject and categoryClaim are usually
-  both null).
-- "nothing" — GENUINELY has no visual content of its own: connective narration, a meta aside, a
-  setup clause that only makes sense combined with the next segment's visual. If a sentence
-  describes any real-world action, scene, or moment it is NOT "nothing" — check whether it names
-  or resolves to a subject or a categoryClaim first (then it's "evidence"), and if not, it's
-  "feel", not "nothing". Only call it "nothing" if, after removing transition wording, nothing
-  visual is actually left.
-  ALSO "nothing": an ABSTRACT STATE or OUTCOME with no concrete scene a camera could point at —
-  a score being tied, a situation being "still open"/"unresolved", a deal "still on the table".
-  These describe a STATE, not an action, event, or scene — there's nothing happening to show, so
-  neither a stock-footage query nor a real-footage search has anything concrete to work with. Two
-  examples, different domains: "Everything was level going into the final minutes." (a tied score
-  is a fact about a scoreboard, not a filmable moment — "level" isn't a shot). "The deal was still
-  hanging in the balance." (an ongoing negotiation state, nothing to picture). Contrast with mood/
-  atmosphere, which DOES stay "feel" because it's actually visualizable (a tense crowd's faces, an
-  electric atmosphere in a stadium are real shots) — the line is whether a concrete scene exists to
-  film, not whether the sentence "sounds" abstract. And contrast with a real action inside the same
-  beat: "The score had been level for weeks until the funding finally came through." — the funding
-  coming through is a real event (evidence/categoryClaim territory); only an isolated abstract-state
-  clause with no action attached is "nothing".
+  both null). A recognized meme/clip is itself a concrete, already-filmed thing, so it doesn't
+  need to separately pass the concreteness test.
+- "nothing" — the concreteness test above fails outright: after looking for one concrete,
+  physically depictable thing actually present in this segment's own text, nothing survives. This
+  single test covers several different SURFACES, which are not separate rules but the same
+  failure showing up in different grammar:
+  - connective narration, meta asides, or a setup clause that only makes sense combined with the
+    next segment's visual ("But that wasn't the end of the story.", "Here's the thing.") — there
+    was never any content here, concrete or otherwise, only a transition.
+  - an abstract STATE or OUTCOME with no action attached — a score being tied, a situation "still
+    open"/"unresolved", a deal "still on the table". These describe a STATE, not an action, event,
+    or scene: "Everything was level going into the final minutes." (a tied score is a fact about a
+    scoreboard, not a filmable moment). "The deal was still hanging in the balance." (an ongoing
+    negotiation state, nothing to picture).
+  - a bare internal/emotional/aspirational claim with no physical anchor described anywhere in the
+    segment's own text — no gesture, no posture, no setting, nothing happening while the feeling
+    happens: "gives me a little hope", "the dream was alive", "the pressure couldn't have been
+    greater", "many fans wonder how different history would have been" (standing alone, with
+    nothing else described happening).
+  - a resolvable name or evidence-sounding noun phrase used only rhetorically or transitionally,
+    not depicted as actually happening in this segment: "It wasn't just a missed penalty."
+    (references a penalty to set up a contrast, doesn't depict it happening now). "That resilience
+    is the reason teammates and managers trusted him." (resolves to a real person, but the content
+    is a reputation/character judgment, not an action).
+  Contrast with mood/atmosphere and anchored internal states, which DO stay "feel" because a
+  concrete, present scene or gesture actually exists to film (a tense crowd's faces, an electric
+  stadium atmosphere, someone sitting alone in a locker room replaying a moment) — the line is
+  whether a concrete, present-in-the-text scene exists, not whether the sentence "sounds" abstract
+  or emotionally loaded. And contrast with a real action inside the same beat: "The score had been
+  level for weeks until the funding finally came through." — the funding coming through is a real
+  event (evidence/categoryClaim territory); only an isolated abstract-state or bare-internal-state
+  clause with no anchor is "nothing".
+
+For "nothing" segments only, also include a brief "reason" — a handful of words naming which
+failure above applies (e.g. "abstract state, no action", "bare internal state, no anchor",
+"rhetorical setup, not depicted now", "reputation judgment, no action", "connective narration
+only"). This isn't shown to the end user; it exists so the classification can be audited directly
+from the API response.
 
 For every segment where you set a non-null "subject", a non-null "categoryClaim", or judge family
 "reference", also judge "findable" — the odds that real, indexed footage of this actually exists
@@ -188,28 +247,31 @@ closing down with moving boxes", "empty office packed into cardboard boxes". Bad
 mood words like "hope" or "tension", or a person's/team's name.
 
 Special case — reflective/internal "feel" segments (wondering, missing, regretting, longing,
-remembering, imagining "what could have been"): don't default to a literal noun lifted from the
-sentence's surface topic — the sport, the setting, the industry. That describes the BACKDROP the
-feeling happens in, not the feeling itself, and reads as a generic, on-the-nose environment shot.
-Instead, write the query for the SYMBOLIC, representative shot an editor actually reaches for to
-convey that internal state on screen: someone gazing into the distance, a hand slowly turning an
-old photograph, a person staring out a rain-streaked window, someone sitting alone as light fades.
-Example: "To this day, many England fans wonder scoring there would have changed football history
-forever." The actual content of this line is wistful, reflective, "what could have been" — not
-football, not a stadium. BAD query: "football stadium fans" or "fans watching" (literal
-topic-nouns pulled from the surface subject matter, generic, misses the reflective content
-entirely). GOOD query: "person gazing into distance thoughtfully" or "hand slowly turning old
-photograph". Paired example, different domain: "Some founders spend years afterward replaying the
-moment they turned down the acquisition." BAD query: "office meeting boardroom" (literal
-topic-noun lifted from "founders"/"acquisition"). GOOD query: "person staring out rain-streaked
-window" or "hand slowly turning old photograph" — the same symbolic reflection shot works here
-too, because the underlying feeling (replaying a past what-if) is the same regardless of domain.
-The test: if the segment's real content is something happening INSIDE someone's head, write the
-query for the symbolic gesture that represents that interior state, not the literal exterior
-setting the sentence happens to mention.
+remembering) that PASS the concreteness test because a genuine physical anchor is actually present
+in the segment's own text (a person sitting, standing, watching, staring, walking, holding
+something) with an internal/emotional layer on top of it: don't default to a literal noun lifted
+from the sentence's surface topic — the sport, the setting, the industry. That describes the
+BACKDROP the feeling happens in, not the feeling itself, and reads as a generic, on-the-nose
+environment shot. Instead, build the query from the ANCHOR ITSELF — the actual gesture, posture,
+or setting described in the text — plus the emotional tone, not a generic invented "reflective"
+stock image unrelated to what the segment actually describes. Example: "Long after the whistle
+blew, someone sat alone in the locker room, replaying the moment in their head." The anchor here
+is "sat alone in the locker room" — a real, concrete, present-in-the-text gesture. BAD query:
+"football stadium" or "sports arena" (literal topic-noun pulled from the sport, generic, misses
+what's actually described). GOOD query: "person sitting alone in empty locker room" — built
+directly from the anchor that's actually in the text, not invented. Paired example, different
+domain: "Long after the acquisition closed, she sat by the window each night, replaying the call
+in her head." Anchor: "sat by the window". GOOD query: "person sitting alone by window at dusk".
+The test: does the segment's own text describe someone doing something physical WHILE the
+internal state happens? If yes, build the query from that physical anchor plus tone. If the
+segment is a BARE internal/emotional/aspirational claim with no physical anchor described
+anywhere in its own text — "many fans wonder how different history would have been", "some
+founders spend years replaying the moment they turned down the offer", "gives me a little hope",
+"the dream was alive" — don't invent an anchor to force a "feel" query out of it. That's the
+concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
