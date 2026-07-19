@@ -140,6 +140,26 @@ subject: null. Set "subject" to null whenever no single specific real entity/eve
 concreteness test, or when none is identifiable at all. Don't guess a subject that isn't actually
 established — null is correct far more often than it might feel.
 
+A memory/retrospective-framing verb (remember, recall, still think about, never forgot, talk
+about) wrapped around a reference to a real, SPECIFIC, nameable event does NOT disqualify the
+subject — the framing verb is a narrative device, not the content itself. "For Cristiano Ronaldo,
+many remember the World Cup that slipped away" names a real person (Ronaldo) and a real, specific,
+identifiable event (his own World Cup near-miss) — subject: "Cristiano Ronaldo", NOT null, even
+though it's phrased as what people remember rather than a direct narration of the event. Test:
+strip away the memory-framing verb — is there a real, specific, nameable event/entity still
+standing on its own ("the World Cup that slipped away", from Ronaldo — real, specific), or is
+what's left purely speculative/hypothetical with nothing actually named ("how different history
+would have been" — names no real thing)? Only the latter stays disqualified: "Many England fans
+wonder how different history would have been" has no real event named anywhere in it, just
+speculation about a timeline that never happened — subject/categoryClaim: null, correctly. This is
+a different exclusion than the rhetorical-setup one above ("It wasn't just a missed penalty") —
+that one is disqualified because it's INCOMPLETE, gesturing at a payoff the NEXT segment delivers;
+a "many remember X" sentence is a COMPLETE, standalone claim about a real X, not an unfinished
+setup. The same distinction applies to "categoryClaim" when the subject is a class rather than one
+person — "Many players remember the exact moment they signed their first contract" names a real,
+common, class-level event (signing a first contract) surviving the same strip-the-verb test, not a
+hypothetical.
+
 Also name the "categoryClaim": this is the concreteness test above, applied to a whole CLASS of
 real people/things instead of one resolved individual. Name a short phrase for the real, general
 phenomenon ONLY when the segment describes a whole CLASS of real people/things DOING something a

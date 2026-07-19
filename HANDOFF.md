@@ -525,6 +525,55 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     happened to exercise consecutive action-then-reaction segments, so this gap existed
     undetected. Worth specifically testing a real multi-segment script with this exact pattern
     (an action beat immediately followed by a reaction beat) before trusting this holds.
+18. **A real 71-segment script surfaced a confirmed bug — "remember/recall X" wrongly disqualifies
+    a real, findable X (2026-07-19).** First real live test of the concreteness gate against a
+    dense, full-length script (48 of 71 segments landed on `"nothing"`) — worth reading the actual
+    per-segment breakdown before assuming that rate itself is the problem, because it mostly
+    isn't: line-by-line review of all 48 found roughly 40+ correctly `"nothing"` (the script leans
+    heavily on short dramatic fragments and pure connective narration — "Then came France.",
+    "Again.", "1–1." — several segments are near-verbatim matches to canonical examples already
+    in this file, e.g. "The pressure couldn't have been greater."). **The 68% rate is a property
+    of this script's fragment-heavy style, not evidence the gate is broadly over-triggering** —
+    don't retune based on the raw percentage alone next time this comes up.
+
+    The real bug was narrow and specific, confirmed by direct comparison of two adjacent,
+    identically-shaped segments: `"For Lionel Messi, it was finally lifting the trophy in 2022."`
+    correctly resolved `evidence` (lifting a trophy is an unambiguous action), but
+    `"For Cristiano Ronaldo, many remember the World Cup that slipped away."` — same sentence
+    shape — wrongly landed on `"nothing"`, and `"...one penalty in Qatar became part of his
+    story."` hit the same mechanism. Root cause: any memory/retrospective-framing verb (remember,
+    recall, became part of his story) was being treated as automatically disqualifying, the same
+    way genuine hypotheticals are (correctly) disqualified — but a memory-verb wrapping a
+    reference to a REAL, SPECIFIC, nameable event ("the World Cup that slipped away", from
+    Ronaldo) is not the same as a memory-verb wrapping pure speculation ("how different history
+    would have been", naming nothing real). The framing verb was being read as content instead of
+    as narrative dressing around real content.
+
+    Fixed by adding a strip-the-verb test to the `"subject"` paragraph (and cross-referenced for
+    `"categoryClaim"`): remove the memory-framing verb — is there still a real, specific, nameable
+    event/entity standing on its own, or does removing the verb leave nothing actually named?
+    Only the latter stays disqualified. Explicitly distinguished from the existing rhetorical-
+    setup exclusion (`"It wasn't just a missed penalty."`) — that one is disqualified for being
+    INCOMPLETE (gestures at a payoff the next segment delivers), whereas "many remember X" is a
+    complete, standalone claim about a real X.
+
+    **Not yet re-verified live.** Re-run the same 71-segment script (or at minimum the Messi/
+    Ronaldo/Kane trio) after this deploys to confirm Ronaldo and the Kane-penalty-callback segment
+    now resolve to `evidence`, and — just as importantly — that the ~40 correctly-`"nothing"`
+    segments from this same script (the fragments, the canonical abstract-judgment lines) did NOT
+    shift, since this fix only targets the strip-the-verb pattern specifically.
+
+    A few smaller, lower-confidence borderline cases surfaced in the same review but were left
+    alone deliberately (not evidence-backed enough to act on yet, and some may be legitimate
+    redundancy-avoidance rather than bugs — e.g. segments restating an outcome already fully
+    depicted by an earlier `evidence` segment in the same script, like "England lost 2–1." right
+    after the actual missed penalty was shown): "The defending world champions." (a fragment
+    naming France without an action), "He was already England's all-time leading goalscorer..."
+    (a real record stated as a reputation claim, though a near-duplicate fact gets `evidence`
+    coverage one segment later), and "He's remembered because he kept coming back." (a
+    perseverance theme handled correctly elsewhere in the same script via the rhythmic-list
+    exception, but not here in prose form). Worth another look only if the live logging shows a
+    recurring pattern, not worth chasing from a single script's data alone.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
