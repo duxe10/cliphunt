@@ -14,7 +14,13 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 - Groq (free tier), YouTube Data API, and Pexels keys live in **Cloudflare Pages secrets**
   (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no
   longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare
-  secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must
+  secrets. As of 2026-07-19, `GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` (Google Custom Search, image
+  mode — a plain API key + Programmable Search Engine ID, NOT the same credential type as any
+  service-account JSON on the project) join this list, for evidence-search.js's photo evidence —
+  see "Multi-claim decomposition + photo evidence" below. Soft-guarded like `PEXELS_API_KEY`: not
+  checked at the top of `onRequestPost`, a claim's photo search just returns `[]` if either is
+  missing, since photo only broadens evidence-search's core "find video evidence" identity.
+  NOTE: Pages binds secrets at deploy time — after changing a secret you must
   **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg
   worker (Render) was decommissioned, see below.
 - **No longer strictly free-tier (2026-07-18):** segmentation and evidence-search's intent
@@ -68,6 +74,61 @@ workflow ("hunt for clips," not "edit here") rather than on owning the clip file
   that used to live here (`setupTrimRow`, signed via `sign-clip.js`) is gone — trimming moved to
   stock/Pexels clips only, see below, since that's the one source this app is actually allowed to
   redistribute.
+
+## Multi-claim decomposition + photo evidence (`evidence-search.js`, 2026-07-19)
+Traced a real bug: `evidence-search.js` used to extract exactly ONE search intent per "Find
+footage" click. A moment narrating several independent, real, evidence-worthy facts (e.g. "Kane
+became the tournament's top scorer, won the Golden Boot, and kept breaking record after record")
+got collapsed into a single YouTube query — two of three real claims silently discarded, with no
+trace anywhere. This is unrelated to `segment.js`'s `evidence`/`categoryClaim` classification gate,
+which was already correct; the gap was entirely inside what happened after a click on an
+already-correctly-classified `evidence` segment.
+
+- **Claim splitting (STEP 1 of the intent-extraction prompt)**: the moment is now split into its
+  genuinely separate claims before intent resolution runs — most moments still produce exactly ONE
+  claim (unchanged common case); splitting only happens when the moment lists two or more
+  independently real, independently evidence-worthy facts (test: remove one clause — does the rest
+  still describe a complete fact on its own?). A moment narrating one continuous action across
+  several clauses stays ONE claim. The existing context-resolution rules (the "TWO RULES" for
+  pulling a subject/event out of preceding narration, the specific-vs-generic test, the spoken-quote
+  rule) are unchanged in substance, just applied per claim instead of once per click.
+- **Per-claim media judgment (STEP 2)**: not every real claim is a singular filmable instant — a
+  cumulative/status fact ("record after record") was never one filmable moment, but real news
+  photography of the subject in that context plausibly exists. Each claim gets a `mediaType`:
+  `"video"`, `"photo"`, or `"both"` — judged individually per claim, with an explicit guardrail
+  against defaulting to `"photo"` just because a claim sounds like an achievement (check first
+  whether it resolves to one identifiable real event with likely footage).
+- **Photo source is Google Custom Search, image mode** (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` — see
+  "Stack, deliberately" above) — chosen over Pexels (generic stock, doesn't answer "a real specific
+  event photo") and Wikimedia (patchy coverage for this). `searchPhotoEvidence()` hits
+  `customsearch/v1` with `searchType=image` (10 results — the API's documented per-request cap,
+  smaller than YouTube's 12) and a new `rerankPhotoCandidates()`/`PHOTO_RERANK_PROMPT` mirrors
+  `rerankCandidates`'s exact shape (same Groq `gpt-oss-20b`, same `MIN_RERANK_SCORE` bar) but scores
+  by title/snippet/source-domain credibility, since raw pixels aren't inspected. Google CSE items
+  carry no natural stable id (unlike YouTube's `videoId` or Pexels' `id`), so candidates get a
+  request-scoped index-based `id` purely to correlate the rerank response — never persisted.
+- **Response shape**: `{claims: [{claim, footageType, subject, quote, mediaType, videoCandidates,
+  photoCandidates}]}`, replacing the old single-object response. Video search (`searchVideoForClaim`)
+  reuses `searchYouTubeVideos`/`enrichCandidates`/`rerankCandidates` unchanged, just reranking
+  against the individual claim's own text rather than the whole (now possibly multi-claim) segment.
+  Every claim×medium search runs concurrently through one flat `Promise.all` (same
+  never-throwing-pipelines pattern `reference-search.js` established), then results get reassembled
+  by claim index.
+- **Frontend (`app.js`)**: `findFootage()`'s evidence branch now populates `seg.evidence.claims`
+  and calls `renderEvidenceClaims()` — one labeled `.claim-group` per claim, each with its own
+  video cards (`claimVideoCardHtml`/`openClaimVideoPreview`) and photo cards
+  (`photoCardHtml`/`openPhotoPreview`). `openEvidencePreview`'s DOM-wiring body was extracted into
+  a shared `renderVideoPreviewModal(cand)` so both it (reference-beat pathway, unchanged data
+  shape: `seg.evidence.candidates`) and `openClaimVideoPreview` (evidence-beat pathway:
+  `seg.evidence.claims[i].videoCandidates`) reuse the same modal code. Photo preview never hotlinks
+  the raw third-party image URL — only Google's own thumbnail CDN renders, and the primary action
+  is a "View source page" external link (same "link out, don't download" posture as the video
+  path). The dead `renderEvidence()` (single-list renderer) was removed, not left dangling.
+- **Cost/quota**: decomposition stays ONE Claude call regardless of claim count. Downstream
+  searches DO multiply — a 3-claim, all-`"both"` moment means up to 6 concurrent searches from one
+  click. Google Custom Search's 100 free queries/day is the tightest real constraint here,
+  trivially exhausted by light multi-claim testing, then $5/1000 queries — watch it alongside
+  YouTube's existing quota, which is also consumed faster per click than before this change.
 
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:

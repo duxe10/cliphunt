@@ -429,6 +429,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .src-youtube { background: #ff9a76; }
 .src-pexels { background: #7fd99a; }
+.src-photo { background: #9ab6f5; }
 
 .clip-label {
   font-size: 11px;
@@ -437,6 +438,15 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.claim-group + .claim-group { margin-top: 14px; }
+
+.claim-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 0 0 6px;
 }
 
 .no-clip-msg {

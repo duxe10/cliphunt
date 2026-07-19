@@ -54,7 +54,7 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", photo: "PHOTO" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -343,21 +343,37 @@ async function findFootage(segIdx) {
       return;
     }
 
-    seg.evidence = { candidates: search.candidates || [] };
-    renderEvidence(segIdx);
+    seg.evidence = { claims: search.claims || [] };
+    renderEvidenceClaims(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
   }
 }
 
-function renderEvidence(segIdx) {
+// Multi-claim evidence result: evidence-search.js splits the moment into its independently
+// real, independently evidence-worthy claims (a moment naming several separate achievements no
+// longer collapses into one query) and judges per claim which medium(s) fit — so each claim gets
+// its own labeled group with its own video and/or photo candidates, rather than one flat pooled
+// list.
+function renderEvidenceClaims(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container || !seg.evidence) return;
-  const { candidates } = seg.evidence;
-  container.innerHTML = candidates.length
-    ? `<div class="clip-queue">${candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("")}</div>`
-    : `<p class="no-clip-msg">No footage candidates found.</p>`;
+  const claims = seg.evidence.claims || [];
+  if (!claims.length) {
+    container.innerHTML = `<p class="no-clip-msg">No footage candidates found.</p>`;
+    return;
+  }
+  container.innerHTML = claims.map((claim, claimIdx) => {
+    const videoCards = (claim.videoCandidates || []).map((c, i) => claimVideoCardHtml(segIdx, claimIdx, i, c)).join("");
+    const photoCards = (claim.photoCandidates || []).map((c, i) => photoCardHtml(segIdx, claimIdx, i, c)).join("");
+    const cards = videoCards + photoCards;
+    return `
+      <div class="claim-group">
+        <div class="claim-label">${escapeHtml(claim.claim || "")}</div>
+        ${cards ? `<div class="clip-queue">${cards}</div>` : `<p class="no-clip-msg">No candidates found for this claim.</p>`}
+      </div>`;
+  }).join("");
 }
 
 // Renders BOTH result sets for a "reference" beat together in one queue — YouTube reaction
@@ -406,12 +422,51 @@ function evidenceCardHtml(segIdx, candIdx, cand) {
     </div>`;
 }
 
-// Standard (non-trimmed) YouTube embed for preview — evidence/reference results are references
-// for the user to watch and judge, not files this app hands out. The single action button is an
-// external link, not a download.
-function openEvidencePreview(segIdx, candIdx) {
-  const cand = SEGMENTS[segIdx].evidence.candidates[candIdx];
+// Same markup/shape as evidenceCardHtml, but a claim-grouped card needs a 3rd coordinate
+// (claimIdx) to find its candidate — evidenceCardHtml's onclick is hardcoded to 2 args, so it
+// can't be reused directly here. evidenceLabel() (score/reason formatting) still is.
+function claimVideoCardHtml(segIdx, claimIdx, candIdx, cand) {
+  const thumbStyle = cand.thumb
+    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const label = evidenceLabel(cand);
+  return `
+    <div class="clip-card" onclick="openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
+        ${cand.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${label.text}</div>
+    </div>`;
+}
 
+// Real photo evidence (Google Custom Search, image mode) for a cumulative/status claim with no
+// single filmable instant. Same card shell as the video/stock cards; the "PHOTO" chip is the only
+// source distinction shown, same established pattern every other clip-queue in this app uses.
+function photoCardHtml(segIdx, claimIdx, photoIdx, photo) {
+  const thumbStyle = photo.thumb
+    ? `background-image:url('${photo.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const label = evidenceLabel(photo);
+  return `
+    <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
+        ${photo.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(photo.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${label.text}</div>
+    </div>`;
+}
+
+// Shared DOM-wiring body for both video preview entry points below — takes an already-resolved
+// candidate object, so it doesn't care whether the caller looked it up from a flat candidates
+// array (reference beats) or from claims[claimIdx].videoCandidates (evidence beats). Standard
+// (non-trimmed) YouTube embed — evidence/reference results are references for the user to watch
+// and judge, not files this app hands out. The single action button is an external link, not a
+// download.
+function renderVideoPreviewModal(cand) {
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
   document.getElementById("modal-play").style.display = "none";
@@ -434,6 +489,60 @@ function openEvidencePreview(segIdx, candIdx) {
   actionBtn.rel = "noopener";
   actionBtn.removeAttribute("download");
   actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
+}
+
+function openEvidencePreview(segIdx, candIdx) {
+  renderVideoPreviewModal(SEGMENTS[segIdx].evidence.candidates[candIdx]);
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
+  renderVideoPreviewModal(SEGMENTS[segIdx].evidence.claims[claimIdx].videoCandidates[candIdx]);
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+// Real photo evidence preview: never hotlinks the raw third-party image URL into the DOM — only
+// Google's own thumbnail CDN (same trust tier the YouTube thumbnail CDN already gets) is ever
+// rendered. The primary action is a "View source page" external link, mirroring the video path's
+// "link out, don't download" posture. #modal-thumb is otherwise only ever cleared by every other
+// preview path (openEvidencePreview/openPreview both hide it in favor of the iframe/video) — this
+// is the first path that actually populates it, so it must also fully tear down whatever the
+// modal was showing last: a still-playing stock video, and — confirmed live in setupStockTrimRow()
+// — a #trim-row left visible from a prior stock preview, since nothing but openEvidencePreview/
+// closePreview otherwise hides it again.
+function openPhotoPreview(segIdx, claimIdx, photoIdx) {
+  const photo = SEGMENTS[segIdx].evidence.claims[claimIdx].photoCandidates[photoIdx];
+
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
+
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+
+  document.getElementById("modal-play").style.display = "none";
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = `url('${photo.thumb}')`;
+  thumbEl.style.backgroundSize = "cover";
+  thumbEl.style.backgroundPosition = "center";
+
+  document.getElementById("modal-title").textContent = photo.title || "";
+  document.getElementById("modal-sub").textContent = `Photo · ${photo.displayLink || ""} · ${evidenceLabel(photo).text}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.removeAttribute("download");
+  actionBtn.href = photo.sourceLink;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.innerHTML = `${EXTERNAL_ICON} View source page`;
   actionBtn.style.display = "";
 
   const trimRow = document.getElementById("trim-row");
