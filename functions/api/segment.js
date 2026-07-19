@@ -389,7 +389,8 @@ export async function onRequestPost(context) {
 
     const merged = mergeFragments(parsed.segments);
     const evidenceResolved = enforceEvidenceRule(merged);
-    const corrected = enforceFindabilityRule(evidenceResolved);
+    const findabilityResolved = enforceFindabilityRule(evidenceResolved);
+    const corrected = enforceFeelQueryRule(findabilityResolved);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
     // just real-time eyes on what the model actually decided per segment while testing. One line
@@ -478,6 +479,34 @@ function enforceFindabilityRule(segments) {
   for (const seg of segments) {
     if (seg.findable === "unlikely") {
       seg.family = "nothing";
+    }
+  }
+  return segments;
+}
+
+// The one boundary in this file with NO code-level backup until now: every other fuzzy judgment
+// here (mergeFragments, enforceEvidenceRule, enforceFindabilityRule) has a deterministic safety
+// net, but the concreteness-gate/tie-breaker decision that produces "feel" vs "nothing" was
+// entirely prompt-reliant — the newest, most example-heavy rule in the prompt, with nothing
+// mechanical backing it up. Full semantic verification ("was there really an anchor?") isn't
+// something code can check — but ONE concrete self-contradiction the prompt itself defines IS
+// checkable: "feel" requires a real physical anchor (see the concreteness gate above), and the
+// query-writing section builds the "query" directly FROM that anchor — so a "feel" segment with
+// an empty/missing "query" is proof the model applied the label without actually finding
+// (or without actually using) an anchor, not a legitimate state (query is mandatory for every
+// non-"nothing" family per the prompt itself). Downgrading here matters concretely: app.js's
+// hydrateClips() falls back to `seg.query || seg.text` when sending to Pexels, so a hollow "feel"
+// would search stock footage using a raw, often multi-clause sentence as the query — reliably bad
+// results, not just a missing-data edge case. Runs LAST (after enforceEvidenceRule, which can
+// still toggle a segment feel<->evidence) so it sees the final family value, not a pre-toggle one.
+// This only catches ONE failure direction — a hollow "feel" — not the reverse (a real anchor
+// existed but the model dropped to "nothing" anyway), which needs semantic judgment no mechanical
+// check can provide.
+function enforceFeelQueryRule(segments) {
+  for (const seg of segments) {
+    if (seg.family === "feel" && !(seg.query && String(seg.query).trim())) {
+      seg.family = "nothing";
+      seg.reason = "feel had no query — mechanically downgraded, no real anchor found";
     }
   }
   return segments;

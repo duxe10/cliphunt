@@ -418,6 +418,37 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     `enforceFindabilityRule()`, `mergeFragments()`, and `app.js` need no changes — none of them
     read or touch `reason`/`query`, and `mergeFragments()`'s full-spread already passes new fields
     through untouched.
+14. **`enforceFeelQueryRule()` — the concreteness gate's first code-level safety net
+    (2026-07-19).** Self-audit, not a live bug report: every other fuzzy boundary in this file
+    (`mergeFragments`, `enforceEvidenceRule`, `enforceFindabilityRule`) has a deterministic backup
+    because the model can't be trusted to hold a semantic rule reliably on wording alone — that's
+    the throughline of points 6/9/11/12/13. The `feel`/`nothing` concreteness-gate decision (the
+    newest, most example-heavy rule in the prompt) had NO such backup, entirely prompt-reliant.
+    Full semantic verification ("was there really an anchor?") isn't checkable in code — but one
+    concrete self-contradiction the prompt itself defines IS: `"feel"` requires a real anchor, and
+    the query-writing section builds `"query"` directly from that anchor, so a `"feel"` segment
+    with an empty/missing `"query"` is proof the model applied the label without actually finding
+    (or using) one — `query` is mandatory for every non-`"nothing"` family by the prompt's own
+    rules, there's no legitimate case for it being blank on a `"feel"` segment. Concretely
+    dangerous if left uncaught: `app.js`'s `hydrateClips()` falls back to `seg.query || seg.text`
+    when calling Pexels, so a hollow `"feel"` would search stock footage using a raw, often
+    multi-clause sentence — reliably bad results, not just missing data.
+
+    `enforceFeelQueryRule()` downgrades `family:"feel"` to `"nothing"` when `query` is empty, and
+    overwrites `reason` to say so explicitly (`"feel had no query — mechanically downgraded, no
+    real anchor found"`) so a tail-log reader can tell this was a code override, not the model's
+    own classification. Runs LAST in the pipeline (`mergeFragments` → `enforceEvidenceRule` →
+    `enforceFindabilityRule` → `enforceFeelQueryRule`) — specifically AFTER `enforceEvidenceRule`,
+    since that function can still toggle a segment `feel`<->`evidence`, and this new rule needs to
+    see the FINAL family value, not a pre-toggle one, to avoid missing a segment that only becomes
+    `"feel"` partway through the pipeline.
+
+    **Explicitly scoped, not a general fix**: this only catches ONE failure direction — a hollow
+    `"feel"` with no query at all. It cannot catch the opposite (a real anchor existed in the text
+    but the model dropped the segment to `"nothing"` anyway) — that needs semantic judgment a
+    mechanical check can't provide. That failure direction (suspected over- or under-triggering of
+    `"nothing"`) is what the live logging from point 13 exists to surface with real data instead
+    of another guess.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
