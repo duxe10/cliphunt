@@ -449,6 +449,34 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     mechanical check can't provide. That failure direction (suspected over- or under-triggering of
     `"nothing"`) is what the live logging from point 13 exists to surface with real data instead
     of another guess.
+15. **Tie-breaker strength qualifier — self-audit before live data existed to confirm it
+    (2026-07-19).** Point 13's tie-breaker ("the anchor wins" whenever abstract framing and a
+    physical anchor both appear in a sentence) had no strength/centrality qualifier — as written,
+    ANY physical anchor, however thin or incidental, rescued an otherwise-abstract sentence into
+    `"feel"`. Caught by self-review, not a live bug report: the tie-breaker section only ever
+    showed "anchor wins" examples, never a case where a nominal anchor was too weak to rescue the
+    segment — the same example-density asymmetry that caused points 12 and 13's bugs, just
+    pre-empted this time instead of found after the fact. Left unfixed, this risked trading the
+    original over-triggering-`"nothing"` problem for its mirror image: any incidental
+    sitting/standing/walking verb anywhere in an otherwise fully abstract sentence would now force
+    a `"feel"` classification and an invented low-value query.
+
+    Added a concrete, checkable strength test rather than an unhelpfully subjective "use
+    judgment" instruction: could this anchor phrase be swapped for a different, unrelated
+    placeholder action (sitting, standing, walking) WITHOUT changing what the sentence is actually
+    describing? If yes, it's backgrounded stage direction, not a real anchor, and does NOT win the
+    tie-breaker. If no — the anchor is specific/load-bearing to the sentence's actual point — it
+    wins. Verified this doesn't break the existing "anchor wins" examples: "watching disappointment
+    after disappointment" clearly fails the swap ("standing there" loses the entire point); "the
+    doctor walking in WITH A SMILE" wins because of the specific detail ("with a smile"), not
+    despite the bare "walking in" being generic on its own. Added two new counter-examples
+    (personal-life and business domains) showing the swap test correctly rejecting a nominal
+    anchor and keeping the segment at `"nothing"`, so the tie-breaker section now demonstrates
+    restraint as well as rescue.
+
+    Not yet confirmed against real usage — same standing caveat as every other number/rule tuned
+    today. The live logging from point 13 is what will actually confirm whether this qualifier
+    helps or needs further adjustment, not this reasoning alone.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

@@ -79,6 +79,31 @@ doctor walking in with a smile"; stays "feel", query built from the anchor plus 
 uncertainty into relief) — e.g. "doctor entering exam room, family looking up", not "doctor walking
 in" alone.
 
+The tie-breaker is not unconditional — it only fires for an anchor doing real work in the
+sentence, not any incidental verb that happens to be present. Test: could this anchor phrase be
+swapped for a different, unrelated placeholder action (sitting, standing, walking) WITHOUT
+changing what the sentence is actually describing? If yes, it's backgrounded stage direction, not
+a real anchor, and does NOT win the tie-breaker on its own. If no — the anchor is specific and
+load-bearing to the sentence's actual point (a repeated, particular, or descriptively-detailed
+action, not a generic placeholder verb) — it wins. Check the examples above against this test:
+"watching disappointment after disappointment" can't be swapped for "standing there" without
+losing the entire point (real, repeated losses, watched by real people) — load-bearing, wins.
+"the doctor walking in WITH A SMILE" — the bare "walking in" is generic, but "with a smile" is the
+specific, load-bearing detail (it's literally what communicates the relief) — the anchor wins
+because of that detail, not despite genericness elsewhere in the phrase.
+
+Two examples where a nominal anchor is present but FAILS this test, so the tie-breaker does NOT
+rescue the segment — these matter as much as the "anchor wins" examples above, because without
+them this gate has no way to say "nothing" once ANY verb of motion or posture appears anywhere in
+a sentence, which is its own failure mode: "Sitting there that day, staring at nothing in
+particular, she somehow knew everything was about to change." — "sitting" and "staring at nothing
+in particular" are both swappable for any other generic posture without changing what this
+sentence is about (an unexplained premonition) — backgrounded stage direction, not a real anchor;
+stays "nothing". "Walking down the street that morning, he finally let himself believe it might
+actually work this time." — "walking down the street" is interchangeable with any other mundane
+activity; nothing about it is specific to "it might actually work" (an unnamed hope/belief) —
+stays "nothing", not rescued by the incidental walking.
+
 For each segment, also name the "subject": the ONE specific, nameable real person, team,
 organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
 pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
@@ -182,7 +207,9 @@ Then pick one "family":
     greater", "many fans wonder how different history would have been" (standing alone, with
     nothing else described happening). Before landing on this bullet, re-run the tie-breaker
     above: scan the WHOLE sentence, not just whichever clause sounds most abstract, for a physical
-    anchor sitting elsewhere in it.
+    anchor sitting elsewhere in it — but also apply the tie-breaker's swap test: a generic
+    posture/motion verb (sitting, standing, walking) that could be swapped for any other without
+    changing what the sentence is about is NOT a real anchor either, and this bullet still applies.
   - a resolvable name or evidence-sounding noun phrase used only rhetorically or transitionally,
     not depicted as actually happening in this segment: "It wasn't just a missed penalty."
     (references a penalty to set up a contrast, doesn't depict it happening now). "That resilience
