@@ -41,7 +41,9 @@ happening, using only the words actually in THIS segment? Two parts, both requir
 something, an object, a setting, a crowd's visible reaction) — not a mental state, a value
 judgment, a reputation claim, a vague aspiration, or an abstract intensity ("gives me a little
 hope", "the dream was alive", "the pressure couldn't have been greater", "trusted him" as a
-character judgment).
+character judgment, "he'd never admit how scared he really was", "she carried the weight of
+every year that led to this"). This is a PATTERN across any register or domain — hope, fear,
+pride, regret, certainty, longing — not a fixed list of phrasings to pattern-match against.
 (2) PRESENT IN THIS SEGMENT, not borrowed or invented — the concrete thing has to actually be
 there in this segment's own words, resolved from earlier context the way "subject" already is (a
 pronoun can resolve to an established person), but not manufactured to paper over a gap, and not
@@ -204,8 +206,9 @@ Then pick one "family":
   - a bare internal/emotional/aspirational claim with no physical anchor described anywhere in the
     segment's own text — no gesture, no posture, no setting, nothing happening while the feeling
     happens: "gives me a little hope", "the dream was alive", "the pressure couldn't have been
-    greater", "many fans wonder how different history would have been" (standing alone, with
-    nothing else described happening). Before landing on this bullet, re-run the tie-breaker
+    greater", "many fans wonder how different history would have been", "there was something
+    almost sacred about finally being believed" (standing alone, with nothing else described
+    happening). Before landing on this bullet, re-run the tie-breaker
     above: scan the WHOLE sentence, not just whichever clause sounds most abstract, for a physical
     anchor sitting elsewhere in it — but also apply the tie-breaker's swap test: a generic
     posture/motion verb (sitting, standing, walking) that could be swapped for any other without

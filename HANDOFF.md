@@ -477,6 +477,27 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     Not yet confirmed against real usage — same standing caveat as every other number/rule tuned
     today. The live logging from point 13 is what will actually confirm whether this qualifier
     helps or needs further adjustment, not this reasoning alone.
+16. **Canonical example set diversified — lower-confidence, precautionary, not a demonstrated bug
+    (2026-07-19).** Self-audit: the same ~6 short phrases ("gives me a little hope", "the dream
+    was alive", "the pressure couldn't have been greater", "many fans wonder...", the
+    resilience/trust example, the missed-penalty example) recur as the go-to illustrative shorthand
+    for "bare internal state, no anchor" across four different sections of this prompt. Worth
+    flagging as a real risk in principle (a narrow canonical set could teach recognition of those
+    specific strings rather than the underlying pattern) — but weaker evidence than points 6/12/13,
+    which were confirmed live bugs or counted imbalances. The novel stress tests already run this
+    session (mentor-reputation, sourdough-starter, bare-belief examples — none reused from the
+    prompt itself) already showed the model generalizing past this exact canonical set, which cuts
+    against this being a live problem right now.
+
+    Given that, treated as light, low-risk prevention rather than a rewrite: added 2 new example
+    phrases spanning different emotional registers (fear, regret) to the foundational Part 1 list
+    in the concreteness gate (the first and most authoritative appearance), plus one more to the
+    `"nothing"` bullet's own example list (the actual decision point). Deliberately did NOT touch
+    every downstream repetition of the original set (the Note paragraph, the query-writing
+    fallback) — diminishing returns against real risk of introducing a typo/inconsistency for
+    marginal benefit on an already very long prompt. If the live logging ever shows the model
+    failing to generalize past near-verbatim matches of the canonical set, that's the signal to
+    revisit this more thoroughly; nothing currently indicates that's happening.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
