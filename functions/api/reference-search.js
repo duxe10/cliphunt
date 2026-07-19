@@ -8,21 +8,55 @@
 // reaction-channel commentary, or YouTube Shorts.
 // Returned as plain youtube.com links — no downloading, same as evidence-search.js (see its
 // header comment for why the yt-dlp/ffmpeg worker was dropped entirely).
+//
+// 2026-07-19: every search now ALWAYS runs both a YouTube reaction/meme search AND a Pexels stock
+// search in parallel, for every click — not a fallback that only tries Pexels when YouTube comes
+// up empty. A genuine raw meme/reaction clip and licensed stock b-roll of the same emotion serve
+// different purposes (authenticity vs. clean footage), so both get shown together whenever either
+// finds something; the segment only ends up with no clip if BOTH come up empty. Query-generation
+// also now judges, per moment, whether the emotion is a common/well-indexed reaction-culture
+// category (shock, laughter, disbelief, cringe) — for which the YouTube query strings the emotion
+// + "reaction" + literally "meme" together, since that's what's actually well-indexed — versus
+// something more unusual/specific, where plainer phrasing avoids biasing toward meme-culture
+// matches that don't exist for that nuance. A second field, "stockQuery", is generated in the same
+// call for the Pexels side (a concrete visual-scene phrase, same rule segment.js's "feel" query
+// follows) — Pexels always runs regardless of the meme-keyword judgment, which only affects how
+// "query" (the YouTube side) gets phrased.
 import { searchYouTubeVideos, enrichCandidates, rerankCandidates, MIN_RERANK_SCORE } from "./evidence-search.js";
+import { mapPexelsVideo, rerankStockCandidates } from "./stock-search.js";
 import { groqChat } from "./_groq.js";
 
-const SYSTEM_PROMPT = `You extract a search phrase for the REACTION/EMOTION at ONE moment of a video script
-("the moment") so a tool can find a real raw reaction clip on YouTube — not a specific named meme,
-just the feeling itself. You are given the script SO FAR (everything before the moment) for context.
+const SYSTEM_PROMPT = `You extract search intent for the REACTION/EMOTION at ONE moment of a video script
+("the moment") so a tool can find real reaction footage for it — both a genuine raw reaction clip
+on YouTube and licensed stock footage of the reaction on Pexels. You are given the script SO FAR
+(everything before the moment) for context.
 
 Return strict JSON only, no prose, no markdown fences:
-{"query":"..."}
+{"query":"...","stockQuery":"..."}
 
-"query": 3-6 words describing the reaction/emotion this moment calls for, phrased as a real
-YouTube search for genuine reaction footage — not a gif tag, not a meme name. Examples: "shocked
-crowd reaction", "stunned silence reaction real footage", "fan disbelief reaction", "jaw drop
-shock reaction". Pick the specific emotion the moment is going for (shock, disbelief, elation,
-dread, awkward cringe, etc) rather than a generic word like "reaction" alone.`;
+"query": 3-6 words, a real YouTube search for genuine raw reaction footage — not a gif tag, not
+naming a specific meme. Pick the specific emotion the moment is going for (shock, disbelief,
+elation, dread, awkward cringe, etc) rather than a generic word like "reaction" alone.
+
+Decide whether the emotion is a COMMON, well-indexed reaction-culture category — shock, laughter,
+disbelief, cringe, and close synonyms of these — or something more unusual/narratively-specific to
+this moment (quiet dread, bittersweet relief, dawning realization, etc). YouTube is overwhelmingly
+full of "reaction meme" compilations/clips for the common categories, so for those string the
+emotion + "reaction" + literally the word "meme" together — e.g. "shock reaction meme", "disbelief
+reaction meme", "cringe reaction meme". For an unusual/specific emotion, adding "meme" biases the
+search toward generic meme-culture clips that don't actually exist for that nuance, so leave it
+out and phrase it plainer instead — e.g. "quiet dawning realization reaction real footage",
+"bittersweet relief reaction real footage". This judgment only changes how "query" is phrased; it
+has no effect on "stockQuery" below.
+
+"stockQuery": 3-7 words, a SHORT DESCRIPTIVE VISUAL SCENE PHRASE for searching a real stock-footage
+library (Pexels) — describe the shot itself the way a camera would frame it, not the emotion word
+and never "reaction" or "meme". Pexels indexes what's literally on screen, not mood/emotion
+keywords, so this must be a concrete, visible action or expression: a person's visible gesture,
+posture, or facial expression. Good: "person covering mouth in shock", "man laughing hysterically",
+"woman staring in disbelief", "person cringing looking away". Bad: "shock" or "disbelief" alone (a
+mood word, not a visible scene), "shock reaction meme" (a YouTube-style query, not a scene
+description), a person's/team's name.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how well each serves as a raw reaction clip to
 cut to for one moment of a video script. What matters here is CAPTURE QUALITY — is this genuinely
@@ -69,6 +103,59 @@ export function filterRawReactionCandidates(candidates, enrichOk = true) {
   });
 }
 
+// Runs the full YouTube reaction pipeline (search -> enrich -> deterministic filter -> rerank)
+// for one moment. NEVER throws — every failure mode (YouTube API error, enrich failure, rerank
+// failure) resolves to an empty array so this can run alongside searchPexelsReaction() via a
+// plain Promise.all, with no rejected-promise case either caller needs to handle.
+async function searchYouTubeReaction(query, segmentText, env) {
+  try {
+    let candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
+    const enrichOk = await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
+    candidates = filterRawReactionCandidates(candidates, enrichOk);
+    if (!candidates.length) return [];
+
+    const reranked = await rerankCandidates(
+      { segmentText, subject: query, footageType: "reaction", quote: null },
+      candidates,
+      env,
+      RERANK_PROMPT
+    );
+    candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+    return filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
+  } catch (err) {
+    console.log(`[reference-search] YouTube pipeline failed: ${err.message}`);
+    return [];
+  }
+}
+
+// Runs the Pexels stock pipeline (search -> map -> rerank) for one moment. NEVER throws — a
+// missing PEXELS_API_KEY or any fetch/parse failure resolves to an empty array (graceful
+// degradation to YouTube-only results), matching rerankStockCandidates()'s own fail-open
+// philosophy. Unlike YOUTUBE_API_KEY/GROQ_API_KEY below, PEXELS_API_KEY is NOT hard-guarded at
+// the top of onRequestPost — this endpoint's core identity is still "find a reaction clip"
+// (YouTube); Pexels only broadens it, so a missing/misconfigured Pexels key shouldn't 500 the
+// whole request when the YouTube half doesn't need it.
+async function searchPexelsReaction(stockQuery, segmentText, scriptContext, env) {
+  if (!env.PEXELS_API_KEY) return [];
+  try {
+    const url =
+      "https://api.pexels.com/videos/search" +
+      `?query=${encodeURIComponent(stockQuery)}&per_page=10&orientation=landscape`;
+    const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const clips = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
+    if (!clips.length) return [];
+
+    return await rerankStockCandidates({ segmentText, context: scriptContext, query: stockQuery }, clips, env);
+  } catch (err) {
+    console.log(`[reference-search] Pexels pipeline failed: ${err.message}`);
+    return [];
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -90,8 +177,10 @@ export async function onRequestPost(context) {
   if (!env.YOUTUBE_API_KEY) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
+  // PEXELS_API_KEY is intentionally NOT guarded here — see searchPexelsReaction()'s comment.
 
-  // 1. Groq extracts an emotion/reaction search phrase — no meme naming.
+  // 1. Groq extracts BOTH an emotion/meme-aware YouTube query and a concrete-scene Pexels query
+  //    from the same moment in one call — one search-intent pass, two search targets.
   const userContent = scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment):\n${scriptContext}\n\nThe moment:\n${segmentText}`
     : `The moment:\n${segmentText}`;
@@ -120,29 +209,20 @@ export async function onRequestPost(context) {
   }
 
   const query = (intent.query || segmentText).trim();
+  const stockQuery = (intent.stockQuery || query).trim();
+  console.log(
+    `[reference-search] query=${JSON.stringify(query)} stockQuery=${JSON.stringify(stockQuery)} ` +
+    `moment=${JSON.stringify(segmentText.slice(0, 100))}`
+  );
 
-  // 2. YouTube search + enrich (same helpers evidence-search.js uses) + deterministic filter +
-  //    rerank on capture-quality rather than meme-recognizability.
-  let candidates;
-  try {
-    candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
-  } catch (err) {
-    return Response.json({ error: err.message }, { status: 502 });
-  }
+  // 2. YouTube reaction search and Pexels stock search run CONCURRENTLY, not as a fallback chain —
+  //    every click always searches both. Neither pipeline function throws (see their own comments
+  //    above), so a plain Promise.all is safe: one path's failure can never block or reject the
+  //    other, and there's no rejected-promise branch to handle here.
+  const [candidates, clips] = await Promise.all([
+    searchYouTubeReaction(query, segmentText, env),
+    searchPexelsReaction(stockQuery, segmentText, scriptContext, env),
+  ]);
 
-  const enrichOk = await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
-  candidates = filterRawReactionCandidates(candidates, enrichOk);
-
-  if (!candidates.length) {
-    // Everything got filtered out — fail gracefully to the same empty-candidates state
-    // findFootage() already handles ("No footage candidates found for this moment.").
-    return Response.json({ subject: query, candidates: [] });
-  }
-
-  const reranked = await rerankCandidates({ segmentText, subject: query, footageType: "reaction", quote: null }, candidates, env, RERANK_PROMPT);
-  candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
-  const top = filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
-
-  return Response.json({ subject: query, candidates: top });
+  return Response.json({ subject: query, stockQuery, candidates, clips });
 }

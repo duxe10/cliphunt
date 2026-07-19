@@ -800,6 +800,59 @@ differently-tuned intent + rerank prompt, same as before.
   (`/api/reference-search` vs `/api/evidence-search`) but is otherwise unchanged — both endpoints
   return the same candidate shape, so `renderEvidence`/`evidenceCardHtml`/`openEvidencePreview`
   needed no changes at all. Button label is "Find reaction clip" for this family.
+  **(2026-07-19: this last sentence is now only half true — see below. `evidenceCardHtml`/
+  `openEvidencePreview` themselves still needed zero changes, but `findFootage()` gained a new
+  branch and a new render function, since `reference-search.js` now returns TWO result sets, not
+  one candidate shape.)**
+
+**2026-07-19 — always-parallel YouTube + Pexels search, not a fallback.** Every "Find reaction
+clip" click now searches BOTH YouTube (reaction/meme clips) AND Pexels (stock footage) in
+parallel, always — not sequentially, not as a fallback that only tries Pexels when YouTube comes
+up empty. Direct product decision: a genuine raw meme/reaction clip and licensed stock b-roll of
+the same emotion serve different purposes (authenticity vs. clean footage), so both should be
+available together whenever either finds something, not one gatekeeping the other. The segment
+only ends up with no clip if BOTH searches come up empty.
+- Query-generation (`SYSTEM_PROMPT`) now produces two fields from one Groq call: `query` (YouTube)
+  judges per moment whether the emotion is a common, well-indexed reaction-culture category (shock,
+  laughter, disbelief, cringe) — for which it strings the emotion + "reaction" + literally "meme"
+  together (e.g. "shock reaction meme"), since that's what's actually well-indexed — versus
+  something more unusual/narratively-specific, where plainer emotion-only phrasing avoids biasing
+  toward meme-culture matches that don't exist for that nuance. `stockQuery` (Pexels) is generated
+  unconditionally either way — a concrete visual-scene phrase (a visible gesture/expression/
+  posture), same rule `segment.js`'s `feel` query already follows, since Pexels indexes what's on
+  screen, not emotion keywords. The meme-keyword judgment only affects `query`'s phrasing; it has
+  no bearing on whether Pexels runs (it always does).
+- `onRequestPost()` was split into two never-throwing pipeline functions —
+  `searchYouTubeReaction()` (the existing search→enrich→`filterRawReactionCandidates()`→
+  `rerankCandidates()` chain, unchanged in substance, just extracted) and `searchPexelsReaction()`
+  (fetch→`mapPexelsVideo()`→`rerankStockCandidates()`, reusing `stock-search.js`'s exports) — run
+  concurrently via a plain `Promise.all`. Neither function ever throws; every failure mode (API
+  error, zero results, parse failure) resolves to `[]` internally, so one path's failure can never
+  block or reject the other. `PEXELS_API_KEY` is deliberately NOT hard-guarded at the top of
+  `onRequestPost()` the way `GROQ_API_KEY`/`YOUTUBE_API_KEY` are — this endpoint's core identity is
+  still "find a reaction clip" (YouTube); Pexels broadens it, so a missing/misconfigured Pexels key
+  degrades to YouTube-only results rather than 500ing a request YouTube alone could serve —
+  `searchPexelsReaction()` checks for the key itself. Response shape is now
+  `{subject, stockQuery, candidates, clips}` — both result arrays always present (possibly empty),
+  never an either/or switch the way an earlier fallback-only draft of this feature would have made
+  it.
+- `app.js`'s `findFootage()` now branches on `family === "reference"` to populate BOTH
+  `seg.evidence.candidates` and `seg.clips` from the one response, then calls a new
+  `renderReferenceFootage()` — confirmed safe because `SEARCHABLE_FAMILIES` is `["feel"]` only, so
+  `hydrateClips()` never touches a reference segment's `seg.clips`. `renderReferenceFootage()`
+  concatenates `evidenceCardHtml()` output (YouTube) and `clipCardHtml()` output (Pexels) into one
+  `.clip-queue` — each keeps its own existing, unmodified card renderer and click handler
+  (`openEvidencePreview`/`openPreview`), working off its own independent array + index; no
+  collision risk. No section headers — the existing "YT"/"STOCK" source-chip (already fully wired:
+  `SOURCE_LABEL`, `mapPexelsVideo`'s `source:"pexels"`, `.src-youtube`/`.src-pexels` CSS) is the
+  established way every other clip-queue in this app distinguishes source, so it's sufficient on
+  its own. An empty side just contributes nothing to the concatenation — only when both are empty
+  does the "No footage candidates found for this moment." message show.
+- **Deleted** a dead `if (search.source === "stock")` branch that had been sitting unreachable in
+  `findFootage()` since evidence-search.js's own generic-Pexels routing was removed (2026-07-18,
+  see "Segmentation" point 7 above) — neither current endpoint ever set `source`, and this new
+  design's response shape doesn't use it either (both result sets are always present together,
+  never switched), so it would have stayed permanently dead and confusing if left in place.
 
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)

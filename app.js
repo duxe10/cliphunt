@@ -303,12 +303,14 @@ const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="non
 // User clicks "Find footage"/"Find reaction clip" on an evidence or reference beat: evidence-search
 // (or reference-search for reaction clips) searches YouTube, quality-enriches, and LLM-reranks
 // against the beat, returning plain youtube.com links — no downloading, no separate matching step.
+// reference-search.js additionally ALWAYS searches Pexels stock footage in parallel (not a
+// fallback — every click searches both, see renderReferenceFootage() below).
 // Results are cached in memory on the segment so re-preview doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  const searchingMsg = seg.family === "reference" ? "Searching for the reaction clip…" : "Searching for real footage…";
+  const searchingMsg = seg.family === "reference" ? "Searching for reaction clips and stock footage…" : "Searching for real footage…";
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
@@ -328,13 +330,16 @@ async function findFootage(segIdx) {
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
 
-    // Generic beats (category statement, no one identifiable event) route to clean licensed
-    // Pexels b-roll — render straight from these clips, same card style as feel/stock.
-    if (search.source === "stock") {
+    if (seg.family === "reference") {
+      // reference-search.js always searches BOTH YouTube (reaction/meme clips) and Pexels (stock
+      // footage) in parallel, every click — not a fallback chain. Both result sets get populated
+      // on the segment and rendered together, each through its own EXISTING, unmodified card
+      // renderer/click-handler (evidenceCardHtml/openEvidencePreview for YouTube, clipCardHtml/
+      // openPreview for Pexels) — they already work correctly off their own independent
+      // per-segment array + index, so nothing about either renderer changes.
+      seg.evidence = { candidates: search.candidates || [] };
       seg.clips = search.clips || [];
-      container.innerHTML = seg.clips.length
-        ? `<div class="clip-queue">${seg.clips.map((c, i) => clipCardHtml(segIdx, i, c)).join("")}</div>`
-        : `<p class="no-clip-msg">No stock footage found for this moment.</p>`;
+      renderReferenceFootage(segIdx);
       return;
     }
 
@@ -353,6 +358,27 @@ function renderEvidence(segIdx) {
   container.innerHTML = candidates.length
     ? `<div class="clip-queue">${candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("")}</div>`
     : `<p class="no-clip-msg">No footage candidates found.</p>`;
+}
+
+// Renders BOTH result sets for a "reference" beat together in one queue — YouTube reaction
+// candidates (seg.evidence.candidates, via evidenceCardHtml/openEvidencePreview) and Pexels stock
+// clips (seg.clips, via clipCardHtml/openPreview). Each keeps its own card renderer, click
+// handler, and index namespace completely unmodified — this function only decides what HTML gets
+// concatenated into the shared container. The "YT"/"STOCK" src-chip each renderer already stamps
+// on its own cards is the only source distinction shown; no separate section headers, since that
+// chip is already the established way every other clip-queue in this app distinguishes source.
+function renderReferenceFootage(segIdx) {
+  const seg = SEGMENTS[segIdx];
+  const container = document.getElementById(`evidence-${segIdx}`);
+  if (!container) return;
+  const candidates = (seg.evidence && seg.evidence.candidates) || [];
+  const clips = seg.clips || [];
+  const cards =
+    candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("") +
+    clips.map((c, i) => clipCardHtml(segIdx, i, c)).join("");
+  container.innerHTML = cards
+    ? `<div class="clip-queue">${cards}</div>`
+    : `<p class="no-clip-msg">No footage candidates found for this moment.</p>`;
 }
 
 // Honest one-liner driven by the LLM rerank's own score/reason (0-100 against the beat's actual
