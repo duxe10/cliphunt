@@ -36,10 +36,19 @@
         <span class="stat-pill" id="stat-scenes"></span>
         <span class="stat-pill" id="stat-edited"></span>
       </div>
-      <button class="btn btn-ghost" id="delete-project">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
-        Delete
-      </button>
+      <div class="workspace-actions">
+        <!-- Test/debug only: swaps evidence beats' "Find footage" button for "Find picture" so
+             the SerpAPI image pipeline can be tested without a YouTube search + Groq rerank on
+             every click — see app.js's DEBUG_IMAGES_ONLY / evidence-search.js's debugImagesOnly. -->
+        <label class="debug-toggle" title="Evidence beats search photos only, skipping YouTube — for testing the picture feature in isolation">
+          <input type="checkbox" id="debug-images-only" />
+          Photos-only test mode
+        </label>
+        <button class="btn btn-ghost" id="delete-project">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+          Delete
+        </button>
+      </div>
     </div>
 
     <div class="segment-list" id="segments"></div>

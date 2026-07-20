@@ -148,11 +148,18 @@ Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly th
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext;
+  let segmentText, scriptContext, debugImagesOnly;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
     scriptContext = body.context;
+    // Test/debug flag from app.js's "Find picture" toggle (see its own header comment) — skips
+    // the YouTube search+enrich+rerank pipeline entirely so the SerpAPI image pipeline can be
+    // iterated on without a YouTube-quota + Groq-rerank round trip every click. Intent extraction
+    // still runs either way — imageQuery is produced by the SAME Claude call as youtubeQuery,
+    // there's no cheaper way to get it. Off by default; every existing call site that doesn't
+    // send this flag behaves exactly as before.
+    debugImagesOnly = !!body.debugImagesOnly;
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -209,18 +216,30 @@ export async function onRequestPost(context) {
       ? String(intent.quote).trim()
       : null;
 
-  if (!env.YOUTUBE_API_KEY) {
-    return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
-  }
-
   const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
+  const imageQuery = (intent.imageQuery || query).trim();
 
   // 2. Google Images (SerpAPI) kicks off here so it runs CONCURRENTLY with the whole YouTube
   //    pipeline below (search + enrich + rerank), not after it. searchGoogleImages never throws
   //    and resolves to [] on any failure/missing key (see _serpapi.js) — images are additive, a
   //    SerpAPI problem must never break the core YouTube result. Falls back to youtubeQuery if
   //    the model omitted imageQuery, so an older cached intent shape still gets images.
-  const imagesPromise = searchGoogleImages(env, (intent.imageQuery || query).trim());
+  const imagesPromise = searchGoogleImages(env, imageQuery);
+
+  // Debug/test path (see body.debugImagesOnly above): return as soon as images resolve, skipping
+  // the YOUTUBE_API_KEY guard and the whole search+enrich+rerank pipeline below. Deliberately
+  // still returns the {subject, footageType, quote, ...} shape app.js/renderEvidence() already
+  // expects, just with candidates always empty, so no frontend branching is needed beyond the
+  // button label itself.
+  if (debugImagesOnly) {
+    const images = await imagesPromise;
+    console.log(`[evidence-search] debugImagesOnly=true imageQuery=${JSON.stringify(imageQuery)} images=${images.length}`);
+    return Response.json({ subject: intent.subject || null, footageType, quote, candidates: [], images, imageQuery });
+  }
+
+  if (!env.YOUTUBE_API_KEY) {
+    return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
+  }
 
   // 3. YouTube Data API search.list (fetch 12 to rerank from).
   let candidates;
@@ -242,7 +261,7 @@ export async function onRequestPost(context) {
 
   const images = await imagesPromise;
 
-  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top, images });
+  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top, images, imageQuery });
 }
 
 // YouTube Data API search.list (fetch 12 to rerank from). Exported so reference-search.js's meme

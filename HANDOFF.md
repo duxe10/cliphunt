@@ -903,6 +903,51 @@ hit SerpAPI's cache free. Upgrade path is $25/mo for 1,000 if the product ever n
   through with the secret set: confirm the IMG cards render, the queries in the tail log are
   photo-shaped (not video-title-shaped), and junk domains actually get filtered.
 
+## Decision visibility + photos-only test mode (2026-07-20)
+Two real gaps surfaced testing the SerpAPI image feature: (1) `segment.js` and `evidence-search.js`
+both already compute and `console.log` a full reasoning trail per segment/click (family, subject,
+categoryClaim, findable, reason, imageQuery — see points 13/17-18 above and "Google Images on
+evidence beats") — but that visibility only ever existed via a live `wrangler pages deployment
+tail`, and `app.js`'s `buildLiveSegments()` silently stripped every one of those fields before a
+segment ever reached the page. So the actual decision data existed in the API response the whole
+time, it just never survived past project creation. (2) There was no way to test the image pipeline
+in isolation — every "Find footage" click on an evidence beat always ran the full YouTube
+search+enrich+rerank pipeline alongside the image search, so iterating on image results meant
+paying for (and waiting on) YouTube/Groq every time too.
+- `buildLiveSegments()` now keeps `subject`/`categoryClaim`/`findable`/`reason` instead of dropping
+  them. `segmentHtml()` renders `reason` (+ `findable` when set) as a small `.seg-reason` line under
+  every segment's text — always on, not gated, since it's free and this was the actual point of the
+  `reason` field existing in the first place. `renderWorkspace()` also `console.table()`s every
+  segment's full decision trail on load, and `new-project.html` does the same immediately after
+  segmentation returns (family counts + a table) — durable-enough visibility (survives in browser
+  devtools, no terminal needed) without building real persistent storage, matching this project's
+  "don't add infrastructure ahead of a real need" standing principle from point 13.
+- `evidence-search.js` now also returns `imageQuery` in its JSON response (previously logged
+  server-side only) and `app.js` shows it plus the kept-image count under each evidence beat's
+  results (`renderEvidence()`'s `imgNote`), and logs it to the browser console per click — so
+  "which segment decided it needed a picture, and what did it search for" is answerable from the
+  page itself.
+- **"Photos-only test mode"**: a checkbox in `workspace.html`'s header (`#debug-images-only`,
+  `.debug-toggle`/`.workspace-actions` in `style.css`), backed by `app.js`'s `DEBUG_IMAGES_ONLY`
+  (persisted in `localStorage` under `cliphunt_debug_images_only`). When on, evidence beats' button
+  reads "Find picture" instead of "Find footage" (`refreshFootageButtonLabels()` relabels buttons
+  in place on toggle — deliberately NOT a full segment-list re-render, which would have reset any
+  beat whose results were already fetched back to its button state, since `seg.clips` stays null
+  for evidence beats even after a successful fetch) and `findFootage()` sends
+  `debugImagesOnly: true` to `/api/evidence-search`. Scoped to `family === "evidence"` only —
+  "reference" keeps its own unrelated button/pipeline untouched.
+  `evidence-search.js` honors the flag by returning right after the SerpAPI call resolves,
+  skipping the `YOUTUBE_API_KEY` guard and the entire search+enrich+rerank chain. Intent extraction
+  (the Claude call) still always runs — `imageQuery` is produced by the same call as
+  `youtubeQuery`, there's no cheaper way to get it — so this saves the YouTube quota + Groq rerank
+  call per test click, not the Claude call. Off by default; every existing caller that doesn't send
+  the flag is unaffected.
+- **Deliberately NOT touched**: the "40/71 segments landed on `nothing`" complaint that prompted
+  this — the user wants to review real per-segment output together rather than have the
+  concreteness-gate prompt re-tuned blind again, given points 6-18's repeated history of one fix
+  introducing a new regression. The `reason` field surfaced by this change is exactly what that
+  review needs; no classification logic changed in this pass.
+
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional

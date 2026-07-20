@@ -57,6 +57,15 @@ const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference
 const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
+// Debug/test toggle: swaps evidence beats' "Find footage" button for "Find picture" so the
+// SerpAPI image pipeline (see evidence-search.js's imageQuery/debugImagesOnly) can be tested in
+// isolation — no YouTube search, no Groq rerank call, just intent-extraction + Google Images. Lets
+// the picture feature be iterated on without a YouTube-quota/rerank round trip every click.
+// Persisted so it survives a reload. Scoped to "evidence" only — "reference" keeps its own
+// unrelated "Find reaction clip" button and behavior.
+const DEBUG_IMAGES_KEY = "cliphunt_debug_images_only";
+let DEBUG_IMAGES_ONLY = localStorage.getItem(DEBUG_IMAGES_KEY) === "1";
+
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 
 let CURRENT_PROJECT = null;
@@ -78,6 +87,15 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
+      // subject/categoryClaim/findable/reason: the segmenter's own audit trail (see segment.js's
+      // SYSTEM_PROMPT — "reason" exists specifically so classification can be checked, not
+      // guessed at). Used to get dropped here before ever reaching the page, which is the actual
+      // reason "why did this land on X" was only answerable via a live wrangler tail — now it
+      // rides along with the segment and segmentHtml() renders it.
+      subject: s.subject || null,
+      categoryClaim: s.categoryClaim || null,
+      findable: s.findable || null,
+      reason: s.reason || null,
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -184,6 +202,38 @@ function renderWorkspace() {
       }
     };
   }
+
+  const debugToggle = document.getElementById("debug-images-only");
+  if (debugToggle) {
+    debugToggle.checked = DEBUG_IMAGES_ONLY;
+    debugToggle.onchange = () => {
+      DEBUG_IMAGES_ONLY = debugToggle.checked;
+      localStorage.setItem(DEBUG_IMAGES_KEY, DEBUG_IMAGES_ONLY ? "1" : "0");
+      refreshFootageButtonLabels();
+    };
+  }
+
+  // One-shot console dump of every segment's classification/reasoning on load — the segmenter
+  // already computes subject/categoryClaim/findable/reason per segment (see segment.js), this
+  // just surfaces it in the browser instead of requiring a live `wrangler pages deployment tail`
+  // to see what was decided and why.
+  console.log(`[cliphunt] "${CURRENT_PROJECT.title}" — ${SEGMENTS.length} segments`);
+  console.table(SEGMENTS.map(s => ({
+    idx: s.idx, family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
+    findable: s.findable, query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
+  })));
+}
+
+// Not gated behind a full re-render (that would re-decide needsSearch/needsFootage off live
+// state and clobber any segment whose results are already fetched) — just relabels the buttons
+// currently showing "Find footage"/"Find picture" on evidence beats. "reference" buttons are
+// untouched (data-family check), matching the toggle's evidence-only scope.
+function refreshFootageButtonLabels() {
+  document.querySelectorAll(".btn-find-footage").forEach((btn) => {
+    if (btn.dataset.family !== "evidence") return;
+    const labelEl = btn.querySelector(".btn-label");
+    if (labelEl) labelEl.textContent = DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage";
+  });
 }
 
 function segmentHtml(seg) {
@@ -199,17 +249,26 @@ function segmentHtml(seg) {
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
   } else if (needsFootage) {
-    const label = seg.family === "reference" ? "Find reaction clip" : "Find footage";
+    const isReference = seg.family === "reference";
+    const label = isReference ? "Find reaction clip" : (DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage");
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
-        <button class="btn btn-primary btn-find-footage" onclick="findFootage(${seg.idx})">
+        <button class="btn btn-primary btn-find-footage" data-family="${seg.family}" onclick="findFootage(${seg.idx})">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-          ${label}
+          <span class="btn-label">${label}</span>
         </button>
       </div>`;
   } else {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`;
   }
+
+  // The segmenter's own "reason" field, always shown (not gated behind a debug toggle — it's
+  // cheap and this is exactly the missing visibility that made "why did this land here" only
+  // answerable via a live wrangler tail before). findable is appended when present since it's the
+  // other half of "why does/doesn't this have a search button".
+  const reasonLine = seg.reason
+    ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.findable ? ` · findable: ${seg.findable}` : ""}</p>`
+    : "";
 
   return `
     <div class="segment-row ${isEmpty ? "empty-beat" : ""}">
@@ -221,6 +280,7 @@ function segmentHtml(seg) {
       </div>
       <div class="segment-body">
         <p class="segment-text">${escapeHtml(seg.text || "")}</p>
+        ${reasonLine}
         ${body}
       </div>
     </div>
@@ -310,7 +370,10 @@ async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  const searchingMsg = seg.family === "reference" ? "Searching for reaction clips and stock footage…" : "Searching for real footage…";
+  const imagesOnly = DEBUG_IMAGES_ONLY && seg.family !== "reference";
+  const searchingMsg = seg.family === "reference"
+    ? "Searching for reaction clips and stock footage…"
+    : (imagesOnly ? "Searching for photos…" : "Searching for real footage…");
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
@@ -325,7 +388,9 @@ async function findFootage(segIdx) {
     const searchRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ segmentText: seg.text, context }),
+      // debugImagesOnly is ignored by reference-search.js (it has no such flag) and by
+      // evidence-search.js unless explicitly true, so this is safe to always include.
+      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly }),
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
@@ -343,7 +408,16 @@ async function findFootage(segIdx) {
       return;
     }
 
-    seg.evidence = { candidates: search.candidates || [], images: search.images || [] };
+    // imageQuery rides the same intent-extraction call as youtubeQuery (see evidence-search.js) —
+    // it decides a real photo query for EVERY evidence beat, there's no separate "does this
+    // segment need a picture" branch. Logged here so that decision (and whether SerpAPI actually
+    // returned anything for it) is visible in the browser console without a live wrangler tail.
+    console.log(
+      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} imageQuery=${JSON.stringify(search.imageQuery || null)} ` +
+      `images=${(search.images || []).length} youtubeCandidates=${(search.candidates || []).length}`
+    );
+
+    seg.evidence = { candidates: search.candidates || [], images: search.images || [], imageQuery: search.imageQuery || null };
     renderEvidence(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
@@ -362,9 +436,14 @@ function renderEvidence(segIdx) {
   const cards =
     candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("") +
     images.map((img) => imageCardHtml(img)).join("");
-  container.innerHTML = cards
-    ? `<div class="clip-queue">${cards}</div>`
-    : `<p class="no-clip-msg">No footage candidates found.</p>`;
+  // Surfaces the imageQuery that decided whether/what to search for a photo on this beat — same
+  // "make the decision visible, not just the result" reasoning as segmentHtml()'s reason line.
+  // Shown even when images came back empty, so an empty result reads as "searched, found
+  // nothing for this query" rather than "never tried".
+  const imgNote = seg.evidence.imageQuery
+    ? `<p class="seg-reason">photo search: "${escapeHtml(seg.evidence.imageQuery)}" — ${images.length} kept</p>`
+    : "";
+  container.innerHTML = (cards ? `<div class="clip-queue">${cards}</div>` : `<p class="no-clip-msg">No footage candidates found.</p>`) + imgNote;
 }
 
 // A photo result card is a plain external link to the image's SOURCE PAGE — no preview modal, no

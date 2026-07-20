@@ -450,6 +450,31 @@ a.clip-card { text-decoration: none; color: inherit; display: block; }
   font-style: italic;
 }
 
+/* Segmenter's own classification "reason" (see segment.js) and the evidence-search image-query
+   note — plain diagnostic text, deliberately understated so it reads as metadata, not content. */
+.seg-reason {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  opacity: .7;
+  margin: -6px 0 12px;
+}
+
+.workspace-actions { display: flex; align-items: center; gap: 16px; }
+
+.debug-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.debug-toggle input { accent-color: var(--accent); cursor: pointer; }
+
 /* ---- Preview modal ---- */
 .modal-overlay {
   position: fixed;
