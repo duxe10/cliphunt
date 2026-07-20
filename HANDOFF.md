@@ -658,13 +658,39 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     image-search gate, which stays keyed strictly to the upstream field for mechanical simplicity,
     a deliberate simplification worth revisiting if it proves too conservative live.
 
-    **Not yet verified live** — same standing caveat as every other rule in this file: re-run the
-    real 71-segment script and confirm the specific flagged segments (Bellingham/Saka/Kane-trust/
-    Croatia → `"fallback"`; Qatar-arrival/goalscorer-record/interview → `"instant"`) resolve as
-    designed, AND that the guard holds — `"Then Harry Kane happened."`, `"The dream was alive."`,
-    `"many fans wonder..."`, `"It wasn't just a missed penalty."` should all still land on
-    `"nothing"`, since these are exactly the cases most at risk of being wrongly swept up by the
-    loosened rule.
+    **Live-tested (2026-07-20): real improvement, plus one confirmed follow-up bug.** Re-ran the
+    71-segment script — `"nothing"` count dropped from ~40 to 29, and the guard against the
+    contentless-name overshoot held (nothing false-positived). One real bug found: `"Then came
+    France."` (the actual next-opponent transition into the 2022 World Cup quarterfinal) was
+    landing on `"nothing"` — NOT metaphorical, a real match that actually happened — instead of
+    resolving to a real YouTube/image search. **Root cause, confirmed by inspection**: this
+    fragment has the EXACT same surface shape as the point's own new overshoot guard example,
+    `"Then Harry Kane happened."` (a short "Then [X] happened/came" transition) — the guard,
+    written to null out bare hype re-mentions of an already-established subject, was catching a
+    structurally identical but semantically different case: introducing a BRAND NEW opponent/event
+    for the first time as the next step in an ongoing progression, which IS real content (a genuine
+    real fixture), not a bare re-mention. `evidence-search.js`'s own "TWO RULES" block already knew
+    how to handle this correctly (it's one of that prompt's own worked examples, predating this
+    change) — but it never got the chance, because segment.js's classifier dropped the segment to
+    `"nothing"` before the click could ever reach that endpoint.
+
+    **Fixed** by adding an explicit third case to the subject-resolution rules (right after the
+    event-inheritance paragraph, cross-referenced from the "asserts nothing" guard so the two can't
+    drift apart again): a "Then/But then came [NAME]." fragment introducing a genuinely NEW
+    opponent/event for the first time is real content and gets `subject` set to the actual matchup
+    (`depictionType: "instant"` — a specific, freshly-established real fixture), using BOTH
+    `"Then came France."` (2022 WC quarterfinal) and `"But then came Croatia."` (2018 WC
+    semi-final, same script) as the worked pair. The distinguishing test made explicit: does "Then
+    [X]" introduce a NEW name/event that wasn't the established subject a moment ago (real content,
+    subject set), or re-mention someone who WAS ALREADY the entire story's subject with nothing new
+    added (bare hype, stays null)? This also resolved an inconsistency flagged during the original
+    manual review of this same script (whether "But then came Croatia." should resolve like "Then
+    came France." or like "Then Croatia slowly took control." — it's the former; the latter is a
+    LATER continuation of an already-introduced match, a genuinely different case, correctly
+    `"fallback"`).
+
+    **Not yet re-verified against this specific fix** — re-run the France/Croatia segments (and the
+    rest of the script, to confirm nothing else shifted) once this deploys.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

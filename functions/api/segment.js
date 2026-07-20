@@ -93,6 +93,28 @@ adds, not bare continuation. Same test as the feel-anchor case above: is this se
 narratively INSIDE the event the preceding segments established (inherits), or has it moved to a
 new topic or a later vantage point (does not inherit)?
 
+A separate, easily-confused case: a short "Then/But then came [NAME]." fragment that introduces a
+BRAND NEW opponent/event for the first time — not a later reflection, not a repeat mention of
+someone already fully established, but the NEXT STEP in an ongoing progression (a next match, a
+next round). This is real, specific content (a genuine real fixture is happening), not a bare
+name-drop, even though the sentence is short and gives no further detail itself — resolve subject
+to the actual matchup/event, not just the bare new name. "Then came France." — after a script
+narrating England's group stage and Round of 16 win over Senegal, this introduces France as the
+NEXT, brand-new opponent for the first time: subject: "England vs France, 2022 World Cup
+quarterfinal", depictionType: "instant" (a specific, real, newly-established fixture — a real
+photo/video search is worth trying, same reasoning `evidence-search.js`'s own context-resolution
+rules already apply once they get the chance). Same pattern, same script: "But then came Croatia."
+introduces Croatia as the next opponent for the first time (the semi-final) — subject: "England
+vs Croatia, 2018 World Cup semi-final", depictionType: "instant" for the same reason.
+
+Do NOT confuse this with the "asserts nothing about a real name" guard below (the "Then Harry Kane
+happened." case) — the test that tells them apart: does "Then [X]" introduce a NEW real
+name/event that wasn't the established subject a moment ago (a new opponent, a new stage — real
+content, subject gets set), or does it just re-mention someone who WAS ALREADY the entire story's
+subject, adding no new person, event, or fact at all (bare hype, subject stays null)? "Then came
+France." names someone NEW; "Then Harry Kane happened." names someone the whole script had already
+been about for several segments and adds nothing further about him.
+
 If either part fails, there is nothing here for a stock-footage search to find via "feel" — a
 quantifier+category grammar shape or an emotionally loaded phrase is not sufficient on its own to
 rescue it into "feel". This is the test "categoryClaim", "feel"'s query-writing, "nothing", and
@@ -169,7 +191,11 @@ unnamed demo, nothing real anywhere. subject: null.
 (2) A real name DOES resolve, but the segment asserts literally nothing about it beyond bare
 existence or mention — strip the name/pronoun out and there is nothing left. "Then Harry Kane
 happened." resolves to a real player but claims no trait, no record, no event, nothing at all —
-subject: null, family "nothing", same as before.
+subject: null, family "nothing", same as before. Cross-reference: this is NOT the same as "Then
+came France."/"But then came Croatia." (see the event-inheritance section above) — those introduce
+a brand NEW opponent/event for the first time, which IS real content (a genuine new fixture), not
+a bare re-mention of an already-fully-established subject. Re-check that section's distinguishing
+test before nulling a short "Then [X]" fragment.
 Contrast both of those against: "That resilience is one of the reasons teammates and managers
 continue to trust him." resolves "him" to a real, already-established player, AND makes a real,
 complete, standalone claim about him (a reputation/trust judgment) — strip the pronoun and "is
