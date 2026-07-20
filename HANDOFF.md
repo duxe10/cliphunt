@@ -703,15 +703,37 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     density asymmetry" bugs, just between two DIFFERENT bullets this time instead of one bullet's
     own thin example set.
 
-    **Fixed by planting the counter-example directly inside the connective-narration bullet
-    itself**, not just cross-referencing it from afar: explicitly named "Then came France." there,
-    contrasted directly against "But that wasn't the end of the story." (same shape, different
-    content — one strips to nothing, one strips to a real new opponent), with the same
-    strip-and-check test this file already uses elsewhere (the memory-framing-verb rule). **Not yet
-    re-verified live** — re-test France/Croatia (and the rest of the script, to confirm nothing else
-    shifted) once this specific fix deploys; the earlier "not yet verified" note in this same point
-    was written before this bug was found and should not be trusted as evidence the first attempt
-    worked.
+    **That second attempt (planting the counter-example directly inside the connective-narration
+    bullet) ALSO failed — live-tested again, reported by the user as "did it again."** Two separate
+    prompt rewordings, in two different sections of the prompt, both failed to move this exact
+    segment off `"nothing"`. That's the threshold this file has used consistently elsewhere
+    (`mergeFragments`, `enforceEvidenceRule`, `enforceFeelQueryRule`): once a rule has failed to
+    hold across multiple wordings, stop wording it and check it in code instead.
+
+    **Fixed with a new deterministic function, `enforceNextOpponentRule()`.** Regex-matches a
+    segment whose ENTIRE text is a bare `"(But/And )?Then (came )?[Capitalized Word(s)]."` fragment
+    that the model classified `"nothing"`, and forces it to `evidence`/`depictionType:"instant"`
+    with the captured name as `subject`. **A real design mistake was caught and fixed before
+    shipping, not after**: the first version of this function required the captured word to also
+    appear capitalized mid-sentence elsewhere in the script, to distinguish a real proper noun from
+    a word merely capitalized by sentence-initial position — sound in theory, but checked against
+    the actual reported script before shipping and found to NOT hold: this script's short,
+    fragment-heavy style means "France" appears capitalized ONLY at fragment-initial position every
+    single time it's mentioned, never once truly mid-sentence, so the confirmation check would
+    never have fired for the exact case this function exists to fix. Caught by testing the check
+    against real data instead of trusting the design — same discipline this file has needed
+    repeatedly. Flipped to a blocklist approach instead: assume a capitalized word in this exact
+    narrow fragment shape IS a real name by default, and exclude only a small list of common
+    abstract/mood words (`"Silence"`, `"Doubt"`, `"Hope"`, etc.) that could plausibly appear
+    capitalized here purely from sentence-initial position. Deliberately asymmetric: a false
+    positive here is low-cost (a segment gets a search button that comes back empty via the
+    existing rerank threshold), while missing the real case is the thing that's failed twice
+    already — so this errs toward firing.
+
+    **Not yet re-verified live** — re-test France/Croatia (and the rest of the script, to confirm
+    nothing else shifted) once this specific fix deploys. Given the last two "should be fixed now"
+    claims in this same point were both wrong, treat this one the same way until actually confirmed
+    against the live `reason`/`family` output, not the code alone.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
