@@ -730,10 +730,18 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     existing rerank threshold), while missing the real case is the thing that's failed twice
     already — so this errs toward firing.
 
-    **Not yet re-verified live** — re-test France/Croatia (and the rest of the script, to confirm
-    nothing else shifted) once this specific fix deploys. Given the last two "should be fixed now"
-    claims in this same point were both wrong, treat this one the same way until actually confirmed
-    against the live `reason`/`family` output, not the code alone.
+    **Reported as still broken a third time, and the user called it — `enforceNextOpponentRule()`
+    was pulled entirely, deliberately, on the user's explicit direction ("drop that hardcoded
+    thing").** Three fix attempts (two prompt rewordings, one deterministic regex) on ONE reported
+    sentence, in a row, without a confirmed working result, is disproportionate — the user was
+    right to call a stop rather than let a fourth attempt get shipped. **Current status: an
+    accepted, unresolved miss.** `"Then came France."` (and same-shaped fragments) may still land on
+    `"nothing"`. No fix is in place for this specific case as of this entry. Before attempting a
+    fourth fix: get the actual live `reason`/`family` output first (this exact case has already
+    burned two attempts that skipped straight to a new fix without that), and weigh whether one
+    sentence in one test script is worth further engineering time at all — the project's own
+    standing principle (this file, further up: "there will be types it's not built for and that's
+    fine") applies here as much as anywhere.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

@@ -531,8 +531,7 @@ export async function onRequestPost(context) {
     }
 
     const merged = mergeFragments(parsed.segments);
-    const nextOpponentResolved = enforceNextOpponentRule(merged);
-    const evidenceResolved = enforceEvidenceRule(nextOpponentResolved);
+    const evidenceResolved = enforceEvidenceRule(merged);
     const corrected = enforceFeelQueryRule(evidenceResolved);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
@@ -578,62 +577,6 @@ function mergeFragments(segments) {
     merged.push({ ...seg, text });
   }
   return merged;
-}
-
-// Deterministic backstop for a specific, narrow, live-confirmed prompt-following failure — read
-// the full history before touching this again. A short "Then/But then came [Name]." fragment
-// introducing a brand-new real opponent/event (e.g. "Then came France.") kept landing on
-// "nothing" with reason "connective narration only" — TWO separate prompt rewordings both failed
-// to fix this (see HANDOFF.md), because the model kept pattern-matching the short "Then X."
-// grammar to the "nothing" family's OWN connective-narration example ("But that wasn't the end of
-// the story.") regardless of how explicitly the subject-resolution rule or the connective-
-// narration bullet itself argued against it. Same lesson as mergeFragments/enforceEvidenceRule/
-// enforceFeelQueryRule above and below: once a rule has failed to hold across multiple wordings,
-// stop wording it and check it in code instead.
-//
-// Deliberately narrow to avoid false positives: only fires on a segment whose ENTIRE text is
-// "(But/And )?Then (came )?[Capitalized Word(s)]." — a bare fragment, not a fuller sentence with
-// other content (which the model handles fine on its own).
-//
-// First attempt at "confirm it's a real proper noun" required the captured word to ALSO appear
-// capitalized mid-sentence elsewhere in the script (proper nouns show up capitalized regardless
-// of position; a word only capitalized because it opens a sentence wouldn't). Checked against the
-// actual reported script before shipping and found it does NOT hold: this script's short, punchy
-// fragment style means "France" is captured only at fragment-initial position EVERY time it
-// appears ("Then came France.", "France struck first...", "France went through.") — never once
-// mid-sentence — so that confirmation check would never have fired for the exact case this
-// function exists to fix. Flipped the approach instead: assume a capitalized word here IS a real
-// name by default (this fragment shape is specifically used for introducing a new named
-// opponent/entity — a false capitalization this narrowly-shaped is rare), and exclude via a small
-// blocklist of common abstract/mood/connector words that could plausibly appear capitalized here
-// purely from sentence-initial position ("Then Silence.", "Then Doubt crept in." — the latter
-// wouldn't even match the shape, but the former would without this list). A false positive here is
-// low-cost anyway (a segment gets a "Find footage" button that searches a nonsense term and comes
-// back empty via the existing rerank threshold) — asymmetric with the cost of missing the real
-// case, which is why this errs toward firing rather than toward requiring proof.
-const NEXT_STEP_FRAGMENT_RE = /^(?:But |And )?[Tt]hen(?: came)?\s+([A-Z][a-zA-Z'-]*(?:\s[A-Z][a-zA-Z'-]*){0,2})\.?$/;
-const ABSTRACT_WORD_BLOCKLIST = new Set([
-  "Silence", "Doubt", "Fear", "Hope", "Chaos", "Disaster", "Panic", "Joy", "Sorrow", "Regret",
-  "Nothing", "Everything", "Something", "Anything", "Meanwhile", "Suddenly", "Finally",
-  "Eventually", "Somehow", "Perhaps", "Maybe", "Uncertainty", "Tension", "Relief", "Heartbreak",
-]);
-
-function enforceNextOpponentRule(segments) {
-  for (const seg of segments) {
-    if (seg.family !== "nothing") continue;
-    const match = NEXT_STEP_FRAGMENT_RE.exec((seg.text || "").trim());
-    if (!match) continue;
-    const name = match[1];
-    const isAbstractWord = name.split(/\s+/).some((w) => ABSTRACT_WORD_BLOCKLIST.has(w));
-    if (isAbstractWord) continue;
-
-    seg.family = "evidence";
-    seg.subject = name;
-    seg.categoryClaim = null;
-    seg.depictionType = "instant";
-    seg.reason = `mechanically forced: "${seg.text.trim()}" names what's assumed a real proper noun (${name}) — the model classified this "nothing" (connective narration) despite that`;
-  }
-  return segments;
 }
 
 // The model is unreliable at holding the feel/evidence line on its own — confirmed live,
