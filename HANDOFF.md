@@ -689,8 +689,29 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     LATER continuation of an already-introduced match, a genuinely different case, correctly
     `"fallback"`).
 
-    **Not yet re-verified against this specific fix** — re-run the France/Croatia segments (and the
-    rest of the script, to confirm nothing else shifted) once this deploys.
+    **That fix alone did NOT work — live-tested, confirmed by reading the actual `reason` field.**
+    "Then came France." still landed on `"nothing"` with `reason: "connective narration only"` —
+    the model never engaged with the new subject-inheritance rule at all. Root cause, found by
+    reading the model's own stated reason instead of re-guessing blind: "connective narration only"
+    is the exact wording tied to the FIRST `"nothing"`-family bullet ("But that wasn't the end of
+    the story.", "Here's the thing.") — a DIFFERENT section of the prompt, positioned much later,
+    that offers its own competing explanation for the same short "Then X." shape. The new rule
+    lived only in the `subject` section near the top; the model pattern-matched the transitional
+    grammar to the `"nothing"` bullet's own connective-narration example before ever getting there.
+    Declaring a rule once is not enough when a competing, differently-worded rule elsewhere in the
+    same prompt covers the identical surface grammar — same lesson as points 12/13's "example-
+    density asymmetry" bugs, just between two DIFFERENT bullets this time instead of one bullet's
+    own thin example set.
+
+    **Fixed by planting the counter-example directly inside the connective-narration bullet
+    itself**, not just cross-referencing it from afar: explicitly named "Then came France." there,
+    contrasted directly against "But that wasn't the end of the story." (same shape, different
+    content — one strips to nothing, one strips to a real new opponent), with the same
+    strip-and-check test this file already uses elsewhere (the memory-framing-verb rule). **Not yet
+    re-verified live** — re-test France/Croatia (and the rest of the script, to confirm nothing else
+    shifted) once this specific fix deploys; the earlier "not yet verified" note in this same point
+    was written before this bug was found and should not be trusted as evidence the first attempt
+    worked.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area

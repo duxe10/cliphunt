@@ -354,6 +354,16 @@ Then pick one "family":
   - connective narration, meta asides, or a setup clause that only makes sense combined with the
     next segment's visual ("But that wasn't the end of the story.", "Here's the thing.") — there
     was never any content here, concrete or otherwise, only a transition.
+    **Do NOT put a "Then/But then came [NAME]." fragment here just because it's short and shaped
+    like a transition** — check it against the subject-resolution rule near the top of this prompt
+    FIRST, before reaching for this bullet. "Then came France." LOOKS like the same shape as "But
+    that wasn't the end of the story." (both short, both start a new beat), but it is NOT the same
+    failure: "But that wasn't the end of the story" names nothing at all, real or otherwise, while
+    "Then came France" names an actual new opponent — real content, not a transition. A transition
+    phrase that also happens to introduce a brand-new real name/event is NOT pure connective
+    narration; it gets a subject (see above) and is NOT "nothing". Only land here when stripping
+    the transitional framing leaves nothing real behind, the same way stripping a memory-framing
+    verb is tested elsewhere in this prompt.
   - an abstract STATE or OUTCOME with no action attached — a score being tied, a situation "still
     open"/"unresolved", a deal "still on the table". These describe a STATE, not an action, event,
     or scene: "Everything was level going into the final minutes." (a tied score is a fact about a
