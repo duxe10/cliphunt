@@ -87,14 +87,16 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
-      // subject/categoryClaim/findable/reason: the segmenter's own audit trail (see segment.js's
-      // SYSTEM_PROMPT — "reason" exists specifically so classification can be checked, not
-      // guessed at). Used to get dropped here before ever reaching the page, which is the actual
-      // reason "why did this land on X" was only answerable via a live wrangler tail — now it
-      // rides along with the segment and segmentHtml() renders it.
+      // subject/categoryClaim/depictionType/reason: the segmenter's own audit trail (see
+      // segment.js's SYSTEM_PROMPT — "reason" exists specifically so classification can be
+      // checked, not guessed at). Used to get dropped here before ever reaching the page, which
+      // is the actual reason "why did this land on X" was only answerable via a live wrangler
+      // tail — now it rides along with the segment and segmentHtml() renders it. depictionType
+      // ("instant"/"fallback", 2026-07-20) replaced the old "findable" field — it decides only
+      // whether findFootage() also gets an image search, see evidence-search.js.
       subject: s.subject || null,
       categoryClaim: s.categoryClaim || null,
-      findable: s.findable || null,
+      depictionType: s.depictionType || null,
       reason: s.reason || null,
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
@@ -214,13 +216,13 @@ function renderWorkspace() {
   }
 
   // One-shot console dump of every segment's classification/reasoning on load — the segmenter
-  // already computes subject/categoryClaim/findable/reason per segment (see segment.js), this
-  // just surfaces it in the browser instead of requiring a live `wrangler pages deployment tail`
-  // to see what was decided and why.
+  // already computes subject/categoryClaim/depictionType/reason per segment (see segment.js),
+  // this just surfaces it in the browser instead of requiring a live `wrangler pages deployment
+  // tail` to see what was decided and why.
   console.log(`[cliphunt] "${CURRENT_PROJECT.title}" — ${SEGMENTS.length} segments`);
   console.table(SEGMENTS.map(s => ({
     idx: s.idx, family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
-    findable: s.findable, query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
+    depictionType: s.depictionType, query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
   })));
 }
 
@@ -264,10 +266,10 @@ function segmentHtml(seg) {
 
   // The segmenter's own "reason" field, always shown (not gated behind a debug toggle — it's
   // cheap and this is exactly the missing visibility that made "why did this land here" only
-  // answerable via a live wrangler tail before). findable is appended when present since it's the
-  // other half of "why does/doesn't this have a search button".
+  // answerable via a live wrangler tail before). depictionType is appended when present — it's
+  // what decides whether findFootage() also runs an image search (see evidence-search.js).
   const reasonLine = seg.reason
-    ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.findable ? ` · findable: ${seg.findable}` : ""}</p>`
+    ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.depictionType ? ` · depiction: ${seg.depictionType}` : ""}</p>`
     : "";
 
   return `
@@ -390,7 +392,9 @@ async function findFootage(segIdx) {
       headers: { "Content-Type": "application/json" },
       // debugImagesOnly is ignored by reference-search.js (it has no such flag) and by
       // evidence-search.js unless explicitly true, so this is safe to always include.
-      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly }),
+      // depictionType ("instant"/"fallback", see segment.js/evidence-search.js) decides whether
+      // evidence-search.js also spends a SerpAPI call — reference-search.js ignores it too.
+      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly, depictionType: seg.depictionType || null }),
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
@@ -408,16 +412,23 @@ async function findFootage(segIdx) {
       return;
     }
 
-    // imageQuery rides the same intent-extraction call as youtubeQuery (see evidence-search.js) —
-    // it decides a real photo query for EVERY evidence beat, there's no separate "does this
-    // segment need a picture" branch. Logged here so that decision (and whether SerpAPI actually
-    // returned anything for it) is visible in the browser console without a live wrangler tail.
+    // imageQuery rides the same intent-extraction call as youtubeQuery (see evidence-search.js),
+    // but whether a photo search actually RAN depends on imagesSearched (depictionType gating —
+    // "fallback" beats skip it in production to protect SerpAPI's quota, debugImagesOnly always
+    // forces it). Logged here so that decision is visible in the browser console without a live
+    // wrangler tail.
     console.log(
-      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} imageQuery=${JSON.stringify(search.imageQuery || null)} ` +
-      `images=${(search.images || []).length} youtubeCandidates=${(search.candidates || []).length}`
+      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} imagesSearched=${!!search.imagesSearched} ` +
+      `imageQuery=${JSON.stringify(search.imageQuery || null)} images=${(search.images || []).length} ` +
+      `youtubeCandidates=${(search.candidates || []).length}`
     );
 
-    seg.evidence = { candidates: search.candidates || [], images: search.images || [], imageQuery: search.imageQuery || null };
+    seg.evidence = {
+      candidates: search.candidates || [],
+      images: search.images || [],
+      imageQuery: search.imageQuery || null,
+      imagesSearched: !!search.imagesSearched,
+    };
     renderEvidence(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
@@ -438,11 +449,13 @@ function renderEvidence(segIdx) {
     images.map((img) => imageCardHtml(img)).join("");
   // Surfaces the imageQuery that decided whether/what to search for a photo on this beat — same
   // "make the decision visible, not just the result" reasoning as segmentHtml()'s reason line.
-  // Shown even when images came back empty, so an empty result reads as "searched, found
-  // nothing for this query" rather than "never tried".
-  const imgNote = seg.evidence.imageQuery
-    ? `<p class="seg-reason">photo search: "${escapeHtml(seg.evidence.imageQuery)}" — ${images.length} kept</p>`
-    : "";
+  // imagesSearched distinguishes "we searched and found nothing" (empty images, searched=true)
+  // from "we didn't search this one" (a "fallback"-depiction beat, images skipped to protect the
+  // SerpAPI quota — see evidence-search.js) — an empty images:[] means something different in
+  // each case, so this must not read as a failed search when it was never attempted.
+  const imgNote = seg.evidence.imagesSearched
+    ? `<p class="seg-reason">photo search: "${escapeHtml(seg.evidence.imageQuery || "")}" — ${images.length} kept</p>`
+    : `<p class="seg-reason">no photo search — general subject beat</p>`;
   container.innerHTML = (cards ? `<div class="clip-queue">${cards}</div>` : `<p class="no-clip-msg">No footage candidates found.</p>`) + imgNote;
 }
 

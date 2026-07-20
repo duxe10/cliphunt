@@ -33,23 +33,33 @@ Rules for where segments start and end:
 Do not paraphrase — each segment's "text" must be an exact substring of the original script,
 in order, covering the whole script.
 
-Before naming a subject or categoryClaim, or choosing a family, run one test on the segment's
-actual content — this is the single test that governs every judgment below, not a separate check
-for each field: can you point to ONE concrete, physically depictable thing that is doing or
-happening, using only the words actually in THIS segment? Two parts, both required:
+Before naming a categoryClaim, judging "feel" vs. "nothing", or judging "depictionType", run one
+test on the segment's actual content — this is the single test that governs every one of those
+judgments, not a separate check for each field: can you point to ONE concrete, physically
+depictable thing that is doing or happening, using only the words actually in THIS segment? Two
+parts, both required:
 (1) CONCRETE, not abstract — the thing must be an action, event, or physical scene (a body doing
 something, an object, a setting, a crowd's visible reaction) — not a mental state, a value
 judgment, a reputation claim, a vague aspiration, or an abstract intensity ("gives me a little
-hope", "the dream was alive", "the pressure couldn't have been greater", "trusted him" as a
-character judgment, "he'd never admit how scared he really was", "she carried the weight of
-every year that led to this"). This is a PATTERN across any register or domain — hope, fear,
-pride, regret, certainty, longing — not a fixed list of phrasings to pattern-match against.
+hope", "the dream was alive", "the pressure couldn't have been greater", "he'd never admit how
+scared he really was", "she carried the weight of every year that led to this"). This is a
+PATTERN across any register or domain — hope, fear, pride, regret, certainty, longing — not a
+fixed list of phrasings to pattern-match against.
 (2) PRESENT IN THIS SEGMENT, not borrowed or invented — the concrete thing has to actually be
 there in this segment's own words, resolved from earlier context the way "subject" already is (a
 pronoun can resolve to an established person), but not manufactured to paper over a gap, and not
 inherited from a NEXT segment this one is merely setting up for ("It wasn't just a missed
 penalty." references a penalty but doesn't depict it happening now — it's a rhetorical stepping
 stone into whatever comes next).
+
+Note what this test does NOT govern: naming "subject" itself. "Subject" has its own, looser test
+(below, right after this gate) — a real, specific, identifiable entity/event is enough on its own,
+even without a concrete action attached (a reputation/character judgment like "trusted him for
+that resilience" no longer nulls "subject" the way it used to — see below). This concreteness gate
+still fully governs "categoryClaim" (a class-level version of the same test), "feel" vs. "nothing",
+and — once a real subject exists — "depictionType" (whether that subject's content is specific
+enough for a photo search). Keep these separate: "is there a real subject here" is a different,
+looser question than "is there a concrete action here."
 
 An anchor CAN be inherited from the IMMEDIATELY PRECEDING segment, the same way "subject"
 resolves a pronoun to an established person — but only when this segment is a direct, continuous
@@ -66,11 +76,29 @@ vantage point, nothing physically happening now) — does not inherit the goal-s
 anchor to — stays "nothing". The test: is this segment still physically INSIDE the moment the
 previous one established (same instant, same scene, just continuing), or has it stepped OUTSIDE
 that moment to reflect on it from later/elsewhere? Only the former inherits the anchor.
-If either part fails, there is nothing here for a camera, a stock-footage search, or a real-
-footage search to find — a resolvable name, a quantifier+category grammar shape, or an
-emotionally loaded phrase is not sufficient on its own to rescue it. This is the test "subject",
-"categoryClaim", "feel"'s query-writing, and "nothing" all apply below — treat it as one gate, not
-four separate judgment calls.
+
+The same inheritance principle extends to "subject" itself, not just to a "feel" anchor: when a
+segment names no person/action of its own, but the immediately preceding segments have already
+established a specific, real, ongoing EVENT this segment is still narratively inside — not a new
+topic, not a later reflection — inherit that event as "subject", with "depictionType":"fallback"
+(see below): there's no NEW depicted instant here, just continuation of the one already
+established. "Then Croatia slowly took control." — no subject of its own, but several preceding
+segments already established a real 2018 World Cup semi-final against Croatia — inherits subject:
+"2018 World Cup semi-final, England vs Croatia", depictionType: "fallback"; the query searches for
+real footage of the match generally, not a fabricated new instant. Contrast: "Four years later, in
+Qatar, he did." also inherits the subject whose story this is, but ALSO introduces genuinely new,
+specific, locatable content of its own (a new tournament, a new place — "he got another chance" —
+in Qatar) — this is "instant", not "fallback", since "in Qatar" is new information this segment
+adds, not bare continuation. Same test as the feel-anchor case above: is this segment still
+narratively INSIDE the event the preceding segments established (inherits), or has it moved to a
+new topic or a later vantage point (does not inherit)?
+
+If either part fails, there is nothing here for a stock-footage search to find via "feel" — a
+quantifier+category grammar shape or an emotionally loaded phrase is not sufficient on its own to
+rescue it into "feel". This is the test "categoryClaim", "feel"'s query-writing, "nothing", and
+"depictionType" all apply below — treat it as one gate for those, not a separate check for each.
+"Subject" is the one field that does NOT run through this same gate — see below for its own,
+looser test.
 
 Tie-breaker, since this is the single most common way this gate gets misapplied: when a segment
 mixes BOTH abstract/emotional/collective framing (a retrospective claim, a quantifier over a
@@ -125,20 +153,46 @@ stays "nothing", not rescued by the incidental walking.
 For each segment, also name the "subject": the ONE specific, nameable real person, team,
 organization, or event this moment is ABOUT — resolved from earlier context if this moment is a
 pronoun or fragment continuing an established story (e.g. after a paragraph about Harry Kane,
-"A missed penalty." has subject "Harry Kane") — but only when the concreteness test above
-actually passes for this segment: a resolvable name is necessary, never sufficient. The content
-attached to that name must itself be a depictable action or event, not an abstract trait,
-reputation, or character judgment about them. "That resilience is the reason teammates and
-managers trusted him" resolves "him" to a real player, but the actual content is a retrospective
-trust/character judgment with nothing to film — subject: null, despite the clean pronoun
-resolution. Contrast: "He was still out training alone at 6am, months after the injury." — same
-kind of resolved person-reference, but this time there's a concrete action to point a camera at
-(training alone, early morning) — subject: "[player name]". Likewise, an evidence-sounding noun
-phrase used only as a rhetorical or transitional reference doesn't count: "It wasn't just a missed
-penalty." doesn't depict the penalty happening now, it gestures at it to set up a contrast —
-subject: null. Set "subject" to null whenever no single specific real entity/event survives the
-concreteness test, or when none is identifiable at all. Don't guess a subject that isn't actually
-established — null is correct far more often than it might feel.
+"A missed penalty." has subject "Harry Kane"). Naming a subject requires only ONE thing: is there
+a real, specific, identifiable entity or event actually being talked about — NOT whether the
+content attached to it is a depictable action. A trait, a reputation claim, a record, or an
+inherited real event about a real named subject is enough on its own; a resolvable name is still
+necessary, but the old requirement that a depictable action be attached to it is gone — see
+"depictionType" below for how that distinction is made instead, without gating whether "subject"
+gets set at all.
+
+Two ways subject can still fail to resolve, and they are NOT the same failure — keep them
+separate, don't blur them into one test:
+(1) No real, specific, identifiable entity/event survives at all, from this segment or from
+context — "The chat lost it when the demo video hit the front page." names an unnamed "chat," an
+unnamed demo, nothing real anywhere. subject: null.
+(2) A real name DOES resolve, but the segment asserts literally nothing about it beyond bare
+existence or mention — strip the name/pronoun out and there is nothing left. "Then Harry Kane
+happened." resolves to a real player but claims no trait, no record, no event, nothing at all —
+subject: null, family "nothing", same as before.
+Contrast both of those against: "That resilience is one of the reasons teammates and managers
+continue to trust him." resolves "him" to a real, already-established player, AND makes a real,
+complete, standalone claim about him (a reputation/trust judgment) — strip the pronoun and "is
+trusted for this resilience" survives as real content. subject: "[player name]", NOT null — this
+is exactly the kind of segment that used to be wrongly nulled just because a trust judgment isn't
+a depictable action.
+
+A third, different failure stays exactly as strict as it was — don't let the loosening above
+rescue this one too: an evidence-sounding noun phrase used only as an INCOMPLETE rhetorical
+stepping stone toward whatever the NEXT segment delivers, not a complete claim in its own right.
+"It wasn't just a missed penalty." doesn't depict the penalty happening now and doesn't stand on
+its own — it exists only to set up a contrast the next segment pays off. subject: null. The test
+that tells this apart from the resilience/trust case above: does this segment need the NEXT
+segment to deliver its actual content (stays null), or is it already a complete claim, needing
+nothing further (subject gets set)? "That resilience is why they trust him" doesn't need a
+following segment to mean anything; "It wasn't just a missed penalty." does.
+
+Contrast with a genuinely depicted action, still the strongest case: "He was still out training
+alone at 6am, months after the injury." — subject: "[player name]", and (see "depictionType"
+below) this one is "instant", not "fallback". Set "subject" to null whenever neither a real entity
+nor a real claim/event about it survives — null is still correct whenever nothing real can be
+identified at all; the bar that moved is "does this depict an action," not "is there a real
+subject here."
 
 A memory/retrospective-framing verb (remember, recall, still think about, never forgot, talk
 about) wrapped around a reference to a real, SPECIFIC, nameable event does NOT disqualify the
@@ -210,20 +264,60 @@ exists anywhere in the segment's own words — a bare mental/emotional/aspiratio
 nothing described happening ("gives me a little hope", "the dream was alive") — the segment is
 "nothing": there's nothing for even a symbolic shot to hang on to that isn't fabricated.
 
+Once "subject" or "categoryClaim" is set, also judge "depictionType": "instant" or "fallback" —
+NOT "does this segment show an action," but "is there a well-defined, SPECIFIC visual target worth
+searching an actual photograph for," which is a broader question than that. Four cases:
+- "instant": a specific physical action/moment ("He was still out training alone at 6am..."), a
+  specific real event that this segment adds genuinely new, locatable detail to (the Qatar-arrival
+  example above), a specific real event embedded elsewhere in the SAME sentence even when the
+  sentence's main clause is a general claim (see the post-match-interview example below), or a
+  checkable stat/record/ranking claim that a graphic could represent (see below). A real photo
+  search is worth trying.
+- "fallback": a real subject/event is set, but nothing in this segment is a specific enough target
+  for a photo search — a bare trait/reputation/role claim (Bellingham "emerged as a superstar,"
+  Saka "was electric," the resilience/trust example above), or an inherited event with nothing new
+  added (the Croatia example above). A general real-footage search is still worth trying; a photo
+  search is not (too likely to return generic, unverifiable junk for a query this broad) — see
+  evidence-search.js for how this actually gates the image search.
+categoryClaim-based evidence is almost always "instant" — a categoryClaim by definition names a
+real, capturable class-level action ("footballers celebrating a World Cup goal" already IS a
+specific enough visual target).
+
+Two special cases worth naming explicitly, since they're easy to under- or over-apply:
+- A checkable stat/record/ranking claim about a subject — a real, countable fact, not just
+  superlative praise — is "instant" even though nothing is physically happening: "He was already
+  England's all-time leading goalscorer and one of the greatest strikers the country has ever
+  produced." names a real, checkable record (a specific stat) — depictionType: "instant", and the
+  query should target a STATS GRAPHIC or leaderboard representing the fact (e.g. "England men's
+  all-time goalscorers chart"), not a generic photo of the player and not a fabricated action.
+  Contrast: "He was one of the greatest strikers of his generation" alone, with no attached
+  number/record/ranking, is bare superlative praise with nothing a chart could represent either —
+  this stays "fallback" (a general subject search), not a stats-graphic search.
+- When a sentence's MAIN clause is a general/fallback claim but it ALSO contains a separate, real,
+  specific event elsewhere in its own text, the specific event wins: "After the match, he accepted
+  responsibility and continued captaining England instead of letting the miss define him." — "he
+  accepted responsibility" names a real, specific, genuinely broadcast event (a post-match
+  interview/press conference), even though "continued captaining England" alone would only be
+  "fallback". depictionType: "instant" — prefer the specific real event over the generic claim
+  sitting next to it in the same sentence, don't average them or default to the weaker one.
+
+Omit "depictionType" entirely for "feel", "reference", and "nothing" segments.
+
 Then pick one "family":
 - "feel" — "subject" is null AND "categoryClaim" is null, AND the concreteness test above still
   finds a real, present-in-the-text anchor to work with: atmosphere, mood, scene-setting, ordinary
   unnamed incidental background activity, or an internal/emotional state that's genuinely anchored
   to a physical gesture or setting described in the segment (see the query-writing guidance
   below). All of it gets real stock footage.
-- "evidence" — EITHER "subject" is set (a specific real person/team/org/event doing or saying a
-  particular thing, with a genuine depictable action attached — not just a resolvable name), OR
-  "categoryClaim" is set (a genuine categorical claim about a class of real people/things doing
-  something a camera could capture). Both flavors search for real captured footage — a named
-  subject's exact moment, or authentic footage of that KIND of moment happening to real people —
-  never stock b-roll, in either case. Because "subject" and "categoryClaim" already passed the
-  concreteness test above by the time you reach this point, no further content check is needed
-  here — just check whether either field is actually set.
+- "evidence" — EITHER "subject" is set (a specific real person/team/org/event this segment is
+  about, or has inherited from an already-established event — see the subject rules above; no
+  depicted action is required, just a real, identifiable entity/event with real content attached),
+  OR "categoryClaim" is set (a genuine categorical claim about a class of real people/things doing
+  something a camera could capture). Both flavors search for real footage or images — a named
+  subject's exact moment when "depictionType" is "instant", general real footage of that subject
+  or event when "fallback" — never stock b-roll, in either case. Because "subject" and
+  "categoryClaim" already passed the resolution rules above by the time you reach this point, no
+  further content check is needed here — just check whether either field is actually set.
 - "reference" — matches a known meme/cultural callback (subject and categoryClaim are usually
   both null). A recognized meme/clip is itself a concrete, already-filmed thing, so it doesn't
   need to separately pass the concreteness test.
@@ -249,11 +343,18 @@ Then pick one "family":
     anchor sitting elsewhere in it — but also apply the tie-breaker's swap test: a generic
     posture/motion verb (sitting, standing, walking) that could be swapped for any other without
     changing what the sentence is about is NOT a real anchor either, and this bullet still applies.
-  - a resolvable name or evidence-sounding noun phrase used only rhetorically or transitionally,
-    not depicted as actually happening in this segment: "It wasn't just a missed penalty."
-    (references a penalty to set up a contrast, doesn't depict it happening now). "That resilience
-    is the reason teammates and managers trusted him." (resolves to a real person, but the content
-    is a reputation/character judgment, not an action).
+  - a resolvable name or evidence-sounding noun phrase used only as an INCOMPLETE rhetorical
+    stepping stone toward whatever the NEXT segment delivers, not a complete claim in its own
+    right: "It wasn't just a missed penalty." (references a penalty to set up a contrast, doesn't
+    depict it happening now, and needs the next segment to mean anything). This is a DIFFERENT
+    failure from a real, complete claim about an already-resolved subject — see the "subject"
+    rules above for that contrast: a trust/reputation judgment like "that resilience is why they
+    trust him" is NOT this failure anymore, since it's a complete claim standing on its own — it
+    now sets "subject" (depictionType "fallback"), it does not land here.
+  - a real name resolves, but the segment asserts nothing at all beyond bare existence or mention
+    — "Then Harry Kane happened." names a real player but claims no trait, record, or event about
+    him; strip the name out and nothing real is left. See the "subject" rules above for the fuller
+    version of this test.
   Contrast with mood/atmosphere and anchored internal states, which DO stay "feel" because a
   concrete, present scene or gesture actually exists to film (a tense crowd's faces, an electric
   stadium atmosphere, someone sitting alone in a locker room replaying a moment) — the line is
@@ -269,78 +370,18 @@ the family or query itself. For "feel", name the anchor (or "atmosphere, no sing
 there genuinely isn't one) and, if there's an anchor, the emotional tone/arc layered onto it —
 e.g. "anchor: sat alone in locker room; tone: quiet regret", "anchor buried in abstract claim:
 watching disappointment; tone: hope emerging". For "evidence", name what made "subject" or
-"categoryClaim" pass the concreteness test — e.g. "resolved subject: Harry Kane; action: training
-alone at 6am", "categoryClaim: startups failing; visible action: office packed into boxes". For
-"reference", name the recognized meme/clip — e.g. "recognized meme: Distracted Boyfriend". For
+"categoryClaim" resolve, plus "depictionType" — e.g. "resolved subject: Harry Kane; action:
+training alone at 6am; instant", "resolved subject: Jude Bellingham; reputation claim, no action;
+fallback", "categoryClaim: startups failing; visible action: office packed into boxes; instant".
+For "reference", name the recognized meme/clip — e.g. "recognized meme: Distracted Boyfriend". For
 "nothing", keep naming which failure above applies, unchanged — e.g. "abstract state, no action",
-"bare internal state, no anchor", "rhetorical setup, not depicted now", "reputation judgment, no
-action", "connective narration only". This field is never shown to the end user; it exists purely
+"bare internal state, no anchor", "rhetorical setup, not depicted now", "asserts nothing about a
+real name", "connective narration only". This field is never shown to the end user; it exists purely
 so the classification AND the query can be audited straight from the API response — a vague
 "feel"/"evidence" query paired with a thin or generic "reason" points at weak reasoning (the
 anchor itself was thin), while a vague query paired with a specific, well-anchored "reason" points
 at a phrasing problem in the query itself, not a classification problem. Keep it to a handful of
 words, same length as before — this is a diagnostic tag, not a second explanation.
-
-For every segment where you set a non-null "subject", a non-null "categoryClaim", or judge family
-"reference", also judge "findable" — the odds that real, indexed footage of this actually exists
-to be found, as distinct from whether it's grammatically "evidence"/"reference"-shaped. Three
-values:
-- "likely" — named subject: a genuinely high-profile, well-documented real person/event.
-  categoryClaim: real footage of this KIND of event is common and broadly documented, not a
-  fringe/rare occurrence (World Cup goal celebrations, startups failing, weddings, graduations —
-  all common, heavily filmed real-life categories). reference: an actual, currently-recognizable
-  named meme/viral clip. Confident real footage exists and is realistically searchable.
-- "unsure" — plausible and specific enough to be worth a search in any of the three shapes above,
-  but you can't be confident footage was ever filmed, uploaded, or indexed under a findable
-  title. Default here whenever you're not clearly at "likely" or "unlikely" — searching is cheap,
-  so "unsure" is the safe default, not "unlikely".
-- "unlikely" — named subject: unnamed, small-scale, private, local, purely fictional/hypothetical,
-  or otherwise has no realistic chance of existing as real, indexed footage — narrative color, not
-  a real searchable thing, even if it reads like something specific happened. categoryClaim: an
-  extremely niche, rare, or obscure category unlikely to ever have been filmed or indexed at scale
-  (e.g. "most left-handed calligraphers develop a particular callus" — too small/rare a documented
-  category to expect real footage). reference: a private, unnamed reaction with no real named
-  meme or clip behind it.
-
-Omit "findable" entirely for "feel" and "nothing" segments — "feel" always searches regardless of
-any findability judgment, so none is needed there.
-
-For each judgment, reason concretely about real-world documentation/coverage patterns rather than
-pattern-matching to whichever worked example below seems closest: ask what TYPE of source would
-need to exist for this to be findable — a viral clip on YouTube/TikTok, sports broadcast archive
-footage, news b-roll, a well-covered, Wikipedia-level event — and whether that type of source
-realistically exists for THIS specific case. The examples below illustrate the reasoning, they are
-not an exhaustive list to match against; a case that doesn't closely resemble any of them should
-still get a genuinely reasoned answer based on how documented that kind of thing actually is in
-the real world, not a default to whichever example seems nearest.
-
-Worked examples for "findable":
-- "The chat lost it when the demo video hit the front page." — an unnamed "chat", an unnamed
-  demo, no platform, product, or company named anywhere: nothing here is a real, identifiable,
-  indexed thing to search for, even though it reads like a specific moment happened.
-  family "evidence"-shaped, findable:"unlikely".
-- "Neymar broke down in tears after Brazil's 2014 World Cup semi-final collapse against Germany."
-  — a famous, extensively broadcast, heavily re-uploaded real event. findable:"likely".
-- "The founder broke down on a Twitch stream when the acquisition offer finally came through." —
-  a real, specific, plausible event (streams do get clipped and uploaded), but not famous enough
-  to be sure it was indexed under a findable title. findable:"unsure" — worth a search, keep the
-  result only if something real actually matches.
-- "For most footballers, scoring at a World Cup is the highlight of their career." —
-  categoryClaim set; World Cup goal celebrations are an extremely common, heavily broadcast real
-  category. findable:"likely".
-- "Most startups fail within their first two years." — categoryClaim set; footage of struggling
-  small businesses/closures is a common, broadly documented real category (news b-roll, vlogs).
-  findable:"likely".
-- "It was giving major 'Distracted Boyfriend' energy." (reference) — an actual, still-current,
-  genuinely searchable meme. findable:"likely".
-- "Everyone in the group chat had THAT reaction." (reference) — a private, unnamed reaction with
-  no real named meme or clip behind it. findable:"unlikely".
-
-This is a companion judgment to "subject"/"categoryClaim", not a substitute for either: a segment
-can have a real subject or a real categoryClaim and still be "unlikely" if the specific event or
-category is too small/private/rare to have realistic footage. When genuinely torn, prefer
-"unsure" over "unlikely" — the cost of a search that comes back empty is low, the cost of
-skipping a real findable clip is not.
 
 Also include a "query" for every segment EXCEPT "nothing": a SHORT DESCRIPTIVE VISUAL SCENE
 PHRASE, roughly 3-7 words, for searching a real stock-footage library — describe the shot itself,
@@ -404,7 +445,7 @@ founders spend years replaying the moment they turned down the offer", "gives me
 concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"depictionType":"instant","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","depictionType":"fallback","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -455,8 +496,7 @@ export async function onRequestPost(context) {
 
     const merged = mergeFragments(parsed.segments);
     const evidenceResolved = enforceEvidenceRule(merged);
-    const findabilityResolved = enforceFindabilityRule(evidenceResolved);
-    const corrected = enforceFeelQueryRule(findabilityResolved);
+    const corrected = enforceFeelQueryRule(evidenceResolved);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
     // just real-time eyes on what the model actually decided per segment while testing. One line
@@ -464,15 +504,14 @@ export async function onRequestPost(context) {
     // mid-stream (e.g. `wrangler pages deployment tail --project-name cliphunt | grep family=nothing`)
     // without scrolling one giant line. A short reqId ties every segment in one script back
     // together when several test scripts run back to back in the same tail session. Logged AFTER
-    // both enforcement functions so this reflects final decided values, not raw pre-enforcement
-    // model output.
+    // enforcement so this reflects final decided values, not raw pre-enforcement model output.
     const reqId = Math.random().toString(36).slice(2, 8);
     console.log(`[segment] reqId=${reqId} script_len=${script.length} segments=${corrected.length}`);
     corrected.forEach((seg, i) => {
       console.log(
         `[segment] reqId=${reqId} #${i} family=${seg.family} ` +
         `subject=${JSON.stringify(seg.subject ?? null)} categoryClaim=${JSON.stringify(seg.categoryClaim ?? null)} ` +
-        `findable=${seg.findable ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
+        `depictionType=${seg.depictionType ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
         `reason=${JSON.stringify(seg.reason ?? null)} text=${JSON.stringify(seg.text.slice(0, 100))}`
       );
     });
@@ -529,30 +568,19 @@ function enforceEvidenceRule(segments) {
   return segments;
 }
 
-// The model is asked to judge "findable" (see SYSTEM_PROMPT) ONLY for segments it already
-// considers evidence/reference-shaped, so the field's mere presence already encodes that —
-// checking seg.findable directly needs no extra guard, and deliberately does NOT gate on
-// subject/categoryClaim/family: confirmed live that a segment can legitimately have NEITHER a
-// subject NOR a categoryClaim and still be "findable":"unlikely" (that's exactly what makes it
-// unlikely — "The chat lost it when the demo video hit the front page" names no one and no real
-// category, which is why nothing is searchable, not despite it). An earlier version of this
-// function required subject/categoryClaim/family==="reference" to also be true before honoring
-// "unlikely", which silently never fired for exactly that shape of segment once
-// enforceEvidenceRule() had already downgraded it to "feel" — caught live, fixed by trusting
-// "findable" on its own. This also makes the two functions trivially commute, since this one no
-// longer reads anything enforceEvidenceRule() writes.
-function enforceFindabilityRule(segments) {
-  for (const seg of segments) {
-    if (seg.findable === "unlikely") {
-      seg.family = "nothing";
-    }
-  }
-  return segments;
-}
+// enforceFindabilityRule() used to live here — deleted (2026-07-20). It pre-judged whether real
+// footage was likely to exist BEFORE any real search ran, downgrading straight to "nothing" on a
+// model guess ("findable":"unlikely"). That's inconsistent with how "feel" (stock-search.js) and
+// "reference" (reference-search.js) already work: no upfront gate, always search, let the real
+// empirical rerank (MIN_RERANK_SCORE in evidence-search.js) decide "nothing found" — this was the
+// one place "evidence" pre-judged instead of just trying. See HANDOFF.md for the full reasoning;
+// "findable" itself is gone from the prompt/schema too, replaced by "depictionType" (instant vs.
+// fallback), which now only decides whether an IMAGE search is worth running, not whether to
+// search at all.
 
 // The one boundary in this file with NO code-level backup until now: every other fuzzy judgment
-// here (mergeFragments, enforceEvidenceRule, enforceFindabilityRule) has a deterministic safety
-// net, but the concreteness-gate/tie-breaker decision that produces "feel" vs "nothing" was
+// here (mergeFragments, enforceEvidenceRule) has a deterministic safety net, but the
+// concreteness-gate/tie-breaker decision that produces "feel" vs "nothing" was
 // entirely prompt-reliant — the newest, most example-heavy rule in the prompt, with nothing
 // mechanical backing it up. Full semantic verification ("was there really an anchor?") isn't
 // something code can check — but ONE concrete self-contradiction the prompt itself defines IS

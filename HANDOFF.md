@@ -574,6 +574,97 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     perseverance theme handled correctly elsewhere in the same script via the rhythmic-list
     exception, but not here in prose form). Worth another look only if the live logging shows a
     recurring pattern, not worth chasing from a single script's data alone.
+19. **`subject` no longer requires a depicted action — replaced `findable` with `depictionType`
+    (2026-07-20).** The user reviewed a real 71-segment script's per-segment `reason` output
+    (surfaced by the previous session's logging work) and found a genuine, recurring mistake, not
+    a tuning nit: `"Jude Bellingham had emerged as a superstar."`, `"Bukayo Saka was electric."`,
+    and `"That resilience is one of the reasons teammates and managers continue to trust him."` —
+    each names a real, clearly resolvable subject, but got `subject: null` and dropped to
+    `"nothing"`, because the concreteness gate (points 6-18 above) required a depictable ACTION to
+    be attached to the name, not just a real, identifiable entity. A reputation claim, a role, or
+    an inherited real event about a real named subject doesn't count as an action, but there's
+    obviously something real and searchable worth trying.
+
+    **The user's own framing, which is the actual design principle here, quoted directly:** think
+    like a video editor first ("what should I use to show this?"), and only AFTER that ask "can I
+    actually find it, given I only have YouTube + Google Images + stock, with a relevance rerank
+    as the last line of defense? If not, don't bother." The empirically-verified rerank score
+    (`MIN_RERANK_SCORE`, already implemented in `evidence-search.js`) should decide "nothing
+    found," not an upfront LLM guess before ever searching. Checked this session: `"feel"`
+    (`stock-search.js`) and `"reference"` (`reference-search.js`) already work exactly this way —
+    no pre-search gate, always search, let the rerank threshold decide. `"evidence"` was the only
+    family that pre-judged before trying, via `findable`/`enforceFindabilityRule`. This change
+    brings `"evidence"` in line with the rest of the app rather than inventing a fourth philosophy.
+
+    **The core change**: naming `"subject"` now requires only a real, specific, identifiable
+    entity/event — not that something is physically happening in the segment's own text. Three
+    distinct failure modes still null it out, kept deliberately separate (see the prompt's own
+    worked examples for each): (1) nothing real/identifiable exists at all (`"The chat lost it..."`
+    — unchanged, strict), (2) a real name resolves but the segment asserts nothing beyond bare
+    existence — `"Then Harry Kane happened."` — the sharpest new overshoot risk, since without this
+    explicit guard the model could read "any resolvable name" as sufficient, which would be a
+    strictly worse regression than the one being fixed (same discipline as every prior loosening in
+    this file: never ship a rescued example without a paired non-rescue counter-example), and (3)
+    the PRE-EXISTING, already-battle-tested "incomplete rhetorical setup, not a complete claim"
+    exclusion — `"It wasn't just a missed penalty."` — preserved exactly as it was; this used to
+    sit in the same bullet as the resilience/trust example above, and the two had to be split
+    apart rather than merged, since the resilience example is now rescued and the missed-penalty
+    one is not, for a genuinely different reason (incomplete vs. complete claim, not action vs. no
+    action).
+
+    Also new: **subject/event inheritance for evidence**, extending the existing feel-anchor
+    inheritance mechanism (point 17) past just pronouns/physical gestures — a segment with no
+    action of its own but still narratively inside an already-established real event (a match, a
+    round) inherits that event as `subject`. `"Then Croatia slowly took control."` inherits the
+    already-established 2018 World Cup semi-final. And a new **checkable stat/record visual
+    target**: a factual/numeric/ranking claim about a subject (`"He was already England's all-time
+    leading goalscorer..."`) is a real, filmable-adjacent target even with nothing physically
+    happening — a stats graphic/leaderboard, not a photo of a moment.
+
+    **New field: `depictionType`** (`"instant"` / `"fallback"`), replacing `findable`'s old scope,
+    asked only for `"evidence"` segments. This is NOT "does this segment show an action" — it's
+    "is there a well-defined, SPECIFIC visual target worth an image search," which is broader than
+    bare physical action: a checkable stat/record (the goalscorer-chart case) or a specific real
+    event embedded in an otherwise-general sentence (a real post-match interview mentioned
+    alongside "continued captaining England") are both `"instant"`, even though neither is a
+    physical action in progress. `"fallback"` is reserved for genuinely non-specific cases — a bare
+    trait/reputation/role claim, or an inherited event with nothing new added.
+
+    **Why this matters beyond classification — image-search quota scoping.** SerpAPI's 250/month
+    free quota (the tightest in the app) can't absorb an image search for every newly-rescued
+    segment now that far more segments reach `evidence-search.js` at all. Product decision made
+    with the user: `depictionType` gates whether `searchGoogleImages` runs in production at all —
+    `"instant"` beats get an image search, `"fallback"` beats get YouTube only.
+    `evidence-search.js`'s `shouldSearchImages = debugImagesOnly || depictionType === "instant"` —
+    the existing "Photos-only test mode" debug toggle still force-overrides this for testing,
+    regardless of production scope. A new `imagesSearched` boolean rides the response so `app.js`
+    can tell "we searched and found nothing" (empty `images`, `imagesSearched: true`) apart from
+    "we never searched this one" (`imagesSearched: false`) — without it, a `"fallback"` beat's
+    empty image array would misleadingly read as a failed search.
+
+    **Deleted**: `findable`, `enforceFindabilityRule()`, and their schema/prompt mentions. Nothing
+    outside `segment.js` read `findable` except `app.js`'s own inert debug display — confirmed safe
+    to remove with no other breakage. Pipeline collapses from `mergeFragments → enforceEvidenceRule
+    → enforceFindabilityRule → enforceFeelQueryRule` to `mergeFragments → enforceEvidenceRule →
+    enforceFeelQueryRule`; `enforceEvidenceRule()` itself needed no logic change (it only checks
+    `subject`/`categoryClaim` truthiness, which now naturally covers more cases).
+
+    **Consequence for `evidence-search.js`**: gained two new prompt modes (a general-subject
+    `youtubeQuery` framing for `"fallback"` beats, and a stats-graphic `imageQuery` framing for
+    checkable-record beats) and now receives `depictionType` in the request body (defaulting to
+    `"fallback"` for older cached segments predating this field) to decide both the query framing
+    and the image-search gate above. Note the query itself can still get MORE specific than the
+    upstream label suggests (the interview-vs-captaining case) — that's independent of the
+    image-search gate, which stays keyed strictly to the upstream field for mechanical simplicity,
+    a deliberate simplification worth revisiting if it proves too conservative live.
+
+    **Not yet verified live** — same standing caveat as every other rule in this file: re-run the
+    real 71-segment script and confirm the specific flagged segments (Bellingham/Saka/Kane-trust/
+    Croatia → `"fallback"`; Qatar-arrival/goalscorer-record/interview → `"instant"`) resolve as
+    designed, AND that the guard holds — `"Then Harry Kane happened."`, `"The dream was alive."`,
+    `"many fans wonder..."`, `"It wasn't just a missed penalty."` should all still land on
+    `"nothing"`, since these are exactly the cases most at risk of being wrongly swept up by the
+    loosened rule.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
@@ -858,9 +949,12 @@ only ends up with no clip if BOTH searches come up empty.
 Google's Programmable Search Engine was ruled out first — its "search the entire web" option was
 killed for all new engines in Jan 2026 (new engines are capped at 50 fixed domains; whole-web
 needs enterprise Vertex pricing), so SerpAPI's `google_images` engine is the whole-web image
-source instead. **Free plan: 250 searches/month, no card** — every evidence "Find footage" click
-spends one, so this is the tightest quota in the app (~8/day); identical searches within an hour
-hit SerpAPI's cache free. Upgrade path is $25/mo for 1,000 if the product ever needs it.
+source instead. **Free plan: 250 searches/month, no card** — this is the tightest quota in the app
+(~8/day); identical searches within an hour hit SerpAPI's cache free. Upgrade path is $25/mo for
+1,000 if the product ever needs it. **(2026-07-20: no longer every evidence click — see
+segment.js's `depictionType` point in "Segmentation" above. Only "instant"-depiction beats spend a
+search in production now; "fallback" beats — a real subject with no specific enough visual target
+— skip it. The "Photos-only test mode" debug toggle still forces it on for any evidence beat.)**
 - **Scope: evidence beats ONLY, deliberately.** An images-for-reference-beats variant (meme
   stills via the same emotion+"reaction meme" query logic) was planned and then explicitly cut
   by the user before building ("drop the meme/feel part... just evidence for now") — if it comes

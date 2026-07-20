@@ -19,6 +19,13 @@
 // affecting the YouTube result. Evidence beats only — deliberately NOT added to reference-search
 // (user cut that scope; see HANDOFF "Google Images on evidence beats").
 //
+// 2026-07-20: image search is now ALSO gated on the request's `depictionType` ("instant" vs.
+// "fallback", set by segment.js — replacing the old `findable` pre-search gate) — only "instant"
+// beats spend a SerpAPI call in production, protecting its tight 250/month quota now that MORE
+// segments reach this endpoint at all (see segment.js's HANDOFF entry for why). `imagesSearched`
+// in the response tells the frontend whether a search was even attempted, so an empty `images: []`
+// doesn't get misread as "searched and found nothing" when it really means "skipped".
+//
 // Model split (2026-07-18): intent extraction (context resolution — the hard, reasoning-heavy
 // part, see the "TWO RULES" block below) moved to Claude Sonnet, targeting the exact kind of
 // context-resolution failure that motivated the swap (a fragment resolving to the wrong event
@@ -109,6 +116,33 @@ subject's story, prefer specific and pull the subject from context. Go generic o
 moment is genuinely a category-level statement, or when no specific subject can be identified even
 from context.
 
+You are also told, below the moment, an upstream "depiction type" the segmenter already decided:
+"instant" (a specific depictable moment/event, or a checkable stat/record) or "fallback" (a real
+subject with no single specific moment — a trait, reputation, role, or an inherited event with
+nothing new added). This does NOT change "footageType" — still judge specific vs. generic
+normally — but it changes how you frame "youtubeQuery" and "imageQuery":
+- When told "fallback": still identify the real subject (footageType stays "specific" if one
+  exists), but write "youtubeQuery" as a general search for real footage/appearances of that
+  subject — their name plus their role/context — NOT inventing a specific instant, date, or quote
+  the moment doesn't actually support. "That resilience is one of the reasons teammates and
+  managers continue to trust him." (resolved subject: Harry Kane, told "fallback") ->
+  youtubeQuery: "Harry Kane captaining England highlights" — real footage of him doing his general
+  thing, not a fabricated single moment. The honesty is in the query's generality matching the
+  moment's actual generality, not in pretending there's an instant when there isn't.
+- Exception: if a "fallback" moment ALSO independently contains a real, separate, SPECIFIC event
+  elsewhere in its own text (an actual interview, press conference, or quote) alongside a more
+  general claim, prefer the specific one as the query target — a real specific instant is always
+  the stronger search when one genuinely exists in the same moment, regardless of the upstream
+  label. "After the match, he accepted responsibility and continued captaining England instead of
+  letting the miss define him." (told "fallback") still contains a real specific event (his actual
+  post-match interview) — youtubeQuery: "Harry Kane post-match interview penalty miss
+  responsibility", not the generic captaining query. You always have final say on query
+  specificity; the upstream label is a hint, not a constraint on how specific the query gets.
+- When told "instant" and the moment is a checkable stat/record/ranking claim (not a physical
+  action) — see "imageQuery" below for how this changes the PHOTO search specifically; the
+  youtubeQuery in this case is still a normal real-footage search (e.g. "Harry Kane England
+  all-time goalscoring record").
+
 Set "quote" ONLY when the moment quotes or closely paraphrases something the subject actually SAID
 OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions of
 actions or events, and general statements are NOT quotes; set "quote" to null. Never invent a
@@ -126,7 +160,16 @@ still image rather than a video: drop video-title words like "highlights", "full
 "Harry Kane penalty miss France 2022" for the video becomes "Harry Kane dejected after penalty
 miss France 2022" for the photo — the visible moment, not the narrative). Both rules from (b)
 above apply here identically: carry the established time/edition/event forward, and resolve a
-progression fragment as the relationship to the subject being followed. Set for both footageTypes.`;
+progression fragment as the relationship to the subject being followed. Set for both footageTypes.
+
+Special case, only when the "depiction type" you're told is "instant" AND the moment's real
+content is a factual/record/ranking claim rather than a scene or action (e.g. "England's all-time
+leading goalscorer"): phrase "imageQuery" as a search for a STATS GRAPHIC or leaderboard
+representing that fact, not a photograph of a moment — e.g. "England men's all-time goalscorers
+chart Harry Kane" rather than a generic photo of the player. This is a different kind of visual
+target than every other imageQuery case above (a graphic/infographic, not a photographer's frozen
+instant) — only use it for a genuinely checkable stat/record/ranking, not for ordinary reputation
+praise with no attached number.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -148,7 +191,7 @@ Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly th
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext, debugImagesOnly;
+  let segmentText, scriptContext, debugImagesOnly, depictionType;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
@@ -160,6 +203,12 @@ export async function onRequestPost(context) {
     // there's no cheaper way to get it. Off by default; every existing call site that doesn't
     // send this flag behaves exactly as before.
     debugImagesOnly = !!body.debugImagesOnly;
+    // segment.js's own "instant"/"fallback" judgment (2026-07-20, replacing the old "findable"
+    // gate) — decides ONLY whether an image search is worth running (see shouldSearchImages
+    // below), not whether to search YouTube at all (YouTube always runs for evidence beats now).
+    // Defaults to "fallback" (no images) for older cached segments that predate this field, same
+    // fail-closed-on-the-expensive-side instinct as everywhere else images are gated in this app.
+    depictionType = body.depictionType === "instant" ? "instant" : "fallback";
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -172,9 +221,14 @@ export async function onRequestPost(context) {
   }
 
   // 1. Claude extracts intent (see header comment for why this call site moved off Groq).
-  const userContent = scriptContext && scriptContext.trim()
+  const depictionNote = `\n\nDepiction type (from segmentation): ${depictionType} (${
+    depictionType === "instant"
+      ? "a specific depictable moment/event or a checkable stat — see the imageQuery stats-graphic case if applicable"
+      : "no single new instant — write a general subject/event query, unless a separate specific event is embedded in the moment's own text"
+  }).`;
+  const userContent = (scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
-    : `The moment:\n${segmentText}`;
+    : `The moment:\n${segmentText}`) + depictionNote;
 
   let intent;
   try {
@@ -203,8 +257,9 @@ export async function onRequestPost(context) {
     // store.
     console.log(
       `[evidence-search] footageType=${intent.footageType} subject=${JSON.stringify(intent.subject ?? null)} ` +
-      `youtubeQuery=${JSON.stringify(intent.youtubeQuery ?? null)} imageQuery=${JSON.stringify(intent.imageQuery ?? null)} ` +
-      `quote=${JSON.stringify(intent.quote ?? null)} moment=${JSON.stringify(segmentText.slice(0, 100))}`
+      `depictionType=${depictionType} youtubeQuery=${JSON.stringify(intent.youtubeQuery ?? null)} ` +
+      `imageQuery=${JSON.stringify(intent.imageQuery ?? null)} quote=${JSON.stringify(intent.quote ?? null)} ` +
+      `moment=${JSON.stringify(segmentText.slice(0, 100))}`
     );
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
@@ -219,12 +274,19 @@ export async function onRequestPost(context) {
   const query = (intent.youtubeQuery || intent.subject || segmentText).trim();
   const imageQuery = (intent.imageQuery || query).trim();
 
-  // 2. Google Images (SerpAPI) kicks off here so it runs CONCURRENTLY with the whole YouTube
-  //    pipeline below (search + enrich + rerank), not after it. searchGoogleImages never throws
-  //    and resolves to [] on any failure/missing key (see _serpapi.js) — images are additive, a
-  //    SerpAPI problem must never break the core YouTube result. Falls back to youtubeQuery if
-  //    the model omitted imageQuery, so an older cached intent shape still gets images.
-  const imagesPromise = searchGoogleImages(env, imageQuery);
+  // 2. Google Images (SerpAPI) — gated on depictionType (2026-07-20, replacing the old "findable"
+  //    pre-search gate): only runs for "instant" beats (a genuinely specific, well-defined visual
+  //    target — an action, a fresh event detail, or a checkable stat) in production. "fallback"
+  //    beats (a real subject with nothing more specific than "search their name generally")
+  //    protect SerpAPI's tight 250/month quota by skipping the image call entirely — a broad,
+  //    unverified name search is the case most likely to return junk anyway, since images get NO
+  //    rerank (see _serpapi.js's header comment). debugImagesOnly (app.js's "Photos-only test
+  //    mode") always overrides this, regardless of depictionType — that's a deliberate test
+  //    escape hatch, not production behavior. `imagesSearched` is returned explicitly so the
+  //    frontend can tell "we searched and found nothing" apart from "we never searched this one"
+  //    — an empty `images: []` means something different in each case.
+  const shouldSearchImages = debugImagesOnly || depictionType === "instant";
+  const imagesPromise = shouldSearchImages ? searchGoogleImages(env, imageQuery) : Promise.resolve([]);
 
   // Debug/test path (see body.debugImagesOnly above): return as soon as images resolve, skipping
   // the YOUTUBE_API_KEY guard and the whole search+enrich+rerank pipeline below. Deliberately
@@ -234,7 +296,7 @@ export async function onRequestPost(context) {
   if (debugImagesOnly) {
     const images = await imagesPromise;
     console.log(`[evidence-search] debugImagesOnly=true imageQuery=${JSON.stringify(imageQuery)} images=${images.length}`);
-    return Response.json({ subject: intent.subject || null, footageType, quote, candidates: [], images, imageQuery });
+    return Response.json({ subject: intent.subject || null, footageType, quote, candidates: [], images, imageQuery, imagesSearched: true });
   }
 
   if (!env.YOUTUBE_API_KEY) {
@@ -261,7 +323,7 @@ export async function onRequestPost(context) {
 
   const images = await imagesPromise;
 
-  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top, images, imageQuery });
+  return Response.json({ subject: intent.subject || null, footageType, quote, candidates: top, images, imageQuery, imagesSearched: shouldSearchImages });
 }
 
 // YouTube Data API search.list (fetch 12 to rerank from). Exported so reference-search.js's meme
