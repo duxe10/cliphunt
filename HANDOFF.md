@@ -1197,6 +1197,26 @@ the three real, independently-evidenced facts — the gap wasn't in `segment.js`
   single-claim example (confirm it stays one claim, not over-split), and that `items[]`-shaped
   SerpAPI photo results actually look right per claim in the browser console. All deferred to the
   user's own live testing pass, same standing practice as every other new feature in this file.
+- **`mediaType` overfitting correction (same day, before any live test)**: the owner caught, from
+  reading the prompt alone, that the first cut of the `mediaType` guardrail and ALL of its worked
+  examples were drawn from the Kane case that motivated the feature — the model had no worked
+  example anywhere near the shape of a non-achievement or negative claim (a criticism, an incident,
+  a habit, a reputation fact with no attached number) to generalize from, so it risked learning
+  "achievement = video/both, everything else = ambiguous" instead of the actual mechanism: whether
+  ONE real, filmable instant exists, independent of the claim's valence or domain. Fixed before any
+  live testing: the guardrail now explicitly names both failure directions (don't privilege
+  achievements as "video," don't privilege vagueness as "photo"), and the worked-example set was
+  expanded to six examples spanning sports/business, achievement/non-achievement, and
+  positive/negative/neutral valence — including a negative single-instant example (a CEO walking
+  out of a meeting -> "both") and a positive-but-not-an-achievement cumulative example (a reputation
+  for good attendance -> "photo") specifically to prove the test is about shape, not content. Same
+  standing practice this file has documented before (see segmentation's `subject`/`depictionType`
+  history): a judgment-call prompt rule isn't done until its worked examples are deliberately
+  diverse, not just the bug report's own example restated. No code-level backstop was considered for
+  `mediaType` — like the `subject`/`depictionType`/reference-search common-vs-unusual judgments, this
+  is inherently semantic with no regex/heuristic proxy, so the fix is prompt-only. Still not yet
+  verified live — the negative/non-achievement worked examples above are exactly what a first live
+  test should probe, alongside the original Kane regression check.
 
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)

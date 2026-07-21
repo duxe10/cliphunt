@@ -166,26 +166,51 @@ claim is genuinely a category-level statement, or when no specific subject can b
 from context.
 
 Decide "mediaType" — is this claim best evidenced by video, a photo, or could both plausibly exist?
-- "video": a real, singular, filmable instant — something a camera/broadcast plausibly captured as
-  a moving scene (a goal, a press conference, a product launch event, a specific match).
-- "photo": a cumulative/status fact with no single filmable moment — "kept breaking record after
-  record", "became known as one of the best in the league" — nothing a video camera could have
-  captured as ONE scene, but a real photograph (a portrait, a stats graphic, a trophy photo) likely
-  exists.
-- "both": ambiguous, or significant/major enough that a real broadcast moment AND a notable press
-  photo both plausibly exist — major awards, records, and career milestones are commonly "both".
-GUARDRAIL, the actual failure mode this exists to prevent: do NOT default to "photo" just because
-a claim sounds like an achievement. First check whether it resolves to ONE identifiable real event
-with likely footage (an award ceremony, a specific match, a signing) — that's "video" or "both".
-Only land on "photo" alone when no single event can be pointed to at all — a genuinely
-cumulative/vague status claim.
-Worked through concretely, same three Kane claims as STEP 1's first example, reasoned individually:
-- "became the club's all-time top scorer" — the record-breaking goal itself is a real, filmable
-  moment, AND a stats graphic/photo of the moment plausibly exists -> "both"
-- "won the Golden Boot that year" — a real award ceremony was filmed, AND press photos exist ->
-  "both"
-- "kept breaking record after record" — genuinely no single instant, a vague cumulative pattern ->
-  "photo"
+This is a question about SHAPE, not content: can you point to ONE identifiable real moment a
+camera could plausibly have captured? It has nothing to do with whether the claim is an
+achievement, a criticism, a scandal, a habit, a trend, or a neutral fact — the same test applies
+to good news, bad news, and boring news alike, in any domain.
+
+- "video": the claim resolves to ONE identifiable real event/instant — a goal, a press conference,
+  a product launch, a walkout, a collapse, a signing, an announcement. Doesn't matter if it's
+  positive or negative, routine or dramatic — if there is a single, real, locatable moment, it's
+  "video" (or "both" if a photo of that same moment also plausibly exists, which is common).
+- "photo": the claim is cumulative, ongoing, or a status/reputation fact with NO single filmable
+  moment — "kept breaking record after record", "morale had been sinking for months", "developed a
+  reputation for missing deadlines", "the region endured a decade of drought". Nothing a video
+  camera could have captured as ONE scene, but a real photograph (a portrait, a stats graphic, an
+  aerial/satellite shot, a press clipping) likely exists.
+- "both": ambiguous, or significant/notable enough that a real filmed moment AND a notable
+  standalone photo both plausibly exist.
+
+GUARDRAIL, the actual failure mode this exists to prevent: do NOT let the claim's VALENCE (good
+news vs. bad news) or SHAPE-BY-ASSOCIATION (this sounds like the kind of thing that gets a trophy,
+so it must be "both"; this sounds vague, so it must be "photo") substitute for actually checking
+whether ONE real event can be pointed to. Achievements are not privileged as "video"/"both" over
+criticism or routine facts, and vagueness is not privileged as "photo" over specific-but-mundane
+facts — the ONLY question is whether one instant exists.
+
+Worked through concretely, across different domains, valences, and claim shapes (deliberately not
+all achievements, not all sports, not all positive):
+- "He became the club's all-time top scorer." (sports, achievement, single record-breaking goal) ->
+  "both" — the goal itself was filmed, and a stats graphic/photo of the moment plausibly exists.
+- "He kept breaking record after record." (sports, achievement, but genuinely cumulative — no
+  single instant) -> "photo".
+- "The CEO stormed out of the shareholder meeting after the vote." (business, NEGATIVE, single
+  real incident) -> "both" — a dramatic single event, not an achievement, still resolves to one
+  real filmable moment.
+- "Morale inside the company had been sinking for months." (business, negative, cumulative status,
+  no single instant) -> "photo" — same shape as the sports "record after record" case, different
+  domain and different valence, confirming the test is about shape, not content.
+- "The team announced the signing at a press conference." (neutral, single scheduled event) ->
+  "both".
+- "He'd quietly developed a reputation in the league for never missing a training session."
+  (positive, but NOT an achievement — a habit/reputation claim) -> "photo" — no single instant,
+  same shape as the negative reputation example above; proves "photo" isn't reserved for
+  negative/vague claims either.
+
+These examples illustrate the shape test, not an exhaustive list of qualifying topics — apply the
+same reasoning to any domain or valence.
 
 "youtubeQuery": set when mediaType is "video" or "both" (null otherwise) — 3-6 words, the best real
 YouTube search to surface this footage — for "specific", a TITLE/KEYWORD match (a specific
