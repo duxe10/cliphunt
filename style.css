@@ -430,10 +430,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .src-youtube { background: #ff9a76; }
 .src-pexels { background: #7fd99a; }
 .src-image { background: #8fb8ff; }
-
-/* Google Images result cards are plain external links (see imageCardHtml) — undo anchor
-   defaults so they render identically to the div-based cards in the same queue. */
-a.clip-card { text-decoration: none; color: inherit; display: block; }
+.src-photo { background: #d9a8ff; }
 
 .clip-label {
   font-size: 11px;
@@ -458,6 +455,18 @@ a.clip-card { text-decoration: none; color: inherit; display: block; }
   color: var(--text-dim);
   opacity: .7;
   margin: -6px 0 12px;
+}
+
+/* One group per claim an evidence beat's moment was split into (see evidence-search.js's
+   multi-claim decomposition) — a labeled sub-heading above that claim's own video/photo queue. */
+.claim-group + .claim-group { margin-top: 14px; }
+
+.claim-label {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  opacity: .85;
+  margin: 0 0 6px;
 }
 
 .workspace-actions { display: flex; align-items: center; gap: 16px; }

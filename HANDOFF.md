@@ -1119,6 +1119,85 @@ paying for (and waiting on) YouTube/Groq every time too.
   introducing a new regression. The `reason` field surfaced by this change is exactly what that
   review needs; no classification logic changed in this pass.
 
+## Multi-claim decomposition + per-claim photo evidence (`functions/api/evidence-search.js`, 2026-07-21)
+Root cause: tracing a real example (Harry Kane's segment covering "became the club's all-time top
+scorer, won the Golden Boot, and kept breaking record after record") against the live system found
+`evidence-search.js` extracted exactly ONE search intent per click and silently discarded two of
+the three real, independently-evidenced facts — the gap wasn't in `segment.js`'s classification
+(already correctly gates this as `evidence`), it was that the search endpoint had no concept of
+"this beat contains multiple distinct claims."
+- `SYSTEM_PROMPT` now runs two steps in the same single Claude call: STEP 1 splits the moment into
+  its genuinely separate claims (most moments still produce exactly one — the common case, unchanged
+  in spirit) using the test "if you removed one clause, would the rest still describe a complete,
+  separately-evidenced fact?" — deliberately does NOT split one continuous action narrated across
+  several clauses ("he ran up, paused, and smashed it into the corner" stays one claim). STEP 2
+  judges EACH claim independently for the existing `footageType`/context-resolution/quote rules
+  (the "TWO RULES," specific-vs-generic — preserved verbatim, just per-claim now) PLUS a new
+  `mediaType`: `"video"` (a real, singular, filmable instant), `"photo"` (a cumulative/status fact
+  with no single filmable moment — "record after record"), or `"both"` (ambiguous, or significant
+  enough that a real broadcast moment AND a notable press photo both plausibly exist — major
+  awards/records commonly land here). Explicit guardrail baked into the prompt: don't default to
+  "photo" just because a claim sounds like an achievement — check first whether it resolves to one
+  identifiable real event with likely footage; only fall back to "photo" when no single event can
+  be pointed to.
+- Two new per-claim query fields: `youtubeQuery` (set when `mediaType` is `"video"`/`"both"`, same
+  framing as before) and `photoQuery` (set when `mediaType` is `"photo"`/`"both"`) — phrased as a
+  news-photo-caption-style search (subject + event keywords), deliberately NOT the visual-scene
+  style used for stock footage elsewhere, since Google Image search indexes real caption/article
+  text.
+- **Photo search reuses the EXISTING `searchGoogleImages` (SerpAPI, see "Google Images on evidence
+  beats" above) per claim's `photoQuery`** — an earlier draft of this plan spec'd a brand-new Google
+  Custom Search integration (a second Google Cloud project, `GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` as
+  new Cloudflare secrets) but that was scrapped before building: SerpAPI already does exactly this
+  job for this same endpoint, so standing up a second image-search integration next to it would
+  have been pure duplication. No new secrets, no new prerequisites.
+- This also means the old segment-level `depictionType` gate (`"instant"`/`"fallback"`, set by
+  `segment.js`, previously the sole thing deciding whether evidence-search.js spent a SerpAPI call)
+  is **no longer read by this endpoint** — the new per-claim `mediaType` judgment is a strictly more
+  precise signal (per claim, not per whole segment) and supersedes it for this purpose. `segment.js`
+  itself is unchanged and still computes `depictionType` for its own reasoning/UI display (the
+  `.seg-reason` line) — only `evidence-search.js` stopped consuming it.
+- A claim only searches the medium(s) its own `mediaType` calls for — not "always both" the way
+  `reference-search.js`'s reaction-clip feature works — since an unwanted video search for a claim
+  with no real filmable moment would reliably return nothing useful. All claim×medium searches run
+  concurrently via one flat `Promise.all`. `YOUTUBE_API_KEY` is no longer hard-guarded at the top of
+  the handler (a request can now be legitimately all-photo) — a missing key silently drops video
+  search for every claim instead of 500ing, same fail-open pattern already used for
+  `PEXELS_API_KEY`/`SERPAPI_KEY` elsewhere in this app.
+- `max_tokens` for the decomposition call bumped 4096 → 8192 (the answer can now be an array of
+  claims) — an estimate to re-verify against real multi-claim usage, not a confirmed-safe number,
+  same standing caveat as every other token-budget constant in this file's history.
+- Response shape is now `{claims: [{claim, footageType, subject, quote, mediaType, youtubeQuery,
+  photoQuery, videoCandidates, photoCandidates, videoSearched, photoSearched}]}` — replaces the old
+  flat `{subject, footageType, quote, candidates, images, imageQuery, imagesSearched}` shape
+  entirely. `app.js`'s `findFootage()` now populates `seg.evidence.claims` and calls a new
+  `renderEvidenceClaims()`, rendering one labeled `.claim-group` per claim with its own video cards
+  (new `claimVideoCardHtml()`/`openClaimVideoPreview()` — a small, deliberate duplication of
+  `openEvidencePreview()`'s modal-wiring rather than changing that function's data shape, since
+  `reference-search.js`'s reaction-clip feature still relies on it reading a flat
+  `seg.evidence.candidates` array) and photo cards (new `photoCardHtml()`/`openPhotoPreview()` —
+  clicking opens the same preview modal as video, showing the SerpAPI thumbnail plus a "View source
+  page" external-link action, mirroring the video path's link-out-don't-download posture instead of
+  being a bare anchor tag like the old `imageCardHtml()`). New `SOURCE_LABEL.photo = "PHOTO"` chip,
+  `.src-photo` CSS (light purple, `#d9a8ff`). The old `renderEvidence()`/`imageCardHtml()` are
+  deleted as dead code — their only caller was replaced.
+- **Debug toggle updated to match**: "Photos-only test mode" (`debugImagesOnly`) now forces every
+  claim to search photos and skips video entirely on all of them, rather than the old single-intent
+  "skip YouTube, run one image search" behavior — same cost-saving purpose (no YouTube quota + Groq
+  rerank round trip while iterating on the photo pipeline), adapted to the claims shape.
+- **Quota reality, unverified live**: decomposition stays ONE Claude call regardless of claim count
+  (no Anthropic cost multiplication), but downstream searches DO multiply — a 3-claim, all-`"both"`
+  moment means up to 6 concurrent searches from one click. SerpAPI's 250/month free plan (already the
+  tightest quota in the app, ~8/day) is the constraint to watch most closely now that a single click
+  can spend more than one image search; YouTube's existing quota is also consumed faster per click
+  than the old one-search behavior. Not yet verified against real usage.
+- **Not yet verified live**: the Kane example itself (expect exactly 3 claims — top-scorer record,
+  Golden Boot, "record after record" — with the trailing "legacy" clause correctly NOT becoming a
+  spurious 4th claim), a genuinely novel non-sports multi-claim example, a genuinely novel
+  single-claim example (confirm it stays one claim, not over-split), and that `items[]`-shaped
+  SerpAPI photo results actually look right per claim in the browser console. All deferred to the
+  user's own live testing pass, same standing practice as every other new feature in this file.
+
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional

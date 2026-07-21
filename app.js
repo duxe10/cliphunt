@@ -54,14 +54,14 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG", photo: "PHOTO" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 // Debug/test toggle: swaps evidence beats' "Find footage" button for "Find picture" so the
-// SerpAPI image pipeline (see evidence-search.js's imageQuery/debugImagesOnly) can be tested in
-// isolation — no YouTube search, no Groq rerank call, just intent-extraction + Google Images. Lets
-// the picture feature be iterated on without a YouTube-quota/rerank round trip every click.
-// Persisted so it survives a reload. Scoped to "evidence" only — "reference" keeps its own
+// SerpAPI photo pipeline (see evidence-search.js's debugImagesOnly) can be tested in isolation —
+// forces every claim to search photos and skip video entirely, no YouTube search, no Groq rerank
+// call. Lets the picture feature be iterated on without a YouTube-quota/rerank round trip every
+// click. Persisted so it survives a reload. Scoped to "evidence" only — "reference" keeps its own
 // unrelated "Find reaction clip" button and behavior.
 const DEBUG_IMAGES_KEY = "cliphunt_debug_images_only";
 let DEBUG_IMAGES_ONLY = localStorage.getItem(DEBUG_IMAGES_KEY) === "1";
@@ -390,11 +390,11 @@ async function findFootage(segIdx) {
     const searchRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // debugImagesOnly is ignored by reference-search.js (it has no such flag) and by
-      // evidence-search.js unless explicitly true, so this is safe to always include.
-      // depictionType ("instant"/"fallback", see segment.js/evidence-search.js) decides whether
-      // evidence-search.js also spends a SerpAPI call — reference-search.js ignores it too.
-      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly, depictionType: seg.depictionType || null }),
+      // debugImagesOnly is ignored by reference-search.js (it has no such flag). For evidence
+      // beats it now forces every claim to search photos and skip video (see evidence-search.js,
+      // 2026-07-21) — the old segment-level depictionType gate is no longer read there, superseded
+      // by the new per-claim mediaType judgment, so it's no longer sent.
+      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly }),
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
@@ -412,69 +412,154 @@ async function findFootage(segIdx) {
       return;
     }
 
-    // imageQuery rides the same intent-extraction call as youtubeQuery (see evidence-search.js),
-    // but whether a photo search actually RAN depends on imagesSearched (depictionType gating —
-    // "fallback" beats skip it in production to protect SerpAPI's quota, debugImagesOnly always
-    // forces it). Logged here so that decision is visible in the browser console without a live
-    // wrangler tail.
+    // evidence-search.js now splits the moment into claims and judges video/photo/both PER CLAIM
+    // (2026-07-21 — see its header comment) instead of extracting one intent per click. Logged
+    // here so the split + per-claim mediaType decision is visible in the browser console without
+    // a live wrangler tail.
+    const claims = search.claims || [];
     console.log(
-      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} imagesSearched=${!!search.imagesSearched} ` +
-      `imageQuery=${JSON.stringify(search.imageQuery || null)} images=${(search.images || []).length} ` +
-      `youtubeCandidates=${(search.candidates || []).length}`
+      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} ${claims.length} claim(s): ` +
+      claims.map(c => `[${c.mediaType} video=${(c.videoCandidates || []).length} photo=${(c.photoCandidates || []).length}]`).join(" ")
     );
 
-    seg.evidence = {
-      candidates: search.candidates || [],
-      images: search.images || [],
-      imageQuery: search.imageQuery || null,
-      imagesSearched: !!search.imagesSearched,
-    };
-    renderEvidence(segIdx);
+    seg.evidence = { claims };
+    renderEvidenceClaims(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
   }
 }
 
-// Renders YouTube video candidates and Google Images photo results together in one queue —
-// same concatenation pattern as renderReferenceFootage() below; the src-chip (YT/IMG) is the
-// only source distinction, consistent with every other clip-queue in the app.
-function renderEvidence(segIdx) {
+// Renders one labeled .claim-group per claim the moment was split into (see evidence-search.js's
+// 2026-07-21 multi-claim decomposition) — each group has its own video cards (claimVideoCardHtml/
+// openClaimVideoPreview) and photo cards (photoCardHtml/openPhotoPreview), only for whichever
+// medium(s) that claim's mediaType actually called for. Replaces the old flat renderEvidence(),
+// which pooled one intent's results into a single unlabeled queue.
+function renderEvidenceClaims(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container || !seg.evidence) return;
-  const candidates = seg.evidence.candidates || [];
-  const images = seg.evidence.images || [];
-  const cards =
-    candidates.map((c, i) => evidenceCardHtml(segIdx, i, c)).join("") +
-    images.map((img) => imageCardHtml(img)).join("");
-  // Surfaces the imageQuery that decided whether/what to search for a photo on this beat — same
-  // "make the decision visible, not just the result" reasoning as segmentHtml()'s reason line.
-  // imagesSearched distinguishes "we searched and found nothing" (empty images, searched=true)
-  // from "we didn't search this one" (a "fallback"-depiction beat, images skipped to protect the
-  // SerpAPI quota — see evidence-search.js) — an empty images:[] means something different in
-  // each case, so this must not read as a failed search when it was never attempted.
-  const imgNote = seg.evidence.imagesSearched
-    ? `<p class="seg-reason">photo search: "${escapeHtml(seg.evidence.imageQuery || "")}" — ${images.length} kept</p>`
-    : `<p class="seg-reason">no photo search — general subject beat</p>`;
-  container.innerHTML = (cards ? `<div class="clip-queue">${cards}</div>` : `<p class="no-clip-msg">No footage candidates found.</p>`) + imgNote;
+  const claims = seg.evidence.claims || [];
+  if (!claims.length) {
+    container.innerHTML = `<p class="no-clip-msg">No footage candidates found.</p>`;
+    return;
+  }
+  container.innerHTML = claims.map((c, ci) => {
+    const cards =
+      (c.videoCandidates || []).map((cand, vi) => claimVideoCardHtml(segIdx, ci, vi, cand)).join("") +
+      (c.photoCandidates || []).map((img, pi) => photoCardHtml(segIdx, ci, pi, img)).join("");
+    const body = cards
+      ? `<div class="clip-queue">${cards}</div>`
+      : `<p class="no-clip-msg">No candidates found for this claim.</p>`;
+    return `<div class="claim-group"><p class="claim-label">${escapeHtml(c.claim || "")}</p>${body}</div>`;
+  }).join("");
 }
 
-// A photo result card is a plain external link to the image's SOURCE PAGE — no preview modal, no
-// full-res display, no download. The thumbnail shown is Google's own hosted thumb; the full-res
-// original is never fetched or hotlinked (same link-only rule as YouTube evidence — this app
-// points at content it doesn't have rights to redistribute, it doesn't serve it).
-function imageCardHtml(img) {
+// Deliberately a small, acknowledged duplication of evidenceCardHtml/openEvidencePreview rather
+// than changing that function's data shape — reference-search.js's reaction-clip feature also
+// still relies on evidenceCardHtml/openEvidencePreview reading seg.evidence.candidates as a flat
+// array, so evidence beats now need their own claim-indexed [claimIdx][candIdx] variant instead.
+function claimVideoCardHtml(segIdx, claimIdx, candIdx, cand) {
+  const thumbStyle = cand.thumb
+    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const label = evidenceLabel(cand);
+  return `
+    <div class="clip-card" onclick="openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
+        ${cand.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${label.text}</div>
+    </div>`;
+}
+
+function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
+  const cand = SEGMENTS[segIdx].evidence.claims[claimIdx].videoCandidates[candIdx];
+
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = "";
+  document.getElementById("modal-play").style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1`;
+  iframe.style.display = "block";
+
+  document.getElementById("modal-title").textContent = cand.title || "";
+  document.getElementById("modal-sub").textContent = `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = cand.url;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
+
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+// A photo result card. The thumbnail shown is Google's own hosted thumb (via SerpAPI) — the
+// full-res original is never fetched or hotlinked (same link-only rule as YouTube evidence: this
+// app points at content it doesn't have rights to redistribute, it doesn't serve it). Clicking
+// opens the same preview modal the video path uses, showing the thumbnail plus a "View source
+// page" external link as the single action — mirroring the video path's "link out, don't
+// download" posture instead of being a bare anchor tag.
+function photoCardHtml(segIdx, claimIdx, photoIdx, img) {
   const thumbStyle = img.thumb
     ? `background-image:url('${escapeHtml(img.thumb)}'); background-size:cover; background-position:center;`
     : "";
   return `
-    <a class="clip-card" href="${escapeHtml(img.pageUrl)}" target="_blank" rel="noopener">
+    <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
       <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-image">${SOURCE_LABEL.image}</span>
+        <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
       </div>
       <div class="clip-label">${escapeHtml(img.title || "")}</div>
       <div class="clip-sub">${escapeHtml(img.domain || "")}</div>
-    </a>`;
+    </div>`;
+}
+
+function openPhotoPreview(segIdx, claimIdx, photoIdx) {
+  const img = SEGMENTS[segIdx].evidence.claims[claimIdx].photoCandidates[photoIdx];
+
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  document.getElementById("modal-play").style.display = "none";
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = img.thumb ? `url('${img.thumb}')` : "";
+  thumbEl.style.backgroundSize = "cover";
+  thumbEl.style.backgroundPosition = "center";
+
+  document.getElementById("modal-title").textContent = img.title || "";
+  document.getElementById("modal-sub").textContent = `Photo · ${img.domain || ""}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = img.pageUrl;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} View source page`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none";
+
+  document.getElementById("modal-overlay").classList.add("open");
 }
 
 // Renders BOTH result sets for a "reference" beat together in one queue — YouTube reaction
