@@ -128,6 +128,17 @@
           depictionType: s.depictionType, reason: s.reason, text: (s.text || '').slice(0, 60),
         })));
 
+        // The segmenter already returns family/subject/categoryClaim/depictionType/reason per
+        // segment (see segment.js) — logged here immediately so a decision breakdown is visible
+        // in the browser console right away, instead of needing a live `wrangler pages deployment
+        // tail` or navigating into the workspace (which also logs this, see app.js's renderWorkspace).
+        const counts = data.segments.reduce((acc, s) => { acc[s.family] = (acc[s.family] || 0) + 1; return acc; }, {});
+        console.log(`[cliphunt] segmented "${title}" into ${data.segments.length} moments:`, counts);
+        console.table(data.segments.map((s) => ({
+          family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
+          depictionType: s.depictionType, reason: s.reason, text: (s.text || '').slice(0, 60),
+        })));
+
         const now = Date.now();
         const project = { id: newId(), title, segments: data.segments, createdAt: now, updatedAt: now };
         const projects = getProjects();
