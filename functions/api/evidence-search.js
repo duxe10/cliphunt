@@ -194,7 +194,46 @@ style search (subject + event/context keywords) — e.g. "Harry Kane Golden Boot
 "Harry Kane World Cup all-time top scorer record". This is explicitly NOT a visual-scene-
 description ("a man holding a trophy") — Google Image search indexes real caption and article
 text written about the photo, not scene descriptions, so phrase it the way a real news caption or
-headline would read.`;
+headline would read.
+
+EDITORIAL B-ROLL EXTENSION — ADDITIVE, DOES NOT REPLACE STEP 2:
+mediaType/photoQuery from STEP 2 above still apply in full — judge "video"/"photo"/"both" per
+claim exactly as instructed there; do not default to "video" just because b-roll exists as an
+option below. In addition, for the video side of any claim, also return
+"visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":string, and
+"youtubeQueries": an array of one or two distinct video searches (the best first). Keep
+"youtubeQuery" equal to youtubeQueries[0] for backwards compatibility.
+
+"exact" retains every existing rule: the clip should directly show or document the claim.
+"subject_broll" is different: the narration concerns one resolved real subject, while a skilled
+editor would use truthful illustrative footage OF THAT SUBJECT to embody an abstract trait, arc,
+or compressed period. This is not evidence that an inferred action happened at the narrated
+instant, so do not invent high-stakes facts.
+
+Derive subject_broll queries through this mechanism, not fixed trait-to-shot mappings:
+1. Identify what the narration needs the visual to communicate.
+2. Generate observable manifestations grounded in the subject's real domain, era and story stage:
+   recurring behaviour, process, environment, contextual detail, consequence, or contrast.
+3. Reject anything introducing an unsupported specific event, person, place, injury, relationship,
+   quote, or causal claim.
+4. Prefer manifestations likely to be documented in real footage and searchable in titles.
+5. Make the searches visually distinct, then retain at most the best two.
+
+Do not select an action because a similar adjective appeared in a prompt example. The same trait
+can look completely different for people in different domains; derive the visual from what this
+subject actually does and from this particular point in their story.
+
+For subject_broll, resolve the subject and ERA from the whole script context. Every query must
+contain the subject plus the strongest available era discriminator: explicit year/event first;
+otherwise career stage, age language, team/employer, product generation, location, kit/clothing,
+or dated surrounding events. Never return current footage for a childhood/early-career beat just
+because current footage is more popular. Diversify the two searches by observable manifestation
+or shot function rather than using synonyms.
+
+The optional PLANNED VISUAL fields in the user message came from whole-script segmentation. Treat
+them as useful prior reasoning, but correct them when the local context proves them wrong. Exact
+claims must never be weakened into b-roll. If uncertain, retain exact behaviour and the original
+single youtubeQuery.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -209,6 +248,13 @@ seconds, view count, short description). Score each 0-100:
   itself wants that.
 - Fit: a focused clip beats a 3-hour livestream as a cut source; a credible/official channel beats
   a random reupload.
+
+VISUAL MODE matters:
+- exact: demand direct support for the stated claim, as above.
+- subject_broll: do NOT demand proof of the abstract narration. Instead demand the correct real
+  subject, the requested era, and footage plausibly showing the editorial visual goal (training,
+  preparation, recovery, isolation, behind-the-scenes work, etc.). Wrong age/team/company era is a
+  major mismatch even when the subject is correct. Generic footage without the subject is near 0.
 
 Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the clip.`;
@@ -233,11 +279,17 @@ Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly th
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext;
+  let segmentText, scriptContext, plannedVisual;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
     scriptContext = body.context;
+    plannedVisual = {
+      visualMode: body.visualMode,
+      visualQueries: body.visualQueries,
+      visualGoal: body.visualGoal,
+      eraHint: body.eraHint,
+    };
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -251,9 +303,12 @@ export async function onRequestPost(context) {
 
   // 1. Claude splits the moment into claims and resolves each one's intent (see header comment
   //    for why this call site moved off Groq, and for why splitting happens here at all).
-  const userContent = scriptContext && scriptContext.trim()
+  let userContent = scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
     : `The moment:\n${segmentText}`;
+  if (plannedVisual && Object.values(plannedVisual).some(Boolean)) {
+    userContent += `\n\nPLANNED VISUAL (use as a prior, verify against context):\n${JSON.stringify(plannedVisual)}`;
+  }
 
   let rawClaims;
   try {
@@ -289,30 +344,38 @@ export async function onRequestPost(context) {
     return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
-  // Normalize each claim's fields once, up front — footageType/quote get the same treatment the
-  // single-intent version always applied; mediaType falls back to "video" (the pre-existing
-  // behavior for every claim before this feature existed) on anything unrecognized, so a stray
-  // model value degrades a claim to old behavior instead of silently losing its results.
+  // Normalize each claim's fields once, up front. New planning fields are additive; malformed
+  // visualMode/query arrays fall back to the old exact, single-query video behaviour.
   const claims = rawClaims.map((c) => {
     const footageType = c.footageType === "specific" ? "specific" : "generic";
     const quote = footageType === "specific" && c.quote && String(c.quote).trim() ? String(c.quote).trim() : null;
     const mediaType = ["video", "photo", "both"].includes(c.mediaType) ? c.mediaType : "video";
+    const visualMode = c.visualMode === "subject_broll" && c.subject ? "subject_broll" : "exact";
+    const queryCandidates = [c.youtubeQuery, ...(Array.isArray(c.youtubeQueries) ? c.youtubeQueries : [])]
+      .map((q) => String(q || "").trim())
+      .filter(Boolean)
+      .filter((q, i, all) => all.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i)
+      .slice(0, 2);
     return {
       claim: String(c.claim || segmentText).trim(),
       footageType,
       subject: c.subject || null,
       quote,
       mediaType,
-      youtubeQuery: c.youtubeQuery || null,
-      photoQuery: c.photoQuery || null,
+      visualMode,
+      visualGoal: c.visualGoal || null,
+      eraHint: c.eraHint || null,
+      youtubeQueries: queryCandidates,
+      youtubeQuery: queryCandidates[0] || c.subject || c.claim || segmentText,
+      photoQuery: mediaType !== "video" && c.photoQuery && String(c.photoQuery).trim() ? String(c.photoQuery).trim() : null,
     };
   });
 
   for (const c of claims) {
     console.log(
       `[evidence-search] claim=${JSON.stringify(c.claim.slice(0, 80))} footageType=${c.footageType} ` +
-      `subject=${JSON.stringify(c.subject)} mediaType=${c.mediaType} youtubeQuery=${JSON.stringify(c.youtubeQuery)} ` +
-      `photoQuery=${JSON.stringify(c.photoQuery)} quote=${JSON.stringify(c.quote)}`
+      `subject=${JSON.stringify(c.subject)} mediaType=${c.mediaType} visualMode=${c.visualMode} eraHint=${JSON.stringify(c.eraHint)} ` +
+      `youtubeQueries=${JSON.stringify(c.youtubeQueries)} photoQuery=${JSON.stringify(c.photoQuery)} quote=${JSON.stringify(c.quote)}`
     );
   }
 
@@ -339,6 +402,9 @@ export async function onRequestPost(context) {
     subject: claim.subject,
     quote: claim.quote,
     mediaType: claim.mediaType,
+    visualMode: claim.visualMode,
+    visualGoal: claim.visualGoal,
+    eraHint: claim.eraHint,
     videoCandidates: videoByClaim.get(i) || [],
     photoCandidates: photoByClaim.get(i) || [],
   }));
@@ -351,13 +417,34 @@ export async function onRequestPost(context) {
 // a plain Promise.all with no rejected-promise case either caller needs to handle.
 async function searchVideoForClaim(claim, env) {
   try {
-    const query = (claim.youtubeQuery || claim.subject || claim.claim).trim();
-    const candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
+    const queries = (claim.youtubeQueries && claim.youtubeQueries.length
+      ? claim.youtubeQueries
+      : [claim.youtubeQuery || claim.subject || claim.claim]).slice(0, 2);
+    // search.list is 100 quota units against a shared 10,000/day cap, and a segment can now split
+    // into several claims — firing every claim's second query unconditionally multiplies that cost
+    // for no benefit on the common case where the first query already returns plenty. Only spend
+    // the second query's quota as a bounded fallback when the first genuinely came up thin.
+    let candidates = await searchYouTubeVideos(queries[0], env.YOUTUBE_API_KEY).catch(() => []);
+    if (candidates.length < 4 && queries[1]) {
+      const more = await searchYouTubeVideos(queries[1], env.YOUTUBE_API_KEY).catch(() => []);
+      candidates = candidates.concat(more).filter(
+        (c, i, all) => all.findIndex((x) => x.videoId === c.videoId) === i
+      );
+    }
+    candidates = candidates.slice(0, 20);
     await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
     // Rerank against the CLAIM's own text, not the whole multi-claim segment — a candidate is
     // being scored against one specific fact, not the whole beat.
     const reranked = await rerankCandidates(
-      { segmentText: claim.claim, subject: claim.subject, footageType: claim.footageType, quote: claim.quote },
+      {
+        segmentText: claim.claim,
+        subject: claim.subject,
+        footageType: claim.footageType,
+        quote: claim.quote,
+        visualMode: claim.visualMode,
+        visualGoal: claim.visualGoal,
+        eraHint: claim.eraHint,
+      },
       candidates,
       env
     );
@@ -537,6 +624,9 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
     `MOMENT: ${intent.segmentText}\n` +
     `SUBJECT: ${intent.subject || "(none)"}\n` +
     `FOOTAGE TYPE: ${intent.footageType}\n` +
+    `VISUAL MODE: ${intent.visualMode || "exact"}\n` +
+    (intent.visualGoal ? `EDITORIAL VISUAL GOAL: ${intent.visualGoal}\n` : "") +
+    (intent.eraHint ? `REQUIRED ERA: ${intent.eraHint}\n` : "") +
     (intent.quote ? `SPOKEN LINE: ${intent.quote}\n` : "") +
     `\nCANDIDATES:\n${JSON.stringify(list)}`;
   try {

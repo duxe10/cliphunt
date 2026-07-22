@@ -1,5 +1,26 @@
 # ClipHunt — handoff notes
 
+## Current product direction (2026-07-22)
+The retrieval focus is now **evidence footage + editorial filler/visual storytelling**. New
+segmentation does not emit `reference`; saved legacy reference segments still render through the
+old endpoint, but reaction/meme discovery is no longer being developed. Evidence search also keeps
+the old photo response shape for frontend compatibility while returning video-only results; Google
+CSE photo search is no longer fanned out.
+
+The visual planner is deliberately broader than literal extraction:
+- `visualMode:"exact"` preserves the strict existing evidence pipeline.
+- `visualMode:"subject_broll"` finds truthful illustrative footage of the resolved real subject
+  for abstract traits/arcs (training for work ethic, recovery/continued practice for resilience),
+  with `eraHint` treated as a hard rerank constraint. It must not be presented/scored as proof of
+  an unstated event.
+- `visualMode:"stock"` may infer low-factual-stakes editorial metaphors for abstract narration.
+  `visualQueries` contains up to three distinct shot strategies rather than synonyms, and
+  `visualGoal` tells the reranker what the cut should communicate.
+
+All new fields are additive: old projects and malformed model output fall back to the original
+single `query`, exact evidence, or stock behaviour through `enforceVisualPlan()`. Tests live in
+`tests/editorial-plan.test.js` and run with `npm test`.
+
 ## What this is
 A tool for video creators: paste/upload a script (or a voiceover to transcribe), it gets
 broken into distinct moments, and each moment gets matched with candidate footage to cut to.

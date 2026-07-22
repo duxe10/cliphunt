@@ -110,7 +110,8 @@
           body: JSON.stringify({ script }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+        if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong');
+        if (!Array.isArray(data.segments)) throw new Error('The visual plan response was incomplete. No project was saved.');
 
         const now = Date.now();
         const project = { id: newId(), title, segments: data.segments, createdAt: now, updatedAt: now };

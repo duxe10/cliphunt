@@ -302,7 +302,7 @@ values:
   category to expect real footage). reference: a private, unnamed reaction with no real named
   meme or clip behind it.
 
-Omit "findable" entirely for "feel" and "nothing" segments — "feel" always searches regardless of
+Set "findable" to null for "feel" and "nothing" segments — "feel" always searches regardless of
 any findability judgment, so none is needed there.
 
 For each judgment, reason concretely about real-world documentation/coverage patterns rather than
@@ -403,8 +403,137 @@ founders spend years replaying the moment they turned down the offer", "gives me
 "the dream was alive" — don't invent an anchor to force a "feel" query out of it. That's the
 concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
-Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"findable":"likely","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","findable":"likely","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
+EDITORIAL VISUAL OVERRIDE — this section deliberately broadens the concreteness rules above.
+The product is not only a literal claim extractor. It should think like a skilled faceless-video
+editor: when narration has no literal filmed action but strongly implies a familiar visual, it is
+allowed to propose that visual. This is controlled inference, not permission to invent facts.
+
+For every non-nothing segment add:
+- "visualMode": "exact" | "subject_broll" | "stock"
+- "visualQueries": one to three genuinely DIFFERENT searches, best first
+- "eraHint": a short year/range/life-stage/team/company-stage clue, or null
+- "visualGoal": <=12 words describing what the cut should communicate
+
+Modes:
+- "exact": existing evidence behaviour. The footage should show or directly document the stated
+  real event/claim. family must be "evidence".
+- "subject_broll": the narration is about a resolved, real, findable subject, but the best edit is
+  illustrative footage OF THAT SUBJECT rather than proof of an explicitly stated event. family
+  must be "evidence", subject must be set, and visualQueries must name the subject. Use this for
+  traits, arcs and compressed narration where editors conventionally infer an honest observable
+  manifestation. Do not imply a scandal, injury, meeting, quote, relationship, location, or exact
+  action with factual stakes unless the script/context supports it. A query is an editorial
+  illustration, not evidence that the inferred action occurred at the narrated instant.
+- "stock": anonymous illustrative/atmospheric footage. family must be "feel". visualQueries may
+  infer an editorial shot even when the text has no literal physical anchor, provided the inferred
+  shot is a conventional, low-factual-stakes visual metaphor and clearly communicates the line.
+  Prefer human, specific actions and story progression over generic skylines, typing hands, or
+  noun-only b-roll.
+
+Do not emit family "reference" for new segments. Reaction/meme discovery is outside the current
+product focus because the available indexes do not reliably surface clean, high-quality source
+clips. Treat a reference-shaped line as "feel" with an original stock/editorial visual when that
+communicates the beat, otherwise "nothing". Never search for a meme merely because one was named.
+
+"nothing" is now reserved for beats where adding a new visual would hurt pacing or fabricate
+meaning: pure connective tissue, a deliberate verbal pause, duplicated meaning already covered by
+an adjacent beat, or a line with no coherent honest editorial visual. An abstract line is NOT
+automatically nothing. First ask what a strong editor would cut to.
+
+SEQUENCE-LEVEL COVERAGE PASS — after making the factual/editorial decision for every segment,
+traverse the COMPLETE ordered sequence while maintaining the active visual. Keep every narration
+segment and its exact text, but add:
+- "coverageMode": "new" | "continue" | "callback" | "none"
+- "visualId": a unique stable ID such as "v0" only for new, otherwise null
+- "visualRef": the visualId of an EARLIER new row for continue/callback, otherwise null
+- "continuityReason": a short honest explanation for continue/callback, otherwise null
+- "noneKind": "deliberate_pause" | "narration_only" | "unresolved" only for none, otherwise null
+
+Use "continue" when a line develops, intensifies, labels, or concludes the same onscreen event;
+it normally references the currently active visual. Use "callback" only for a deliberate return
+to a compatible earlier event or motif. Use "new" when subject, event, time, emotional direction,
+or required evidence materially changes. Use "none" only for a genuine narration-only beat, an
+intentional pacing pause, or where any visual would fabricate meaning or weaken the edit. A row
+whose legacy family would be "nothing" can still continue or callback: it needs no new searchable
+content when an already-established visual can honestly cover it. Do not create generic stock
+searches merely to reduce none rows, and never replace exact evidence with inferred filler.
+
+Every continue/callback visualRef must point DIRECTLY to an earlier new row, never another
+reference. Its subject, era, event and emotional direction must remain compatible with that
+origin. A new row retains all normal family, visualMode, query, subject, era and search fields.
+Continue/callback rows do not need their own search plan; the referenced new row supplies it.
+
+Use this mechanism for EVERY editorial inference rather than memorizing example mappings:
+1. State the line's NARRATIVE FUNCTION: what changes in the viewer's understanding or feeling?
+2. List observable manifestations that could communicate that function without claiming a new
+   fact. Ask what behaviour, environment, process, detail, consequence, or contrast a camera could
+   capture. Derive these from the subject's domain and current story stage, not from a fixed table.
+3. Reject manifestations whose factual specificity exceeds the script: invented people, events,
+   injuries, places, dates, relationships, or causality. For a real subject, prefer documented
+   recurring activity and contextual footage over pretending an inferred shot is the event. For
+   anonymous stock, keep identity and factual stakes generic.
+4. Enforce continuity: subject, era, domain, established location, and emotional direction.
+5. Choose the smallest set of visually distinct searches likely to return usable footage.
+
+The visualQueries must diversify the candidate pool, not paraphrase one another. Each should come
+from a different surviving manifestation or shot function—action, process, contextual detail,
+environment, consequence, or contrast—when genuinely appropriate. Do not force every category
+into every beat. Keep each query search-engine-natural (roughly 3-9 words). For subject_broll
+include the resolved subject plus era identifiers. For stock never include a named subject.
+
+Era continuity is mandatory. Infer eraHint from the whole script so far: explicit year/event wins;
+otherwise use career stage, age language (childhood/teenage/veteran), team, employer, product era,
+location, clothing/kit, or surrounding dated events. Never silently search a subject's current era
+for narration about their youth. Put the strongest era discriminator into every subject_broll or
+era-sensitive exact query.
+
+The mechanism, not any example phrase, decides the output. Similar adjectives can require entirely
+different visuals in different domains or story stages. Conversely, different wording can share a
+visual strategy when it serves the same narrative function and passes the factual-risk and
+continuity checks. Never choose a shot merely because a prompt example paired it with a keyword.
+
+Backwards compatibility: "query" remains mandatory for every non-nothing segment and must equal
+visualQueries[0]. If uncertain about the new fields, preserve the old family/query decision and use
+visualMode "exact" for evidence or "stock" for feel. Existing exact evidence must never be
+downgraded to inferred b-roll.
+
+Every schema field must be present. Use null for inapplicable scalar fields and [] for inapplicable
+visualQueries. Return only the schema-conforming object, with no prose or markdown fences.`;
+
+const nullableString = () => ({ anyOf: [{ type: "string" }, { type: "null" }] });
+export const SEGMENT_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    segments: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          family: { type: "string", enum: ["feel", "evidence", "reference", "nothing"] },
+          subject: nullableString(),
+          categoryClaim: nullableString(),
+          findable: { anyOf: [{ type: "string", enum: ["likely", "unlikely"] }, { type: "null" }] },
+          query: nullableString(),
+          reason: nullableString(),
+          visualMode: { anyOf: [{ type: "string", enum: ["exact", "subject_broll", "stock"] }, { type: "null" }] },
+          visualQueries: { type: "array", items: { type: "string" } },
+          eraHint: nullableString(),
+          visualGoal: nullableString(),
+          coverageMode: { type: "string", enum: ["new", "continue", "callback", "none"] },
+          visualId: nullableString(),
+          visualRef: nullableString(),
+          continuityReason: nullableString(),
+          noneKind: { anyOf: [{ type: "string", enum: ["deliberate_pause", "narration_only", "unresolved"] }, { type: "null" }] },
+        },
+        required: ["text", "family", "subject", "categoryClaim", "findable", "query", "reason", "visualMode", "visualQueries", "eraHint", "visualGoal", "coverageMode", "visualId", "visualRef", "continuityReason", "noneKind"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["segments"],
+  additionalProperties: false,
+};
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -423,40 +552,85 @@ export async function onRequestPost(context) {
     return Response.json({ error: "ANTHROPIC_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
+  const encoder = new TextEncoder();
+  const upstreamAbort = new AbortController();
+  let cancelled = false;
+  const body = new ReadableStream({
+    async start(controller) {
+      // Flush the response immediately and keep the browser-facing Cloudflare connection alive
+      // while Anthropic's long SSE response is consumed. Leading JSON whitespace is valid.
+      controller.enqueue(encoder.encode(" ".repeat(2048)));
+      const heartbeat = setInterval(() => {
+        if (!cancelled) controller.enqueue(encoder.encode("\n" + " ".repeat(1024)));
+      }, 10000);
+      try {
+        const segments = await generateVisualPlan(env, script, upstreamAbort.signal);
+        if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ segments })));
+      } catch (err) {
+        if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ error: err.message || "Segmentation failed" })));
+      } finally {
+        clearInterval(heartbeat);
+        if (!cancelled) controller.close();
+      }
+    },
+    cancel() {
+      cancelled = true;
+      upstreamAbort.abort("Browser request cancelled");
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "content-encoding": "identity",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
+async function generateVisualPlan(env, script, signal) {
   try {
     const claudeRes = await claudeChat(env, {
       model: "claude-sonnet-5",
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: script }],
-      // Same "output scales with script length, not a fixed small amount" reasoning as the old
-      // Groq cap (segmentation echoes back nearly the entire script verbatim), but this number
-      // does NOT need Groq-style tight tuning: Anthropic bills by tokens actually GENERATED, not
-      // the declared max_tokens ceiling (confirmed live — Groq's TPM accounting reserved the
-      // whole declared cap upfront regardless of use, which is what forced the tight Groq-era
-      // formula; that constraint doesn't apply here). Raised generously (16000->32000 cap,
-      // +2500->+6000 buffer) after a real truncation ("Unterminated string in JSON") at the old
-      // cap — a real answer needs room for low-effort thinking (see _claude.js) PLUS the full
-      // echoed-text JSON, and there's no cost reason to keep this tight the way Groq's was.
-      max_tokens: Math.min(32000, Math.ceil(script.length / 1.5) + 6000),
-    });
+      // The declared ceiling is not prepaid: Anthropic bills tokens actually generated. A
+      // script-length formula truncated a real 72-row continuity response at ~11k characters,
+      // wasting the user's paid request. Always leave the full supported headroom instead.
+      max_tokens: 32000,
+      output_schema: SEGMENT_OUTPUT_SCHEMA,
+      // Long structured responses can exceed Anthropic's non-streaming edge timeout (524).
+      // Consume Anthropic SSE server-side, then run the same validation/normalization pipeline.
+      stream: true,
+      signal,
+    }, 0); // A paid segmentation click must never fan out into automatic retries.
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
-      return Response.json({ error: `Claude error: ${errText}` }, { status: 502 });
+      throw new Error(`Claude error: ${errText}`);
     }
 
     const data = await claudeRes.json();
-    const content = extractJson(extractText(data));
-    const parsed = JSON.parse(content);
+    const parsed = parseClaudeSegmentsResponse(data);
 
     if (!Array.isArray(parsed.segments)) {
-      return Response.json({ error: "Model did not return a segments array" }, { status: 502 });
+      throw new Error("Model did not return a segments array");
     }
 
     const merged = mergeFragments(parsed.segments);
+    validateScriptCoverage(script, merged);
     const evidenceResolved = enforceEvidenceRule(merged);
     const findabilityResolved = enforceFindabilityRule(evidenceResolved);
-    const corrected = enforceFeelQueryRule(findabilityResolved);
+    const focused = enforceProductFocus(findabilityResolved);
+    // enforceVisualPlan must run BEFORE enforceFeelQueryRule: it's what backfills the legacy
+    // `query` field from `visualQueries[0]` when the model puts a real query only in the new
+    // field. Run the downgrade check first and a segment with a good visualQueries but an empty
+    // legacy query gets wrongly and permanently downgraded to "nothing" before it ever reaches
+    // the backfill — exactly the "prompt-only field stays in sync" assumption this file's own
+    // history warns doesn't hold.
+    const visualResolved = enforceVisualPlan(focused);
+    const queryResolved = enforceFeelQueryRule(visualResolved);
+    const corrected = normalizeCoveragePlan(queryResolved);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
     // just real-time eyes on what the model actually decided per segment while testing. One line
@@ -471,16 +645,38 @@ export async function onRequestPost(context) {
     corrected.forEach((seg, i) => {
       console.log(
         `[segment] reqId=${reqId} #${i} family=${seg.family} ` +
+        `coverage=${seg.coverageMode} visualId=${seg.visualId ?? "-"} visualRef=${seg.visualRef ?? "-"} ` +
         `subject=${JSON.stringify(seg.subject ?? null)} categoryClaim=${JSON.stringify(seg.categoryClaim ?? null)} ` +
         `findable=${seg.findable ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
         `reason=${JSON.stringify(seg.reason ?? null)} text=${JSON.stringify(seg.text.slice(0, 100))}`
       );
     });
+    const coverage = summarizeCoverage(corrected);
+    console.log(`[segment] reqId=${reqId} coverage=${JSON.stringify(coverage)}`);
 
-    return Response.json({ segments: corrected });
+    return corrected;
   } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 });
+    throw err;
   }
+}
+
+export function parseClaudeSegmentsResponse(data) {
+  if (data?.stop_reason === "max_tokens") {
+    throw new Error("Claude exhausted the 32,000-token output limit before finishing the visual plan");
+  }
+  if (data?.stop_reason !== "end_turn") {
+    throw new Error(`Claude stopped before completing the visual plan (${data?.stop_reason || "missing stop reason"})`);
+  }
+  const content = extractJson(extractText(data));
+  return JSON.parse(content);
+}
+
+export function validateScriptCoverage(script, segments) {
+  const normalize = value => String(value || "").replace(/\s+/g, " ").trim();
+  if (normalize(segments.map(seg => seg.text).join(" ")) !== normalize(script)) {
+    throw new Error("Claude's segments did not preserve the complete script exactly");
+  }
+  return segments;
 }
 
 // The model is unreliable at enforcing "don't split incomplete fragments" on its own, so this
@@ -550,6 +746,22 @@ function enforceFindabilityRule(segments) {
   return segments;
 }
 
+// Reaction/reference retrieval is intentionally out of scope for newly segmented projects. Keep
+// the old endpoint and frontend path working for saved legacy projects, but normalize any new
+// model-produced reference beat into the stock/editorial path (or nothing when it has no usable
+// fallback query).
+export function enforceProductFocus(segments) {
+  for (const seg of segments) {
+    if (seg.family !== "reference") continue;
+    seg.family = seg.query && String(seg.query).trim() ? "feel" : "nothing";
+    delete seg.findable;
+    seg.reason = seg.family === "feel"
+      ? `reference replaced by editorial stock: ${seg.reason || "visual fallback"}`
+      : "reference has no reliable visual source";
+  }
+  return segments;
+}
+
 // The one boundary in this file with NO code-level backup until now: every other fuzzy judgment
 // here (mergeFragments, enforceEvidenceRule, enforceFindabilityRule) has a deterministic safety
 // net, but the concreteness-gate/tie-breaker decision that produces "feel" vs "nothing" was
@@ -570,10 +782,148 @@ function enforceFindabilityRule(segments) {
 // check can provide.
 function enforceFeelQueryRule(segments) {
   for (const seg of segments) {
-    if (seg.family === "feel" && !(seg.query && String(seg.query).trim())) {
+    if (seg.family !== "feel") continue;
+    const hasQuery = Boolean(seg.query && String(seg.query).trim());
+    // Don't rely solely on pipeline order backfilling `query` from `visualQueries[0]` — check
+    // both directly, so this stays correct even if a future reorder breaks that assumption again.
+    const hasVisualQuery = Array.isArray(seg.visualQueries) &&
+      seg.visualQueries.some((q) => String(q || "").trim());
+    if (!hasQuery && !hasVisualQuery) {
       seg.family = "nothing";
       seg.reason = "feel had no query — mechanically downgraded, no real anchor found";
     }
   }
   return segments;
+}
+
+// New editor-planning fields are additive. Old projects and imperfect model responses retain the
+// exact pre-feature behaviour: query is always the first search, evidence defaults to exact, and
+// feel defaults to stock. Invalid subject_broll cannot accidentally turn anonymous filler into
+// purported footage of a real person.
+export function enforceVisualPlan(segments) {
+  for (const seg of segments) {
+    if (seg.family === "nothing") {
+      delete seg.visualMode;
+      delete seg.visualQueries;
+      delete seg.visualGoal;
+      delete seg.eraHint;
+      continue;
+    }
+
+    const fallbackMode = seg.family === "evidence" ? "exact" : "stock";
+    let mode = ["exact", "subject_broll", "stock"].includes(seg.visualMode)
+      ? seg.visualMode
+      : fallbackMode;
+    if (mode === "subject_broll" && !(seg.subject && String(seg.subject).trim())) mode = fallbackMode;
+    if (seg.family === "feel") mode = "stock";
+    if (seg.family === "evidence" && mode === "stock") mode = "exact";
+
+    const rawQueries = Array.isArray(seg.visualQueries) ? seg.visualQueries : [];
+    const queries = [seg.query, ...rawQueries]
+      .map((q) => String(q || "").trim())
+      .filter(Boolean)
+      .filter((q, i, all) => all.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i)
+      .slice(0, 3);
+
+    seg.visualMode = mode;
+    seg.visualQueries = queries;
+    seg.query = queries[0] || seg.query || null;
+    seg.eraHint = seg.eraHint && String(seg.eraHint).trim() ? String(seg.eraHint).trim().slice(0, 100) : null;
+    seg.visualGoal = seg.visualGoal && String(seg.visualGoal).trim() ? String(seg.visualGoal).trim().slice(0, 160) : null;
+  }
+  return segments;
+}
+
+const COVERAGE_MODES = new Set(["new", "continue", "callback", "none"]);
+const NONE_KINDS = new Set(["deliberate_pause", "narration_only", "unresolved"]);
+
+function hasUsableSearchPlan(seg) {
+  return seg.family !== "nothing" && Boolean(
+    (seg.query && String(seg.query).trim()) ||
+    (Array.isArray(seg.visualQueries) && seg.visualQueries.some(q => String(q || "").trim()))
+  );
+}
+
+// Normalize both new model output and legacy saved-project shapes. References are validated in
+// one ordered pass, so forward refs, duplicate IDs, and chains can never survive. This function
+// mutates only the in-memory/API result; the frontend does not rewrite localStorage.
+export function normalizeCoveragePlan(segments) {
+  const origins = new Map();
+  const claimedIds = new Set();
+
+  segments.forEach((seg, index) => {
+    const suppliedMode = COVERAGE_MODES.has(seg.coverageMode) ? seg.coverageMode : null;
+    let mode = suppliedMode || (seg.family === "nothing" ? "none" : "new");
+    const suppliedId = seg.visualId && String(seg.visualId).trim();
+
+    if (mode === "new") {
+      let id = suppliedId;
+      if (!id || claimedIds.has(id)) {
+        id = `legacy-v${index}`;
+        while (claimedIds.has(id)) id = `${id}-x`;
+      }
+      claimedIds.add(id);
+      if (hasUsableSearchPlan(seg)) {
+        seg.coverageMode = "new";
+        seg.visualId = id;
+        seg.visualRef = null;
+        seg.continuityReason = null;
+        seg.noneKind = null;
+        origins.set(id, seg);
+        return;
+      }
+      mode = "none";
+    }
+
+    if (mode === "continue" || mode === "callback") {
+      const ref = seg.visualRef && String(seg.visualRef).trim();
+      const origin = ref ? origins.get(ref) : null;
+      const subjectConflict = origin && seg.subject && origin.subject &&
+        String(seg.subject).trim().toLowerCase() !== String(origin.subject).trim().toLowerCase();
+      const eraConflict = origin && seg.eraHint && origin.eraHint &&
+        String(seg.eraHint).trim().toLowerCase() !== String(origin.eraHint).trim().toLowerCase();
+      if (origin && !subjectConflict && !eraConflict) {
+        seg.coverageMode = mode;
+        seg.visualId = null;
+        seg.visualRef = ref;
+        seg.continuityReason = seg.continuityReason && String(seg.continuityReason).trim()
+          ? String(seg.continuityReason).trim().slice(0, 200)
+          : "continues an earlier visual";
+        seg.noneKind = null;
+        return;
+      }
+      if (hasUsableSearchPlan(seg)) {
+        let id = suppliedId || `fallback-v${index}`;
+        while (claimedIds.has(id)) id = `${id}-x`;
+        claimedIds.add(id);
+        seg.coverageMode = "new";
+        seg.visualId = id;
+        seg.visualRef = null;
+        seg.continuityReason = null;
+        seg.noneKind = null;
+        origins.set(id, seg);
+        return;
+      }
+      mode = "none";
+    }
+
+    seg.coverageMode = "none";
+    seg.visualId = null;
+    seg.visualRef = null;
+    seg.continuityReason = null;
+    seg.noneKind = suppliedMode === "none" && NONE_KINDS.has(seg.noneKind)
+      ? seg.noneKind
+      : "unresolved";
+  });
+  return segments;
+}
+
+export function summarizeCoverage(segments) {
+  const summary = { total: segments.length, new: 0, continue: 0, callback: 0, none: 0, unresolved: 0, fullyNothingRate: 0 };
+  for (const seg of segments) {
+    if (Object.hasOwn(summary, seg.coverageMode)) summary[seg.coverageMode] += 1;
+    if (seg.coverageMode === "none" && seg.noneKind === "unresolved") summary.unresolved += 1;
+  }
+  summary.fullyNothingRate = summary.total ? summary.none / summary.total : 0;
+  return summary;
 }
