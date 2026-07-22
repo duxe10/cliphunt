@@ -53,9 +53,18 @@ function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "Narration" };
-const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", photo: "PHOTO" };
+const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG", photo: "PHOTO" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
+
+// Debug/test toggle: swaps evidence beats' "Find footage" button for "Find picture" so the
+// SerpAPI photo pipeline (see evidence-search.js's debugImagesOnly) can be tested in isolation —
+// forces every claim to search photos and skip video entirely, no YouTube search, no Groq rerank
+// call. Lets the picture feature be iterated on without a YouTube-quota/rerank round trip every
+// click. Persisted so it survives a reload. Scoped to "evidence" only — "reference" keeps its own
+// unrelated "Find reaction clip" button and behavior.
+const DEBUG_IMAGES_KEY = "cliphunt_debug_images_only";
+let DEBUG_IMAGES_ONLY = localStorage.getItem(DEBUG_IMAGES_KEY) === "1";
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 
@@ -72,6 +81,9 @@ function buildLiveSegments(raw) {
     const durSec = Math.max(0.5, words / READING_WORDS_PER_SEC);
     const start = cursor;
     cursor += durSec;
+    // coverageMode/visualId/visualRef (see segment.js's sequence coverage pass): validated the
+    // same way normalizeCoveragePlan does server-side — a forward/missing/self reference can't
+    // survive into the UI, it just falls back to "new"/"none" the same way a legacy project would.
     let coverageMode = ["new", "continue", "callback", "none"].includes(s.coverageMode)
       ? s.coverageMode
       : (s.family === "nothing" ? "none" : "new");
@@ -94,6 +106,19 @@ function buildLiveSegments(raw) {
       family: ["feel", "evidence", "reference", "nothing"].includes(s.family) ? s.family : "feel",
       text: s.text,
       query: s.query || null,
+      // subject/categoryClaim/depictionType/reason: the segmenter's own audit trail (see
+      // segment.js's SYSTEM_PROMPT — "reason" exists specifically so classification can be
+      // checked, not guessed at). Used to get dropped here before ever reaching the page, which
+      // is the actual reason "why did this land on X" was only answerable via a live wrangler
+      // tail — now it rides along with the segment and segmentHtml() renders it. depictionType
+      // ("instant"/"fallback", 2026-07-20) replaced the old "findable" field — it decides only
+      // whether findFootage() also gets an image search, see evidence-search.js.
+      subject: s.subject || null,
+      categoryClaim: s.categoryClaim || null,
+      depictionType: s.depictionType || null,
+      reason: s.reason || null,
+      // Editorial visual plan + sequence coverage (see segment.js) — additive, all null/"new" for
+      // any legacy project saved before this feature existed.
       visualMode: s.visualMode || null,
       visualQueries: Array.isArray(s.visualQueries) ? s.visualQueries : [],
       visualGoal: s.visualGoal || null,
@@ -198,9 +223,12 @@ function renderWorkspace() {
   const newCount = SEGMENTS.filter(s => s.coverageMode === "new").length;
   const reusedCount = SEGMENTS.filter(s => s.coverageMode === "continue" || s.coverageMode === "callback").length;
   const noneCount = SEGMENTS.filter(s => s.coverageMode === "none").length;
-  document.getElementById("stat-visuals").textContent = `${newCount} new visuals`;
-  document.getElementById("stat-reused").textContent = `${reusedCount} continued/reused`;
-  document.getElementById("stat-pauses").textContent = `${noneCount} narration pauses`;
+  const visualsPill = document.getElementById("stat-visuals");
+  if (visualsPill) visualsPill.textContent = `${newCount} new visuals`;
+  const reusedPill = document.getElementById("stat-reused");
+  if (reusedPill) reusedPill.textContent = `${reusedCount} continued/reused`;
+  const pausesPill = document.getElementById("stat-pauses");
+  if (pausesPill) pausesPill.textContent = `${noneCount} narration pauses`;
   const edited = document.getElementById("stat-edited");
   if (edited) edited.textContent = `edited ${relativeTime(CURRENT_PROJECT.updatedAt)}`;
 
@@ -216,21 +244,57 @@ function renderWorkspace() {
       }
     };
   }
+
+  const debugToggle = document.getElementById("debug-images-only");
+  if (debugToggle) {
+    debugToggle.checked = DEBUG_IMAGES_ONLY;
+    debugToggle.onchange = () => {
+      DEBUG_IMAGES_ONLY = debugToggle.checked;
+      localStorage.setItem(DEBUG_IMAGES_KEY, DEBUG_IMAGES_ONLY ? "1" : "0");
+      refreshFootageButtonLabels();
+    };
+  }
+
+  // One-shot console dump of every segment's classification/reasoning on load — the segmenter
+  // already computes subject/categoryClaim/depictionType/reason per segment (see segment.js),
+  // this just surfaces it in the browser instead of requiring a live `wrangler pages deployment
+  // tail` to see what was decided and why.
+  console.log(`[cliphunt] "${CURRENT_PROJECT.title}" — ${SEGMENTS.length} segments`);
+  console.table(SEGMENTS.map(s => ({
+    idx: s.idx, family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
+    depictionType: s.depictionType, visualMode: s.visualMode, coverage: s.coverageMode,
+    query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
+  })));
+}
+
+// Not gated behind a full re-render (that would re-decide needsSearch/needsFootage off live
+// state and clobber any segment whose results are already fetched) — just relabels the buttons
+// currently showing "Find footage"/"Find picture" on evidence beats. "reference" buttons are
+// untouched (data-family check), matching the toggle's evidence-only scope.
+function refreshFootageButtonLabels() {
+  document.querySelectorAll(".btn-find-footage").forEach((btn) => {
+    if (btn.dataset.family !== "evidence") return;
+    const labelEl = btn.querySelector(".btn-label");
+    if (labelEl) labelEl.textContent = DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage";
+  });
 }
 
 function segmentHtml(seg) {
+  // coverageMode (see segment.js's sequence coverage pass) is the authoritative "does this beat
+  // need its own visual" signal now — "none" subsumes the old family==="nothing" case plus any
+  // beat an already-established visual can honestly cover without a new search.
   const isEmpty = seg.coverageMode === "none";
   const isReuse = seg.coverageMode === "continue" || seg.coverageMode === "callback";
-  const needsSearch = !isEmpty && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
+  const needsSearch = !isEmpty && !isReuse && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
   // Evidence AND reference are both user-triggered (each costs a YouTube search, and re-hydrates
   // on every workspace load), so both get a "Find footage" button rather than auto-hydrating.
-  const needsFootage = !isEmpty && (seg.family === "evidence" || seg.family === "reference");
+  const needsFootage = !isEmpty && !isReuse && (seg.family === "evidence" || seg.family === "reference");
 
   let body;
   if (isEmpty) {
     const noneCopy = seg.noneKind === "deliberate_pause" ? "Intentional visual pause."
       : seg.noneKind === "narration_only" ? "Narration-only beat."
-      : "No visual plan was resolved for this beat.";
+      : "Pacing beat — no clip needed here.";
     body = `<p class="no-clip-msg">${noneCopy}</p>`;
   } else if (isReuse) {
     const verb = seg.coverageMode === "callback" ? "Reuse" : "Continue";
@@ -238,21 +302,31 @@ function segmentHtml(seg) {
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
   } else if (needsFootage) {
-    const label = seg.family === "reference" ? "Find reaction clip" : "Find footage";
+    const isReference = seg.family === "reference";
+    const label = isReference ? "Find reaction clip" : (DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage");
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
-        <button class="btn btn-primary btn-find-footage" onclick="findFootage(${seg.idx})">
+        <button class="btn btn-primary btn-find-footage" data-family="${seg.family}" onclick="findFootage(${seg.idx})">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-          ${label}
+          <span class="btn-label">${label}</span>
         </button>
       </div>`;
   } else {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`;
   }
 
+  // The segmenter's own "reason" field, always shown (not gated behind a debug toggle — it's
+  // cheap and this is exactly the missing visibility that made "why did this land here" only
+  // answerable via a live wrangler tail before). depictionType is appended when present — it's
+  // what decides whether findFootage() also runs an image search (see evidence-search.js).
+  const reasonLine = seg.reason
+    ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.depictionType ? ` · depiction: ${seg.depictionType}` : ""}</p>`
+    : "";
+
   const badgeLabel = isReuse ? (seg.coverageMode === "callback" ? "Callback" : "Continue")
     : isEmpty ? (seg.noneKind === "deliberate_pause" ? "Pause" : "Narration")
     : FAMILY_LABEL[seg.family];
+
   return `
     <div class="segment-row ${isEmpty ? "empty-beat" : ""} ${isReuse ? "continuity-beat" : ""}" id="scene-${seg.idx}">
       <div class="segment-meta">
@@ -263,6 +337,7 @@ function segmentHtml(seg) {
       </div>
       <div class="segment-body">
         <p class="segment-text">${escapeHtml(seg.text || "")}</p>
+        ${reasonLine}
         ${body}
       </div>
     </div>
@@ -279,6 +354,8 @@ function segmentHtml(seg) {
 // which was enough to burst past Groq's per-minute rate limit. See stock-search-batch.js's header
 // comment for the full breakdown.
 async function hydrateClips() {
+  // Only "new" beats need their own search — "continue"/"callback" reuse an earlier visual, and
+  // "none" has nothing to show (see segment.js's coverage pass / segmentHtml's isEmpty/isReuse).
   const targets = SEGMENTS.filter(s => s.coverageMode === "new" && s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
   if (!targets.length) return;
 
@@ -321,6 +398,10 @@ async function hydrateClips() {
   }
 }
 
+// A "new" beat's search should cover every segment continuing/callback-referencing it too, not
+// just its own text — otherwise a continuation beat's extra detail never reaches the search that's
+// supposed to represent it. Reads SEGMENTS directly, not just the target list, since a referencing
+// segment could be anywhere later in the script.
 function completeVisualSpan(origin) {
   const shared = SEGMENTS.filter(s => s.idx === origin.idx ||
     ((s.coverageMode === "continue" || s.coverageMode === "callback") && s.visualRef === origin.visualId));
@@ -361,10 +442,15 @@ const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="non
 // Results are cached in memory on the segment so re-preview doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
+  // "continue"/"callback" beats have no search plan of their own (see segment.js's coverage
+  // pass) — the button shouldn't even be rendered for them, but guard anyway.
   if (!seg || seg.coverageMode !== "new") return;
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
-  const searchingMsg = seg.family === "reference" ? "Searching for reaction clips and stock footage…" : "Searching for real footage…";
+  const imagesOnly = DEBUG_IMAGES_ONLY && seg.family !== "reference";
+  const searchingMsg = seg.family === "reference"
+    ? "Searching for reaction clips and stock footage…"
+    : (imagesOnly ? "Searching for photos…" : "Searching for real footage…");
   container.innerHTML = `<p class="no-clip-msg">${searchingMsg}</p>`;
 
   try {
@@ -379,9 +465,18 @@ async function findFootage(segIdx) {
     const searchRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // debugImagesOnly is ignored by reference-search.js (it has no such flag). For evidence
+      // beats it now forces every claim to search photos and skip video (see evidence-search.js,
+      // 2026-07-21) — the old segment-level depictionType gate is no longer read there, superseded
+      // by the new per-claim mediaType judgment, so it's no longer sent. visualMode/visualQueries/
+      // visualGoal/eraHint (segment.js's editorial plan) ride along as a prior for evidence-search
+      // to verify against local claim context — ignored by reference-search.js. segmentText spans
+      // every segment continuing/callback-referencing this one (see completeVisualSpan), not just
+      // this segment's own text.
       body: JSON.stringify({
         segmentText: completeVisualSpan(seg),
         context,
+        debugImagesOnly: imagesOnly,
         visualMode: seg.visualMode,
         visualQueries: seg.visualQueries,
         visualGoal: seg.visualGoal,
@@ -404,18 +499,28 @@ async function findFootage(segIdx) {
       return;
     }
 
-    seg.evidence = { claims: search.claims || [] };
+    // evidence-search.js now splits the moment into claims and judges video/photo/both PER CLAIM
+    // (2026-07-21 — see its header comment) instead of extracting one intent per click. Logged
+    // here so the split + per-claim mediaType decision is visible in the browser console without
+    // a live wrangler tail.
+    const claims = search.claims || [];
+    console.log(
+      `[cliphunt] seg #${segIdx} imagesOnly=${imagesOnly} ${claims.length} claim(s): ` +
+      claims.map(c => `[${c.mediaType} video=${(c.videoCandidates || []).length} photo=${(c.photoCandidates || []).length}]`).join(" ")
+    );
+
+    seg.evidence = { claims };
     renderEvidenceClaims(segIdx);
   } catch (err) {
     container.innerHTML = `<p class="no-clip-msg">Couldn't find footage: ${escapeHtml(err.message)}</p>`;
   }
 }
 
-// Multi-claim evidence result: evidence-search.js splits the moment into its independently
-// real, independently evidence-worthy claims (a moment naming several separate achievements no
-// longer collapses into one query) and judges per claim which medium(s) fit — so each claim gets
-// its own labeled group with its own video and/or photo candidates, rather than one flat pooled
-// list.
+// Renders one labeled .claim-group per claim the moment was split into (see evidence-search.js's
+// 2026-07-21 multi-claim decomposition) — each group has its own video cards (claimVideoCardHtml/
+// openClaimVideoPreview) and photo cards (photoCardHtml/openPhotoPreview), only for whichever
+// medium(s) that claim's mediaType actually called for. Replaces the old flat renderEvidence(),
+// which pooled one intent's results into a single unlabeled queue.
 function renderEvidenceClaims(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
@@ -425,16 +530,123 @@ function renderEvidenceClaims(segIdx) {
     container.innerHTML = `<p class="no-clip-msg">No footage candidates found.</p>`;
     return;
   }
-  container.innerHTML = claims.map((claim, claimIdx) => {
-    const videoCards = (claim.videoCandidates || []).map((c, i) => claimVideoCardHtml(segIdx, claimIdx, i, c)).join("");
-    const photoCards = (claim.photoCandidates || []).map((c, i) => photoCardHtml(segIdx, claimIdx, i, c)).join("");
-    const cards = videoCards + photoCards;
-    return `
-      <div class="claim-group">
-        <div class="claim-label">${escapeHtml(claim.claim || "")}</div>
-        ${cards ? `<div class="clip-queue">${cards}</div>` : `<p class="no-clip-msg">No candidates found for this claim.</p>`}
-      </div>`;
+  container.innerHTML = claims.map((c, ci) => {
+    const cards =
+      (c.videoCandidates || []).map((cand, vi) => claimVideoCardHtml(segIdx, ci, vi, cand)).join("") +
+      (c.photoCandidates || []).map((img, pi) => photoCardHtml(segIdx, ci, pi, img)).join("");
+    const body = cards
+      ? `<div class="clip-queue">${cards}</div>`
+      : `<p class="no-clip-msg">No candidates found for this claim.</p>`;
+    return `<div class="claim-group"><p class="claim-label">${escapeHtml(c.claim || "")}</p>${body}</div>`;
   }).join("");
+}
+
+// Deliberately a small, acknowledged duplication of evidenceCardHtml/openEvidencePreview rather
+// than changing that function's data shape — reference-search.js's reaction-clip feature also
+// still relies on evidenceCardHtml/openEvidencePreview reading seg.evidence.candidates as a flat
+// array, so evidence beats now need their own claim-indexed [claimIdx][candIdx] variant instead.
+function claimVideoCardHtml(segIdx, claimIdx, candIdx, cand) {
+  const thumbStyle = cand.thumb
+    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const label = evidenceLabel(cand);
+  return `
+    <div class="clip-card" onclick="openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
+        ${cand.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${label.text}</div>
+    </div>`;
+}
+
+function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
+  const cand = SEGMENTS[segIdx].evidence.claims[claimIdx].videoCandidates[candIdx];
+
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = "";
+  document.getElementById("modal-play").style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1`;
+  iframe.style.display = "block";
+
+  document.getElementById("modal-title").textContent = cand.title || "";
+  document.getElementById("modal-sub").textContent = `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = cand.url;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
+
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+// A photo result card. The thumbnail shown is Google's own hosted thumb (via SerpAPI) — the
+// full-res original is never fetched or hotlinked (same link-only rule as YouTube evidence: this
+// app points at content it doesn't have rights to redistribute, it doesn't serve it). Clicking
+// opens the same preview modal the video path uses, showing the thumbnail plus a "View source
+// page" external link as the single action — mirroring the video path's "link out, don't
+// download" posture instead of being a bare anchor tag.
+function photoCardHtml(segIdx, claimIdx, photoIdx, img) {
+  const thumbStyle = img.thumb
+    ? `background-image:url('${escapeHtml(img.thumb)}'); background-size:cover; background-position:center;`
+    : "";
+  return `
+    <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
+      </div>
+      <div class="clip-label">${escapeHtml(img.title || "")}</div>
+      <div class="clip-sub">${escapeHtml(img.domain || "")}</div>
+    </div>`;
+}
+
+function openPhotoPreview(segIdx, claimIdx, photoIdx) {
+  const img = SEGMENTS[segIdx].evidence.claims[claimIdx].photoCandidates[photoIdx];
+
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  document.getElementById("modal-play").style.display = "none";
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = img.thumb ? `url('${img.thumb}')` : "";
+  thumbEl.style.backgroundSize = "cover";
+  thumbEl.style.backgroundPosition = "center";
+
+  document.getElementById("modal-title").textContent = img.title || "";
+  document.getElementById("modal-sub").textContent = `Photo · ${img.domain || ""}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = img.pageUrl;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} View source page`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none";
+
+  document.getElementById("modal-overlay").classList.add("open");
 }
 
 // Renders BOTH result sets for a "reference" beat together in one queue — YouTube reaction
@@ -483,51 +695,12 @@ function evidenceCardHtml(segIdx, candIdx, cand) {
     </div>`;
 }
 
-// Same markup/shape as evidenceCardHtml, but a claim-grouped card needs a 3rd coordinate
-// (claimIdx) to find its candidate — evidenceCardHtml's onclick is hardcoded to 2 args, so it
-// can't be reused directly here. evidenceLabel() (score/reason formatting) still is.
-function claimVideoCardHtml(segIdx, claimIdx, candIdx, cand) {
-  const thumbStyle = cand.thumb
-    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
-    : "";
-  const label = evidenceLabel(cand);
-  return `
-    <div class="clip-card" onclick="openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
-        ${cand.thumb ? "" : PLAY_ICON}
-      </div>
-      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${label.text}</div>
-    </div>`;
-}
+// Standard (non-trimmed) YouTube embed for preview — evidence/reference results are references
+// for the user to watch and judge, not files this app hands out. The single action button is an
+// external link, not a download.
+function openEvidencePreview(segIdx, candIdx) {
+  const cand = SEGMENTS[segIdx].evidence.candidates[candIdx];
 
-// Real photo evidence (Google Custom Search, image mode) for a cumulative/status claim with no
-// single filmable instant. Same card shell as the video/stock cards; the "PHOTO" chip is the only
-// source distinction shown, same established pattern every other clip-queue in this app uses.
-function photoCardHtml(segIdx, claimIdx, photoIdx, photo) {
-  const thumbStyle = photo.thumb
-    ? `background-image:url('${photo.thumb}'); background-size:cover; background-position:center;`
-    : "";
-  const label = evidenceLabel(photo);
-  return `
-    <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
-        ${photo.thumb ? "" : PLAY_ICON}
-      </div>
-      <div class="clip-label">${escapeHtml(photo.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${label.text}</div>
-    </div>`;
-}
-
-// Shared DOM-wiring body for both video preview entry points below — takes an already-resolved
-// candidate object, so it doesn't care whether the caller looked it up from a flat candidates
-// array (reference beats) or from claims[claimIdx].videoCandidates (evidence beats). Standard
-// (non-trimmed) YouTube embed — evidence/reference results are references for the user to watch
-// and judge, not files this app hands out. The single action button is an external link, not a
-// download.
-function renderVideoPreviewModal(cand) {
   const thumbEl = document.getElementById("modal-thumb");
   thumbEl.style.backgroundImage = "";
   document.getElementById("modal-play").style.display = "none";
@@ -550,60 +723,6 @@ function renderVideoPreviewModal(cand) {
   actionBtn.rel = "noopener";
   actionBtn.removeAttribute("download");
   actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
-  actionBtn.style.display = "";
-
-  const trimRow = document.getElementById("trim-row");
-  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
-}
-
-function openEvidencePreview(segIdx, candIdx) {
-  renderVideoPreviewModal(SEGMENTS[segIdx].evidence.candidates[candIdx]);
-  document.getElementById("modal-overlay").classList.add("open");
-}
-
-function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
-  renderVideoPreviewModal(SEGMENTS[segIdx].evidence.claims[claimIdx].videoCandidates[candIdx]);
-  document.getElementById("modal-overlay").classList.add("open");
-}
-
-// Real photo evidence preview: never hotlinks the raw third-party image URL into the DOM — only
-// Google's own thumbnail CDN (same trust tier the YouTube thumbnail CDN already gets) is ever
-// rendered. The primary action is a "View source page" external link, mirroring the video path's
-// "link out, don't download" posture. #modal-thumb is otherwise only ever cleared by every other
-// preview path (openEvidencePreview/openPreview both hide it in favor of the iframe/video) — this
-// is the first path that actually populates it, so it must also fully tear down whatever the
-// modal was showing last: a still-playing stock video, and — confirmed live in setupStockTrimRow()
-// — a #trim-row left visible from a prior stock preview, since nothing but openEvidencePreview/
-// closePreview otherwise hides it again.
-function openPhotoPreview(segIdx, claimIdx, photoIdx) {
-  const photo = SEGMENTS[segIdx].evidence.claims[claimIdx].photoCandidates[photoIdx];
-
-  const iframe = document.getElementById("modal-iframe");
-  iframe.src = "";
-  iframe.style.display = "none";
-
-  const video = document.getElementById("modal-video");
-  if (video) {
-    video.pause();
-    video.src = "";
-    video.style.display = "none";
-  }
-
-  document.getElementById("modal-play").style.display = "none";
-  const thumbEl = document.getElementById("modal-thumb");
-  thumbEl.style.backgroundImage = `url('${photo.thumb}')`;
-  thumbEl.style.backgroundSize = "cover";
-  thumbEl.style.backgroundPosition = "center";
-
-  document.getElementById("modal-title").textContent = photo.title || "";
-  document.getElementById("modal-sub").textContent = `Photo · ${photo.displayLink || ""} · ${evidenceLabel(photo).text}`;
-
-  const actionBtn = document.getElementById("modal-download");
-  actionBtn.removeAttribute("download");
-  actionBtn.href = photo.sourceLink;
-  actionBtn.target = "_blank";
-  actionBtn.rel = "noopener";
-  actionBtn.innerHTML = `${EXTERNAL_ICON} View source page`;
   actionBtn.style.display = "";
 
   const trimRow = document.getElementById("trim-row");

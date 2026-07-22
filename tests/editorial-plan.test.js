@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  enforceProductFocus,
   enforceVisualPlan,
   enforceFeelQueryRule,
   normalizeCoveragePlan,
@@ -57,15 +56,19 @@ test("family remains authoritative when model returns a contradictory mode", () 
   assert.equal(evidence.visualMode, "exact");
 });
 
-test("new reference beats use editorial stock without breaking saved legacy rendering", () => {
-  const [withFallback] = enforceProductFocus([{
+// "reference" (meme/reaction callback) keeps its own separate pipeline (reference-search.js) —
+// enforceVisualPlan must leave its family untouched and strip visual-planning fields the same way
+// it does for "nothing", rather than silently reassigning it into feel/stock territory.
+test("reference beats are untouched by visual planning, same as nothing", () => {
+  const [seg] = enforceVisualPlan([{
     family: "reference",
     query: "person staring in stunned silence",
-    reason: "recognized callback",
+    visualMode: "stock",
+    visualQueries: ["should not survive"],
   }]);
-  const [withoutFallback] = enforceProductFocus([{ family: "reference", query: null }]);
-  assert.equal(withFallback.family, "feel");
-  assert.equal(withoutFallback.family, "nothing");
+  assert.equal(seg.family, "reference");
+  assert.equal("visualMode" in seg, false);
+  assert.equal("visualQueries" in seg, false);
 });
 
 test("nothing beats cannot leak stale visual searches", () => {

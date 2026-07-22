@@ -1,26 +1,5 @@
 # ClipHunt — handoff notes
 
-## Current product direction (2026-07-22)
-The retrieval focus is now **evidence footage + editorial filler/visual storytelling**. New
-segmentation does not emit `reference`; saved legacy reference segments still render through the
-old endpoint, but reaction/meme discovery is no longer being developed. Evidence search also keeps
-the old photo response shape for frontend compatibility while returning video-only results; Google
-CSE photo search is no longer fanned out.
-
-The visual planner is deliberately broader than literal extraction:
-- `visualMode:"exact"` preserves the strict existing evidence pipeline.
-- `visualMode:"subject_broll"` finds truthful illustrative footage of the resolved real subject
-  for abstract traits/arcs (training for work ethic, recovery/continued practice for resilience),
-  with `eraHint` treated as a hard rerank constraint. It must not be presented/scored as proof of
-  an unstated event.
-- `visualMode:"stock"` may infer low-factual-stakes editorial metaphors for abstract narration.
-  `visualQueries` contains up to three distinct shot strategies rather than synonyms, and
-  `visualGoal` tells the reranker what the cut should communicate.
-
-All new fields are additive: old projects and malformed model output fall back to the original
-single `query`, exact evidence, or stock behaviour through `enforceVisualPlan()`. Tests live in
-`tests/editorial-plan.test.js` and run with `npm test`.
-
 ## What this is
 A tool for video creators: paste/upload a script (or a voiceover to transcribe), it gets
 broken into distinct moments, and each moment gets matched with candidate footage to cut to.
@@ -35,13 +14,7 @@ Migrated off Netlify after hitting its free-tier deploy-credit wall — the old 
 - Groq (free tier), YouTube Data API, and Pexels keys live in **Cloudflare Pages secrets**
   (`GROQ_API_KEY`, `YOUTUBE_API_KEY`, `PEXELS_API_KEY`), never in code. `GIPHY_API_KEY` is no
   longer used (gifs dropped entirely, see "Clip search" below) — safe to remove from Cloudflare
-  secrets. As of 2026-07-19, `GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` (Google Custom Search, image
-  mode — a plain API key + Programmable Search Engine ID, NOT the same credential type as any
-  service-account JSON on the project) join this list, for evidence-search.js's photo evidence —
-  see "Multi-claim decomposition + photo evidence" below. Soft-guarded like `PEXELS_API_KEY`: not
-  checked at the top of `onRequestPost`, a claim's photo search just returns `[]` if either is
-  missing, since photo only broadens evidence-search's core "find video evidence" identity.
-  NOTE: Pages binds secrets at deploy time — after changing a secret you must
+  secrets. NOTE: Pages binds secrets at deploy time — after changing a secret you must
   **redeploy** for functions to see it. **No non-Cloudflare piece anymore** — the yt-dlp/ffmpeg
   worker (Render) was decommissioned, see below.
 - **No longer strictly free-tier (2026-07-18):** segmentation and evidence-search's intent
@@ -95,61 +68,6 @@ workflow ("hunt for clips," not "edit here") rather than on owning the clip file
   that used to live here (`setupTrimRow`, signed via `sign-clip.js`) is gone — trimming moved to
   stock/Pexels clips only, see below, since that's the one source this app is actually allowed to
   redistribute.
-
-## Multi-claim decomposition + photo evidence (`evidence-search.js`, 2026-07-19)
-Traced a real bug: `evidence-search.js` used to extract exactly ONE search intent per "Find
-footage" click. A moment narrating several independent, real, evidence-worthy facts (e.g. "Kane
-became the tournament's top scorer, won the Golden Boot, and kept breaking record after record")
-got collapsed into a single YouTube query — two of three real claims silently discarded, with no
-trace anywhere. This is unrelated to `segment.js`'s `evidence`/`categoryClaim` classification gate,
-which was already correct; the gap was entirely inside what happened after a click on an
-already-correctly-classified `evidence` segment.
-
-- **Claim splitting (STEP 1 of the intent-extraction prompt)**: the moment is now split into its
-  genuinely separate claims before intent resolution runs — most moments still produce exactly ONE
-  claim (unchanged common case); splitting only happens when the moment lists two or more
-  independently real, independently evidence-worthy facts (test: remove one clause — does the rest
-  still describe a complete fact on its own?). A moment narrating one continuous action across
-  several clauses stays ONE claim. The existing context-resolution rules (the "TWO RULES" for
-  pulling a subject/event out of preceding narration, the specific-vs-generic test, the spoken-quote
-  rule) are unchanged in substance, just applied per claim instead of once per click.
-- **Per-claim media judgment (STEP 2)**: not every real claim is a singular filmable instant — a
-  cumulative/status fact ("record after record") was never one filmable moment, but real news
-  photography of the subject in that context plausibly exists. Each claim gets a `mediaType`:
-  `"video"`, `"photo"`, or `"both"` — judged individually per claim, with an explicit guardrail
-  against defaulting to `"photo"` just because a claim sounds like an achievement (check first
-  whether it resolves to one identifiable real event with likely footage).
-- **Photo source is Google Custom Search, image mode** (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` — see
-  "Stack, deliberately" above) — chosen over Pexels (generic stock, doesn't answer "a real specific
-  event photo") and Wikimedia (patchy coverage for this). `searchPhotoEvidence()` hits
-  `customsearch/v1` with `searchType=image` (10 results — the API's documented per-request cap,
-  smaller than YouTube's 12) and a new `rerankPhotoCandidates()`/`PHOTO_RERANK_PROMPT` mirrors
-  `rerankCandidates`'s exact shape (same Groq `gpt-oss-20b`, same `MIN_RERANK_SCORE` bar) but scores
-  by title/snippet/source-domain credibility, since raw pixels aren't inspected. Google CSE items
-  carry no natural stable id (unlike YouTube's `videoId` or Pexels' `id`), so candidates get a
-  request-scoped index-based `id` purely to correlate the rerank response — never persisted.
-- **Response shape**: `{claims: [{claim, footageType, subject, quote, mediaType, videoCandidates,
-  photoCandidates}]}`, replacing the old single-object response. Video search (`searchVideoForClaim`)
-  reuses `searchYouTubeVideos`/`enrichCandidates`/`rerankCandidates` unchanged, just reranking
-  against the individual claim's own text rather than the whole (now possibly multi-claim) segment.
-  Every claim×medium search runs concurrently through one flat `Promise.all` (same
-  never-throwing-pipelines pattern `reference-search.js` established), then results get reassembled
-  by claim index.
-- **Frontend (`app.js`)**: `findFootage()`'s evidence branch now populates `seg.evidence.claims`
-  and calls `renderEvidenceClaims()` — one labeled `.claim-group` per claim, each with its own
-  video cards (`claimVideoCardHtml`/`openClaimVideoPreview`) and photo cards
-  (`photoCardHtml`/`openPhotoPreview`). `openEvidencePreview`'s DOM-wiring body was extracted into
-  a shared `renderVideoPreviewModal(cand)` so both it (reference-beat pathway, unchanged data
-  shape: `seg.evidence.candidates`) and `openClaimVideoPreview` (evidence-beat pathway:
-  `seg.evidence.claims[i].videoCandidates`) reuse the same modal code. Photo preview never hotlinks
-  the raw third-party image URL — only Google's own thumbnail CDN renders, and the primary action
-  is a "View source page" external link (same "link out, don't download" posture as the video
-  path). The dead `renderEvidence()` (single-list renderer) was removed, not left dangling.
-- **Cost/quota**: decomposition stays ONE Claude call regardless of claim count. Downstream
-  searches DO multiply — a 3-claim, all-`"both"` moment means up to 6 concurrent searches from one
-  click. Google Custom Search's 100 free queries/day is the tightest real constraint here,
-  trivially exhausted by light multi-claim testing, then $5/1000 queries — watch it alongside
-  YouTube's existing quota, which is also consumed faster per click than before this change.
 
 ## The 4-category taxonomy (this is the core design decision)
 Every segment gets classified into one of:
@@ -656,6 +574,174 @@ right (below) turned out to have its own sharp edge too. Lessons learned the har
     perseverance theme handled correctly elsewhere in the same script via the rhythmic-list
     exception, but not here in prose form). Worth another look only if the live logging shows a
     recurring pattern, not worth chasing from a single script's data alone.
+19. **`subject` no longer requires a depicted action — replaced `findable` with `depictionType`
+    (2026-07-20).** The user reviewed a real 71-segment script's per-segment `reason` output
+    (surfaced by the previous session's logging work) and found a genuine, recurring mistake, not
+    a tuning nit: `"Jude Bellingham had emerged as a superstar."`, `"Bukayo Saka was electric."`,
+    and `"That resilience is one of the reasons teammates and managers continue to trust him."` —
+    each names a real, clearly resolvable subject, but got `subject: null` and dropped to
+    `"nothing"`, because the concreteness gate (points 6-18 above) required a depictable ACTION to
+    be attached to the name, not just a real, identifiable entity. A reputation claim, a role, or
+    an inherited real event about a real named subject doesn't count as an action, but there's
+    obviously something real and searchable worth trying.
+
+    **The user's own framing, which is the actual design principle here, quoted directly:** think
+    like a video editor first ("what should I use to show this?"), and only AFTER that ask "can I
+    actually find it, given I only have YouTube + Google Images + stock, with a relevance rerank
+    as the last line of defense? If not, don't bother." The empirically-verified rerank score
+    (`MIN_RERANK_SCORE`, already implemented in `evidence-search.js`) should decide "nothing
+    found," not an upfront LLM guess before ever searching. Checked this session: `"feel"`
+    (`stock-search.js`) and `"reference"` (`reference-search.js`) already work exactly this way —
+    no pre-search gate, always search, let the rerank threshold decide. `"evidence"` was the only
+    family that pre-judged before trying, via `findable`/`enforceFindabilityRule`. This change
+    brings `"evidence"` in line with the rest of the app rather than inventing a fourth philosophy.
+
+    **The core change**: naming `"subject"` now requires only a real, specific, identifiable
+    entity/event — not that something is physically happening in the segment's own text. Three
+    distinct failure modes still null it out, kept deliberately separate (see the prompt's own
+    worked examples for each): (1) nothing real/identifiable exists at all (`"The chat lost it..."`
+    — unchanged, strict), (2) a real name resolves but the segment asserts nothing beyond bare
+    existence — `"Then Harry Kane happened."` — the sharpest new overshoot risk, since without this
+    explicit guard the model could read "any resolvable name" as sufficient, which would be a
+    strictly worse regression than the one being fixed (same discipline as every prior loosening in
+    this file: never ship a rescued example without a paired non-rescue counter-example), and (3)
+    the PRE-EXISTING, already-battle-tested "incomplete rhetorical setup, not a complete claim"
+    exclusion — `"It wasn't just a missed penalty."` — preserved exactly as it was; this used to
+    sit in the same bullet as the resilience/trust example above, and the two had to be split
+    apart rather than merged, since the resilience example is now rescued and the missed-penalty
+    one is not, for a genuinely different reason (incomplete vs. complete claim, not action vs. no
+    action).
+
+    Also new: **subject/event inheritance for evidence**, extending the existing feel-anchor
+    inheritance mechanism (point 17) past just pronouns/physical gestures — a segment with no
+    action of its own but still narratively inside an already-established real event (a match, a
+    round) inherits that event as `subject`. `"Then Croatia slowly took control."` inherits the
+    already-established 2018 World Cup semi-final. And a new **checkable stat/record visual
+    target**: a factual/numeric/ranking claim about a subject (`"He was already England's all-time
+    leading goalscorer..."`) is a real, filmable-adjacent target even with nothing physically
+    happening — a stats graphic/leaderboard, not a photo of a moment.
+
+    **New field: `depictionType`** (`"instant"` / `"fallback"`), replacing `findable`'s old scope,
+    asked only for `"evidence"` segments. This is NOT "does this segment show an action" — it's
+    "is there a well-defined, SPECIFIC visual target worth an image search," which is broader than
+    bare physical action: a checkable stat/record (the goalscorer-chart case) or a specific real
+    event embedded in an otherwise-general sentence (a real post-match interview mentioned
+    alongside "continued captaining England") are both `"instant"`, even though neither is a
+    physical action in progress. `"fallback"` is reserved for genuinely non-specific cases — a bare
+    trait/reputation/role claim, or an inherited event with nothing new added.
+
+    **Why this matters beyond classification — image-search quota scoping.** SerpAPI's 250/month
+    free quota (the tightest in the app) can't absorb an image search for every newly-rescued
+    segment now that far more segments reach `evidence-search.js` at all. Product decision made
+    with the user: `depictionType` gates whether `searchGoogleImages` runs in production at all —
+    `"instant"` beats get an image search, `"fallback"` beats get YouTube only.
+    `evidence-search.js`'s `shouldSearchImages = debugImagesOnly || depictionType === "instant"` —
+    the existing "Photos-only test mode" debug toggle still force-overrides this for testing,
+    regardless of production scope. A new `imagesSearched` boolean rides the response so `app.js`
+    can tell "we searched and found nothing" (empty `images`, `imagesSearched: true`) apart from
+    "we never searched this one" (`imagesSearched: false`) — without it, a `"fallback"` beat's
+    empty image array would misleadingly read as a failed search.
+
+    **Deleted**: `findable`, `enforceFindabilityRule()`, and their schema/prompt mentions. Nothing
+    outside `segment.js` read `findable` except `app.js`'s own inert debug display — confirmed safe
+    to remove with no other breakage. Pipeline collapses from `mergeFragments → enforceEvidenceRule
+    → enforceFindabilityRule → enforceFeelQueryRule` to `mergeFragments → enforceEvidenceRule →
+    enforceFeelQueryRule`; `enforceEvidenceRule()` itself needed no logic change (it only checks
+    `subject`/`categoryClaim` truthiness, which now naturally covers more cases).
+
+    **Consequence for `evidence-search.js`**: gained two new prompt modes (a general-subject
+    `youtubeQuery` framing for `"fallback"` beats, and a stats-graphic `imageQuery` framing for
+    checkable-record beats) and now receives `depictionType` in the request body (defaulting to
+    `"fallback"` for older cached segments predating this field) to decide both the query framing
+    and the image-search gate above. Note the query itself can still get MORE specific than the
+    upstream label suggests (the interview-vs-captaining case) — that's independent of the
+    image-search gate, which stays keyed strictly to the upstream field for mechanical simplicity,
+    a deliberate simplification worth revisiting if it proves too conservative live.
+
+    **Live-tested (2026-07-20): real improvement, plus one confirmed follow-up bug.** Re-ran the
+    71-segment script — `"nothing"` count dropped from ~40 to 29, and the guard against the
+    contentless-name overshoot held (nothing false-positived). One real bug found: `"Then came
+    France."` (the actual next-opponent transition into the 2022 World Cup quarterfinal) was
+    landing on `"nothing"` — NOT metaphorical, a real match that actually happened — instead of
+    resolving to a real YouTube/image search. **Root cause, confirmed by inspection**: this
+    fragment has the EXACT same surface shape as the point's own new overshoot guard example,
+    `"Then Harry Kane happened."` (a short "Then [X] happened/came" transition) — the guard,
+    written to null out bare hype re-mentions of an already-established subject, was catching a
+    structurally identical but semantically different case: introducing a BRAND NEW opponent/event
+    for the first time as the next step in an ongoing progression, which IS real content (a genuine
+    real fixture), not a bare re-mention. `evidence-search.js`'s own "TWO RULES" block already knew
+    how to handle this correctly (it's one of that prompt's own worked examples, predating this
+    change) — but it never got the chance, because segment.js's classifier dropped the segment to
+    `"nothing"` before the click could ever reach that endpoint.
+
+    **Fixed** by adding an explicit third case to the subject-resolution rules (right after the
+    event-inheritance paragraph, cross-referenced from the "asserts nothing" guard so the two can't
+    drift apart again): a "Then/But then came [NAME]." fragment introducing a genuinely NEW
+    opponent/event for the first time is real content and gets `subject` set to the actual matchup
+    (`depictionType: "instant"` — a specific, freshly-established real fixture), using BOTH
+    `"Then came France."` (2022 WC quarterfinal) and `"But then came Croatia."` (2018 WC
+    semi-final, same script) as the worked pair. The distinguishing test made explicit: does "Then
+    [X]" introduce a NEW name/event that wasn't the established subject a moment ago (real content,
+    subject set), or re-mention someone who WAS ALREADY the entire story's subject with nothing new
+    added (bare hype, stays null)? This also resolved an inconsistency flagged during the original
+    manual review of this same script (whether "But then came Croatia." should resolve like "Then
+    came France." or like "Then Croatia slowly took control." — it's the former; the latter is a
+    LATER continuation of an already-introduced match, a genuinely different case, correctly
+    `"fallback"`).
+
+    **That fix alone did NOT work — live-tested, confirmed by reading the actual `reason` field.**
+    "Then came France." still landed on `"nothing"` with `reason: "connective narration only"` —
+    the model never engaged with the new subject-inheritance rule at all. Root cause, found by
+    reading the model's own stated reason instead of re-guessing blind: "connective narration only"
+    is the exact wording tied to the FIRST `"nothing"`-family bullet ("But that wasn't the end of
+    the story.", "Here's the thing.") — a DIFFERENT section of the prompt, positioned much later,
+    that offers its own competing explanation for the same short "Then X." shape. The new rule
+    lived only in the `subject` section near the top; the model pattern-matched the transitional
+    grammar to the `"nothing"` bullet's own connective-narration example before ever getting there.
+    Declaring a rule once is not enough when a competing, differently-worded rule elsewhere in the
+    same prompt covers the identical surface grammar — same lesson as points 12/13's "example-
+    density asymmetry" bugs, just between two DIFFERENT bullets this time instead of one bullet's
+    own thin example set.
+
+    **That second attempt (planting the counter-example directly inside the connective-narration
+    bullet) ALSO failed — live-tested again, reported by the user as "did it again."** Two separate
+    prompt rewordings, in two different sections of the prompt, both failed to move this exact
+    segment off `"nothing"`. That's the threshold this file has used consistently elsewhere
+    (`mergeFragments`, `enforceEvidenceRule`, `enforceFeelQueryRule`): once a rule has failed to
+    hold across multiple wordings, stop wording it and check it in code instead.
+
+    **Fixed with a new deterministic function, `enforceNextOpponentRule()`.** Regex-matches a
+    segment whose ENTIRE text is a bare `"(But/And )?Then (came )?[Capitalized Word(s)]."` fragment
+    that the model classified `"nothing"`, and forces it to `evidence`/`depictionType:"instant"`
+    with the captured name as `subject`. **A real design mistake was caught and fixed before
+    shipping, not after**: the first version of this function required the captured word to also
+    appear capitalized mid-sentence elsewhere in the script, to distinguish a real proper noun from
+    a word merely capitalized by sentence-initial position — sound in theory, but checked against
+    the actual reported script before shipping and found to NOT hold: this script's short,
+    fragment-heavy style means "France" appears capitalized ONLY at fragment-initial position every
+    single time it's mentioned, never once truly mid-sentence, so the confirmation check would
+    never have fired for the exact case this function exists to fix. Caught by testing the check
+    against real data instead of trusting the design — same discipline this file has needed
+    repeatedly. Flipped to a blocklist approach instead: assume a capitalized word in this exact
+    narrow fragment shape IS a real name by default, and exclude only a small list of common
+    abstract/mood words (`"Silence"`, `"Doubt"`, `"Hope"`, etc.) that could plausibly appear
+    capitalized here purely from sentence-initial position. Deliberately asymmetric: a false
+    positive here is low-cost (a segment gets a search button that comes back empty via the
+    existing rerank threshold), while missing the real case is the thing that's failed twice
+    already — so this errs toward firing.
+
+    **Reported as still broken a third time, and the user called it — `enforceNextOpponentRule()`
+    was pulled entirely, deliberately, on the user's explicit direction ("drop that hardcoded
+    thing").** Three fix attempts (two prompt rewordings, one deterministic regex) on ONE reported
+    sentence, in a row, without a confirmed working result, is disproportionate — the user was
+    right to call a stop rather than let a fourth attempt get shipped. **Current status: an
+    accepted, unresolved miss.** `"Then came France."` (and same-shaped fragments) may still land on
+    `"nothing"`. No fix is in place for this specific case as of this entry. Before attempting a
+    fourth fix: get the actual live `reason`/`family` output first (this exact case has already
+    burned two attempts that skipped straight to a new fix without that), and weigh whether one
+    sentence in one test script is worth further engineering time at all — the project's own
+    standing principle (this file, further up: "there will be types it's not built for and that's
+    fine") applies here as much as anywhere.
 
 ## Scene context resolution — per click again, NOT a whole-script pass (reverted 2026-07-18)
 **This was a real, shipped-then-reverted mistake, worth reading in full before touching this area
@@ -935,6 +1021,246 @@ only ends up with no clip if BOTH searches come up empty.
   see "Segmentation" point 7 above) — neither current endpoint ever set `source`, and this new
   design's response shape doesn't use it either (both result sets are always present together,
   never switched), so it would have stayed permanently dead and confusing if left in place.
+
+## Google Images on evidence beats (SerpAPI, added 2026-07-19)
+Google's Programmable Search Engine was ruled out first — its "search the entire web" option was
+killed for all new engines in Jan 2026 (new engines are capped at 50 fixed domains; whole-web
+needs enterprise Vertex pricing), so SerpAPI's `google_images` engine is the whole-web image
+source instead. **Free plan: 250 searches/month, no card** — this is the tightest quota in the app
+(~8/day); identical searches within an hour hit SerpAPI's cache free. Upgrade path is $25/mo for
+1,000 if the product ever needs it. **(2026-07-20: no longer every evidence click — see
+segment.js's `depictionType` point in "Segmentation" above. Only "instant"-depiction beats spend a
+search in production now; "fallback" beats — a real subject with no specific enough visual target
+— skip it. The "Photos-only test mode" debug toggle still forces it on for any evidence beat.)**
+- **Scope: evidence beats ONLY, deliberately.** An images-for-reference-beats variant (meme
+  stills via the same emotion+"reaction meme" query logic) was planned and then explicitly cut
+  by the user before building ("drop the meme/feel part... just evidence for now") — if it comes
+  back, the design was: third intent field in `reference-search.js`, same common-vs-unusual
+  emotion judgment as the YouTube query, meme-native-domain preference (knowyourmeme/imgflip/
+  i.redd.it) in the filter profile.
+- `functions/api/_serpapi.js` (underscore = import-only, same as `_groq.js`): one export,
+  `searchGoogleImages(env, query)`. Fixed params do the type filtering AT GOOGLE — 
+  `image_type=photo` (excludes animated gifs/clipart/lineart at the source, per the user's
+  explicit "no gifs" requirement), `imgsz=l` (no icons/tiny thumbs), `safe=active`. Code-level
+  backstops behind that: a `.gif` extension check on the original URL, and a blocked-domain regex
+  (Pinterest = aggregator pointing at pins not sources; Getty/Alamy/Shutterstock/iStock/
+  Dreamstime/123rf/Depositphotos = watermarked-preview-only, useless to an editor). NEVER throws;
+  missing `SERPAPI_KEY`, quota exhaustion, or any fetch failure resolves to `[]` — images are
+  additive, so `evidence-search.js` deliberately does NOT hard-guard the key the way it guards
+  `ANTHROPIC_API_KEY`/`YOUTUBE_API_KEY` (same reasoning as `PEXELS_API_KEY` in
+  `reference-search.js`).
+- **No LLM rerank on images, deliberately** (unlike every other result type): with no vision, a
+  rerank could only score title+domain metadata — weak signal for an extra per-click Groq call.
+  Google Images' own ranking for a well-formed specific query is kept as-is; the deterministic
+  domain/type filters do the real quality work. Revisit only if live results are actually bad.
+- `evidence-search.js`: the Claude intent extraction gained an `"imageQuery"` field (rides the
+  existing call — NOT a new Claude call site) — same subject/year/event as `youtubeQuery` but
+  phrased for a still photo (drop video-title words, name the frozen instant). Falls back to
+  `youtubeQuery` if absent. The SerpAPI fetch starts before the YouTube pipeline and runs
+  concurrently with all of it (search+enrich+rerank), awaited only at response time. Response
+  gains `images: [...]`; the per-click log line now includes `imageQuery`, and `_serpapi.js` logs
+  raw/kept counts per search.
+- Frontend (`app.js`): `renderEvidence()` concatenates `imageCardHtml()` cards after the YouTube
+  candidates in the same `.clip-queue` (same pattern as `renderReferenceFootage()`), distinguished
+  by a new "IMG" `src-chip` (`.src-image`, blue). **An image card is a plain `<a target="_blank">`
+  to the image's SOURCE PAGE** — no preview modal, no full-res display, no download. The thumbnail
+  shown is Google's own hosted thumb (`encrypted-tbn`/data URI); the full-res `original` URL is
+  never returned by the API at all, so the frontend can't accidentally hotlink it — same link-only
+  boundary as YouTube evidence, enforced at the data shape, not just the UI.
+- Setup: `SERPAPI_KEY` as a Cloudflare Pages secret (Production), then force a redeploy
+  (`npx wrangler pages deploy . --project-name cliphunt --branch master --commit-dirty=true`) —
+  secrets bind at deploy time, standing rule.
+- Not yet verified live at the time of writing — needs a real script's evidence beats clicked
+  through with the secret set: confirm the IMG cards render, the queries in the tail log are
+  photo-shaped (not video-title-shaped), and junk domains actually get filtered.
+
+## Decision visibility + photos-only test mode (2026-07-20)
+Two real gaps surfaced testing the SerpAPI image feature: (1) `segment.js` and `evidence-search.js`
+both already compute and `console.log` a full reasoning trail per segment/click (family, subject,
+categoryClaim, findable, reason, imageQuery — see points 13/17-18 above and "Google Images on
+evidence beats") — but that visibility only ever existed via a live `wrangler pages deployment
+tail`, and `app.js`'s `buildLiveSegments()` silently stripped every one of those fields before a
+segment ever reached the page. So the actual decision data existed in the API response the whole
+time, it just never survived past project creation. (2) There was no way to test the image pipeline
+in isolation — every "Find footage" click on an evidence beat always ran the full YouTube
+search+enrich+rerank pipeline alongside the image search, so iterating on image results meant
+paying for (and waiting on) YouTube/Groq every time too.
+- `buildLiveSegments()` now keeps `subject`/`categoryClaim`/`findable`/`reason` instead of dropping
+  them. `segmentHtml()` renders `reason` (+ `findable` when set) as a small `.seg-reason` line under
+  every segment's text — always on, not gated, since it's free and this was the actual point of the
+  `reason` field existing in the first place. `renderWorkspace()` also `console.table()`s every
+  segment's full decision trail on load, and `new-project.html` does the same immediately after
+  segmentation returns (family counts + a table) — durable-enough visibility (survives in browser
+  devtools, no terminal needed) without building real persistent storage, matching this project's
+  "don't add infrastructure ahead of a real need" standing principle from point 13.
+- `evidence-search.js` now also returns `imageQuery` in its JSON response (previously logged
+  server-side only) and `app.js` shows it plus the kept-image count under each evidence beat's
+  results (`renderEvidence()`'s `imgNote`), and logs it to the browser console per click — so
+  "which segment decided it needed a picture, and what did it search for" is answerable from the
+  page itself.
+- **"Photos-only test mode"**: a checkbox in `workspace.html`'s header (`#debug-images-only`,
+  `.debug-toggle`/`.workspace-actions` in `style.css`), backed by `app.js`'s `DEBUG_IMAGES_ONLY`
+  (persisted in `localStorage` under `cliphunt_debug_images_only`). When on, evidence beats' button
+  reads "Find picture" instead of "Find footage" (`refreshFootageButtonLabels()` relabels buttons
+  in place on toggle — deliberately NOT a full segment-list re-render, which would have reset any
+  beat whose results were already fetched back to its button state, since `seg.clips` stays null
+  for evidence beats even after a successful fetch) and `findFootage()` sends
+  `debugImagesOnly: true` to `/api/evidence-search`. Scoped to `family === "evidence"` only —
+  "reference" keeps its own unrelated button/pipeline untouched.
+  `evidence-search.js` honors the flag by returning right after the SerpAPI call resolves,
+  skipping the `YOUTUBE_API_KEY` guard and the entire search+enrich+rerank chain. Intent extraction
+  (the Claude call) still always runs — `imageQuery` is produced by the same call as
+  `youtubeQuery`, there's no cheaper way to get it — so this saves the YouTube quota + Groq rerank
+  call per test click, not the Claude call. Off by default; every existing caller that doesn't send
+  the flag is unaffected.
+- **Deliberately NOT touched**: the "40/71 segments landed on `nothing`" complaint that prompted
+  this — the user wants to review real per-segment output together rather than have the
+  concreteness-gate prompt re-tuned blind again, given points 6-18's repeated history of one fix
+  introducing a new regression. The `reason` field surfaced by this change is exactly what that
+  review needs; no classification logic changed in this pass.
+
+## Multi-claim decomposition + per-claim photo evidence (`functions/api/evidence-search.js`, 2026-07-21)
+Root cause: tracing a real example (Harry Kane's segment covering "became the club's all-time top
+scorer, won the Golden Boot, and kept breaking record after record") against the live system found
+`evidence-search.js` extracted exactly ONE search intent per click and silently discarded two of
+the three real, independently-evidenced facts — the gap wasn't in `segment.js`'s classification
+(already correctly gates this as `evidence`), it was that the search endpoint had no concept of
+"this beat contains multiple distinct claims."
+- `SYSTEM_PROMPT` now runs two steps in the same single Claude call: STEP 1 splits the moment into
+  its genuinely separate claims (most moments still produce exactly one — the common case, unchanged
+  in spirit) using the test "if you removed one clause, would the rest still describe a complete,
+  separately-evidenced fact?" — deliberately does NOT split one continuous action narrated across
+  several clauses ("he ran up, paused, and smashed it into the corner" stays one claim). STEP 2
+  judges EACH claim independently for the existing `footageType`/context-resolution/quote rules
+  (the "TWO RULES," specific-vs-generic — preserved verbatim, just per-claim now) PLUS a new
+  `mediaType`: `"video"` (a real, singular, filmable instant), `"photo"` (a cumulative/status fact
+  with no single filmable moment — "record after record"), or `"both"` (ambiguous, or significant
+  enough that a real broadcast moment AND a notable press photo both plausibly exist — major
+  awards/records commonly land here). Explicit guardrail baked into the prompt: don't default to
+  "photo" just because a claim sounds like an achievement — check first whether it resolves to one
+  identifiable real event with likely footage; only fall back to "photo" when no single event can
+  be pointed to.
+- Two new per-claim query fields: `youtubeQuery` (set when `mediaType` is `"video"`/`"both"`, same
+  framing as before) and `photoQuery` (set when `mediaType` is `"photo"`/`"both"`) — phrased as a
+  news-photo-caption-style search (subject + event keywords), deliberately NOT the visual-scene
+  style used for stock footage elsewhere, since Google Image search indexes real caption/article
+  text.
+- **Photo search reuses the EXISTING `searchGoogleImages` (SerpAPI, see "Google Images on evidence
+  beats" above) per claim's `photoQuery`** — an earlier draft of this plan spec'd a brand-new Google
+  Custom Search integration (a second Google Cloud project, `GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID` as
+  new Cloudflare secrets) but that was scrapped before building: SerpAPI already does exactly this
+  job for this same endpoint, so standing up a second image-search integration next to it would
+  have been pure duplication. No new secrets, no new prerequisites.
+- This also means the old segment-level `depictionType` gate (`"instant"`/`"fallback"`, set by
+  `segment.js`, previously the sole thing deciding whether evidence-search.js spent a SerpAPI call)
+  is **no longer read by this endpoint** — the new per-claim `mediaType` judgment is a strictly more
+  precise signal (per claim, not per whole segment) and supersedes it for this purpose. `segment.js`
+  itself is unchanged and still computes `depictionType` for its own reasoning/UI display (the
+  `.seg-reason` line) — only `evidence-search.js` stopped consuming it.
+- A claim only searches the medium(s) its own `mediaType` calls for — not "always both" the way
+  `reference-search.js`'s reaction-clip feature works — since an unwanted video search for a claim
+  with no real filmable moment would reliably return nothing useful. All claim×medium searches run
+  concurrently via one flat `Promise.all`. `YOUTUBE_API_KEY` is no longer hard-guarded at the top of
+  the handler (a request can now be legitimately all-photo) — a missing key silently drops video
+  search for every claim instead of 500ing, same fail-open pattern already used for
+  `PEXELS_API_KEY`/`SERPAPI_KEY` elsewhere in this app.
+- `max_tokens` for the decomposition call bumped 4096 → 8192 (the answer can now be an array of
+  claims) — an estimate to re-verify against real multi-claim usage, not a confirmed-safe number,
+  same standing caveat as every other token-budget constant in this file's history.
+- Response shape is now `{claims: [{claim, footageType, subject, quote, mediaType, youtubeQuery,
+  photoQuery, videoCandidates, photoCandidates, videoSearched, photoSearched}]}` — replaces the old
+  flat `{subject, footageType, quote, candidates, images, imageQuery, imagesSearched}` shape
+  entirely. `app.js`'s `findFootage()` now populates `seg.evidence.claims` and calls a new
+  `renderEvidenceClaims()`, rendering one labeled `.claim-group` per claim with its own video cards
+  (new `claimVideoCardHtml()`/`openClaimVideoPreview()` — a small, deliberate duplication of
+  `openEvidencePreview()`'s modal-wiring rather than changing that function's data shape, since
+  `reference-search.js`'s reaction-clip feature still relies on it reading a flat
+  `seg.evidence.candidates` array) and photo cards (new `photoCardHtml()`/`openPhotoPreview()` —
+  clicking opens the same preview modal as video, showing the SerpAPI thumbnail plus a "View source
+  page" external-link action, mirroring the video path's link-out-don't-download posture instead of
+  being a bare anchor tag like the old `imageCardHtml()`). New `SOURCE_LABEL.photo = "PHOTO"` chip,
+  `.src-photo` CSS (light purple, `#d9a8ff`). The old `renderEvidence()`/`imageCardHtml()` are
+  deleted as dead code — their only caller was replaced.
+- **Debug toggle updated to match**: "Photos-only test mode" (`debugImagesOnly`) now forces every
+  claim to search photos and skips video entirely on all of them, rather than the old single-intent
+  "skip YouTube, run one image search" behavior — same cost-saving purpose (no YouTube quota + Groq
+  rerank round trip while iterating on the photo pipeline), adapted to the claims shape.
+- **Quota reality, unverified live**: decomposition stays ONE Claude call regardless of claim count
+  (no Anthropic cost multiplication), but downstream searches DO multiply — a 3-claim, all-`"both"`
+  moment means up to 6 concurrent searches from one click. SerpAPI's 250/month free plan (already the
+  tightest quota in the app, ~8/day) is the constraint to watch most closely now that a single click
+  can spend more than one image search; YouTube's existing quota is also consumed faster per click
+  than the old one-search behavior. Not yet verified against real usage.
+- **Not yet verified live**: the Kane example itself (expect exactly 3 claims — top-scorer record,
+  Golden Boot, "record after record" — with the trailing "legacy" clause correctly NOT becoming a
+  spurious 4th claim), a genuinely novel non-sports multi-claim example, a genuinely novel
+  single-claim example (confirm it stays one claim, not over-split), and that `items[]`-shaped
+  SerpAPI photo results actually look right per claim in the browser console. All deferred to the
+  user's own live testing pass, same standing practice as every other new feature in this file.
+- **`mediaType` overfitting correction (same day, before any live test)**: the owner caught, from
+  reading the prompt alone, that the first cut of the `mediaType` guardrail and ALL of its worked
+  examples were drawn from the Kane case that motivated the feature — the model had no worked
+  example anywhere near the shape of a non-achievement or negative claim (a criticism, an incident,
+  a habit, a reputation fact with no attached number) to generalize from, so it risked learning
+  "achievement = video/both, everything else = ambiguous" instead of the actual mechanism: whether
+  ONE real, filmable instant exists, independent of the claim's valence or domain. Fixed before any
+  live testing: the guardrail now explicitly names both failure directions (don't privilege
+  achievements as "video," don't privilege vagueness as "photo"), and the worked-example set was
+  expanded to six examples spanning sports/business, achievement/non-achievement, and
+  positive/negative/neutral valence — including a negative single-instant example (a CEO walking
+  out of a meeting -> "both") and a positive-but-not-an-achievement cumulative example (a reputation
+  for good attendance -> "photo") specifically to prove the test is about shape, not content. Same
+  standing practice this file has documented before (see segmentation's `subject`/`depictionType`
+  history): a judgment-call prompt rule isn't done until its worked examples are deliberately
+  diverse, not just the bug report's own example restated. No code-level backstop was considered for
+  `mediaType` — like the `subject`/`depictionType`/reference-search common-vs-unusual judgments, this
+  is inherently semantic with no regex/heuristic proxy, so the fix is prompt-only. Still not yet
+  verified live — the negative/non-achievement worked examples above are exactly what a first live
+  test should probe, alongside the original Kane regression check.
+
+## Editorial visual planning + sequence coverage (`segment.js`, `evidence-search.js`, `app.js`, 2026-07-23)
+Two additive layers on top of everything above — a segment/claim with none of these fields
+degrades to exactly the prior behavior:
+
+- **Per-segment/claim `visualMode`**: `"exact"` (existing behavior, footage must directly show the
+  claim), `"subject_broll"` (the narration is about a resolved real subject but the honest edit is
+  illustrative footage OF THAT SUBJECT — a trait/arc/compressed period, not proof of an inferred
+  action at the narrated instant; requires `subject` set, carries an `eraHint` so a childhood beat
+  never searches a subject's current era), or `"stock"` (unchanged `feel` behavior, now allowed to
+  infer a conventional low-stakes visual metaphor). `visualQueries` (1-3 diversified searches) and
+  `visualGoal` ride alongside. `segment.js`'s `enforceVisualPlan()` owns the routing — same
+  "model proposes, code corrects" split as `enforceEvidenceRule`.
+- **Sequence-level coverage pass**: `coverageMode` (`new`/`continue`/`callback`/`none`) traverses
+  the whole segmented sequence so adjacent beats about the same moment share one visual instead of
+  re-searching per segment. `normalizeCoveragePlan()` validates every `visualRef` in one ordered
+  pass — forward references, missing IDs, and chained references all collapse to `none`/`new`
+  rather than being trusted. `app.js` renders `continue`/`callback` beats as a small "Continue
+  SC.NN visual" link instead of their own search button, and `completeVisualSpan()` feeds
+  evidence-search/stock-search the FULL span of text across every beat referencing one visual, not
+  just the originating segment's own sentence.
+- **`segment.js`'s endpoint is now streamed** (`ReadableStream`, leading whitespace flush + 10s
+  heartbeat padding, `_claude.js`'s `collectClaudeStream`) with the response also constrained via
+  Anthropic's native `output_config.format` JSON-schema — the coverage-pass fields make responses
+  long enough to risk Cloudflare's non-streaming edge timeout (524). The browser always gets HTTP
+  200 by the time headers are sent (before the model has even run); a real failure only ever shows
+  up as `data.error` in the body — every caller checks `data.error`, not just `res.ok`.
+- **Reconciliation note**: this was originally built on a branch that also re-implemented
+  multi-claim decomposition and photo search from scratch, using a NEW Google Custom Search
+  integration (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID`) and dropping `reference`-family (meme/reaction)
+  support entirely. By the time this landed, `master` had already independently gained its own
+  multi-claim/photo work (see the section above) using the EXISTING SerpAPI integration and keeping
+  `reference` fully supported. Reconciled by keeping master's version of both and layering only the
+  genuinely new visualMode/coverage/streaming pieces on top — the Google CSE path and the
+  reference-family removal were dropped as redundant/undiscussed, not carried forward.
+- A real pre-existing bug also found and fixed here (unrelated to this feature): an unescaped
+  backtick in `segment.js`'s own prompt text (the "Then came France" example, referencing
+  `` `evidence-search.js` ``) broke the file at parse time. Confirmed via `git stash` this predated
+  this work.
+- Not yet verified against real API calls (no live keys in the environment this was built in) —
+  only the deterministic pipeline functions have isolated unit test coverage (`tests/`). First live
+  test should confirm: visibly correct `continue`/`callback` grouping on a real multi-beat moment,
+  `subject_broll` querying the right era, and no truncation on a long real script now that output
+  includes several more fields per segment.
 
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)

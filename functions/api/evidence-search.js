@@ -13,6 +13,38 @@
 // verification step to rebuild — it's the same signal, just surfaced in the UI instead of feeding
 // a caption-match step).
 //
+// 2026-07-21: MULTI-CLAIM DECOMPOSITION. One click on a beat like "He became the club's all-time
+// top scorer, won the Golden Boot, and kept breaking record after record" used to extract exactly
+// ONE search intent and silently discard two of the three real, independently-evidenced facts.
+// This endpoint now asks Claude to split the moment into its genuinely separate claims FIRST (most
+// moments still produce exactly one — see SYSTEM_PROMPT's STEP 1), then judges EACH claim
+// independently for both footageType (specific/generic, same rules as before) and a new
+// "mediaType": "video" | "photo" | "both" — some real claims (a cumulative record, a status fact)
+// were never one filmable instant but likely do have a real photo, so the model decides per claim
+// which medium(s) actually fit, rather than always searching video and falling back to photo, or
+// searching both indiscriminately. Response shape is now `{claims: [{claim, footageType, subject,
+// quote, mediaType, youtubeQuery, photoQuery, videoCandidates, photoCandidates, videoSearched,
+// photoSearched}]}` — replaces the old flat `{subject, footageType, quote, candidates, images,
+// imageQuery, imagesSearched}` shape entirely (app.js's renderEvidenceClaims() consumes this now;
+// the old renderEvidence()/imageCardHtml() are gone as dead code).
+//
+// Photo search reuses the EXISTING `searchGoogleImages` (SerpAPI, see _serpapi.js) per claim's
+// `photoQuery` — deliberately NOT a new Google Custom Search integration (an earlier draft of this
+// plan spec'd GOOGLE_CSE_API_KEY/GOOGLE_CSE_ID as new Cloudflare secrets; scrapped before building
+// — SerpAPI is already paid for, already wired, and already does exactly this job for this same
+// endpoint, so there was no reason to stand up a second image-search integration next to it). This
+// also means the old segment-level `depictionType` ("instant"/"fallback", set by segment.js) is no
+// longer used to gate photo search here — the new per-claim `mediaType` judgment is a strictly
+// more precise signal (per claim, not per whole segment) and supersedes it for this purpose.
+// segment.js still computes `depictionType` for its own reasoning/UI display; this endpoint simply
+// no longer reads it.
+//
+// `YOUTUBE_API_KEY` is no longer hard-guarded at the top of the handler the way it used to be —
+// with mediaType now claim-specific, a request can be legitimately all-photo (mediaType "photo" on
+// every claim), so a missing/misconfigured YouTube key should silently degrade to skipping video
+// search (same fail-open philosophy already used for PEXELS_API_KEY in reference-search.js and
+// SERPAPI_KEY in _serpapi.js) rather than 500ing a request that photo search alone could serve.
+//
 // Model split (2026-07-18): intent extraction (context resolution — the hard, reasoning-heavy
 // part, see the "TWO RULES" block below) moved to Claude Sonnet, targeting the exact kind of
 // context-resolution failure that motivated the swap (a fragment resolving to the wrong event
@@ -20,35 +52,20 @@
 // claim) stays on Groq's gpt-oss-20b — cheap, high-frequency (every YouTube search), and not the
 // part that was failing. This account is on a small real Anthropic balance, not a free tier —
 // see _claude.js's header comment.
-//
-// Multi-claim decomposition + photo evidence (2026-07-19): one click used to extract exactly ONE
-// intent, which silently collapsed a moment narrating several independent real facts (e.g. "Kane
-// became top scorer, won the Golden Boot, and broke record after record") into a single query —
-// two of three real claims discarded with no trace. STEP 1 below now splits a moment into its
-// genuinely separate claims (most moments still produce exactly one — that's still the common
-// case, unchanged). Separately, some real claims are cumulative/status facts with no single
-// filmable instant (a record tally, "record after record") but do plausibly have a real news
-// photo — STEP 2 judges "mediaType" per claim so photo is a deliberate per-claim choice, not a
-// blanket fallback for anything that sounds like an achievement. Photo search runs against Google
-// Custom Search's image mode (GOOGLE_CSE_API_KEY/GOOGLE_CSE_ID) — soft-guarded like PEXELS_API_KEY
-// in reference-search.js: this endpoint's core identity stays "find video evidence", photo only
-// broadens it, so a missing/misconfigured CSE key degrades a claim to video-only instead of
-// failing the whole request.
 import { groqChat } from "./_groq.js";
 import { claudeChat, extractText, extractJson } from "./_claude.js";
+import { searchGoogleImages } from "./_serpapi.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
-// Exported so reference-search.js's own rerank filter uses the same bar. Reused as-is for photo
-// candidates too (see rerankPhotoCandidates below) — same bar, same reasoning.
+// Exported so reference-search.js's own rerank filter uses the same bar.
 export const MIN_RERANK_SCORE = 30;
-
 const SYSTEM_PROMPT = `You extract search intent from ONE moment of a video script ("the moment") so a tool can find
-real footage AND real photos for it. You are given the script SO FAR (everything before the
-moment, a raw concatenation of preceding sentences) to resolve who/what/when it's about yourself —
-pronouns, elliptical fragments, and vague references included. This resolution is done fresh per
-click, one moment at a time, rather than as a separate whole-script pass computed once upfront: a
-prior version of this pipeline did that upfront resolution as one big batched call over every
+real footage/photos for it. You are given the script SO FAR (everything before the moment, a raw
+concatenation of preceding sentences) to resolve who/what/when it's about yourself — pronouns,
+elliptical fragments, and vague references included. This resolution is done fresh per click, one
+moment at a time, rather than as a separate whole-script pass computed once upfront: a prior
+version of this pipeline did that upfront resolution as one big batched call over every
 evidence/reference moment in the script at project-creation time, which turned out to make a
 single project-creation request's size scale with the whole script's length — for a long real
 script that reliably exceeded a single model call's practical limits. Resolving per click instead
@@ -61,51 +78,48 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","youtubeQuery":"...","mediaType":"video|photo|both","photoQuery":"..."}]}
+{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","youtubeQuery":"...","photoQuery":"...","visualMode":"exact|subject_broll","eraHint":"...","visualGoal":"..."}]}
 
-STEP 1 — split the moment into its claims.
+STEP 1 — split the moment into claims:
 
-Most moments produce exactly ONE claim — that's the common case, and most of the time you should
-return a single-element array. Only split into multiple claims when the moment lists TWO OR MORE
-genuinely separate, independently real, independently evidence-worthy facts. The test: if you
-removed one clause, would the rest still describe a complete, separately-evidenced fact? If yes for
-more than one clause, split. Do NOT split one continuous action just because it's narrated across
-several clauses — "He ran up, paused, and smashed it into the corner" is ONE claim (one continuous
-action), not three.
+Most moments produce exactly ONE claim — that is the common case; most of the time return a
+single-element array. Only split into multiple claims when the moment lists two or more genuinely
+separate, independently real, independently evidenced facts. The test: if you removed one clause,
+would the rest still describe a complete, separately-evidenced fact? If yes for more than one
+clause, split. Do NOT split one continuous action narrated across several clauses — that stays one
+claim.
 
-Worked example (sports): "Kane became the tournament's top scorer, won the Golden Boot, and kept
-breaking record after record — one moment continues to define his World Cup legacy." This splits
-into exactly THREE claims:
-  1. claim: "Kane became the tournament's top scorer"
-  2. claim: "Kane won the Golden Boot"
-  3. claim: "Kane kept breaking record after record"
-The trailing "one moment continues to define his World Cup legacy" is NOT a 4th claim — it's
-forward-referencing narration (gesturing at a moment without stating what happened), not a
-completed, independently evidenced fact.
+Worked examples:
+- "He became the club's all-time top scorer, won the Golden Boot that year, and kept breaking
+  record after record." -> THREE claims: "became the club's all-time top scorer", "won the Golden
+  Boot that year", "kept breaking record after record" — each is independently real and
+  independently evidenced (a record, an award ceremony, a cumulative pattern). A trailing clause
+  like "...and one moment continues to define his legacy" is forward-referencing narration, not a
+  completed fact — do NOT make it a 4th claim.
+- "The startup bootstrapped for three years, acquired two smaller competitors, then went public in
+  a blockbuster IPO." -> THREE claims (bootstrapping, acquisitions, IPO) — same reasoning, a
+  different domain.
+- "He ran up, paused for a beat, and smashed it into the top corner." -> ONE claim. This is a
+  single continuous action narrated in sequence, not separate facts — do not split a play-by-play
+  description of one event just because it has multiple clauses/verbs.
+- "That resilience is one of the reasons teammates and managers continue to trust him." -> ONE
+  claim, unchanged from before — a single complete statement about a real, already-established
+  person.
 
-Worked example (business, same pattern, different domain): "The company survived a hostile
-takeover attempt, settled the lawsuit that followed, and went public two years later" splits into
-THREE claims: the takeover attempt being survived, the lawsuit settlement, and the IPO — three
-separate real, independently findable events.
-
-Worked contrast (deliberately NOT split): "The alarm went off at 3am, she grabbed the extinguisher,
-and by the time firefighters arrived the fire was already out" is ONE claim — a single continuous
-incident narrated in sequence, not several independent facts.
-
-For EACH claim, resolve "footageType"/"subject"/"quote"/"youtubeQuery" using the rules below —
-these are the same resolution rules this pipeline has always used, just applied per claim instead
-of once per click.
-
-This applies to a script about ANY topic — sports, business, science, politics, anything.
+STEP 2 — for EACH claim independently, decide the fields below. Claims from the same moment
+usually share the same resolved subject (from context) unless a claim clearly names a different
+one.
 
 Decide "footageType":
 
+This applies to a script about ANY topic — sports, business, science, politics, anything.
+
 - "specific": the claim is about a PARTICULAR real person, team, org, or event doing or saying a
   particular thing. The subject can come from either place:
-  (a) named or clearly referred to in the moment itself ("Harry Kane missed a penalty", "Tesla
+  (a) named or clearly referred to in the claim itself ("Harry Kane missed a penalty", "Tesla
       recalled two million cars"); or
-  (b) NOT named in the moment because it is a fragment or shorthand for a specific event the
-      preceding script is about — then resolve the subject from that earlier context.
+  (b) NOT named in the claim because the moment is a fragment or shorthand for a specific event
+      the preceding script is about — then resolve the subject from that earlier context.
       Example: after "...one moment continues to define his World Cup legacy.", the moment
       "A missed penalty." means HIM missing THAT penalty, so subject = the person the story is
       about (e.g. "Harry Kane") and youtubeQuery = "Harry Kane missed penalty France 2022".
@@ -115,10 +129,10 @@ Decide "footageType":
 
       TWO RULES that are easy to get wrong when resolving (b) from context:
       1. ALWAYS carry forward the specific time, edition, or event established earlier — a year,
-         season, funding round, tournament stage — into "youtubeQuery", not just when it's the
-         first mention. A moment like "England looked stronger than ever" is genuinely ambiguous
-         without restating which England, which year, which tournament — don't assume "now" just
-         because the moment itself doesn't repeat it.
+         season, funding round, tournament stage — into "youtubeQuery"/"photoQuery", not just when
+         it's the first mention. A moment like "England looked stronger than ever" is genuinely
+         ambiguous without restating which England, which year, which tournament — don't assume
+         "now" just because the moment itself doesn't repeat it.
       2. When a fragment introduces a NEW name as the next step in an ongoing progression — a
          next opponent, a next round, a next funding stage — resolve it as the RELATIONSHIP
          between the subject already being followed and that new name, not as if the new name
@@ -151,100 +165,101 @@ subject's story, prefer specific and pull the subject from context. Go generic o
 claim is genuinely a category-level statement, or when no specific subject can be identified even
 from context.
 
-Set "quote" ONLY when the claim quotes or closely paraphrases something the subject actually SAID
+Decide "mediaType" — is this claim best evidenced by video, a photo, or could both plausibly exist?
+This is a question about SHAPE, not content: can you point to ONE identifiable real moment a
+camera could plausibly have captured? It has nothing to do with whether the claim is an
+achievement, a criticism, a scandal, a habit, a trend, or a neutral fact — the same test applies
+to good news, bad news, and boring news alike, in any domain.
+
+- "video": the claim resolves to ONE identifiable real event/instant — a goal, a press conference,
+  a product launch, a walkout, a collapse, a signing, an announcement. Doesn't matter if it's
+  positive or negative, routine or dramatic — if there is a single, real, locatable moment, it's
+  "video" (or "both" if a photo of that same moment also plausibly exists, which is common).
+- "photo": the claim is cumulative, ongoing, or a status/reputation fact with NO single filmable
+  moment — "kept breaking record after record", "morale had been sinking for months", "developed a
+  reputation for missing deadlines", "the region endured a decade of drought". Nothing a video
+  camera could have captured as ONE scene, but a real photograph (a portrait, a stats graphic, an
+  aerial/satellite shot, a press clipping) likely exists.
+- "both": ambiguous, or significant/notable enough that a real filmed moment AND a notable
+  standalone photo both plausibly exist.
+
+GUARDRAIL, the actual failure mode this exists to prevent: do NOT let the claim's VALENCE (good
+news vs. bad news) or SHAPE-BY-ASSOCIATION (this sounds like the kind of thing that gets a trophy,
+so it must be "both"; this sounds vague, so it must be "photo") substitute for actually checking
+whether ONE real event can be pointed to. Achievements are not privileged as "video"/"both" over
+criticism or routine facts, and vagueness is not privileged as "photo" over specific-but-mundane
+facts — the ONLY question is whether one instant exists.
+
+Worked through concretely, across different domains, valences, and claim shapes (deliberately not
+all achievements, not all sports, not all positive):
+- "He became the club's all-time top scorer." (sports, achievement, single record-breaking goal) ->
+  "both" — the goal itself was filmed, and a stats graphic/photo of the moment plausibly exists.
+- "He kept breaking record after record." (sports, achievement, but genuinely cumulative — no
+  single instant) -> "photo".
+- "The CEO stormed out of the shareholder meeting after the vote." (business, NEGATIVE, single
+  real incident) -> "both" — a dramatic single event, not an achievement, still resolves to one
+  real filmable moment.
+- "Morale inside the company had been sinking for months." (business, negative, cumulative status,
+  no single instant) -> "photo" — same shape as the sports "record after record" case, different
+  domain and different valence, confirming the test is about shape, not content.
+- "The team announced the signing at a press conference." (neutral, single scheduled event) ->
+  "both".
+- "He'd quietly developed a reputation in the league for never missing a training session."
+  (positive, but NOT an achievement — a habit/reputation claim) -> "photo" — no single instant,
+  same shape as the negative reputation example above; proves "photo" isn't reserved for
+  negative/vague claims either.
+
+These examples illustrate the shape test, not an exhaustive list of qualifying topics — apply the
+same reasoning to any domain or valence.
+
+"youtubeQuery": set when mediaType is "video" or "both" (null otherwise) — 3-6 words, the best real
+YouTube search to surface this footage — for "specific", a TITLE/KEYWORD match (a specific
+person/event's name + distinguishing details); for "generic", a concrete action + category
+describing the KIND of real moment (see above).
+
+"photoQuery": set when mediaType is "photo" or "both" (null otherwise) — 3-7 words, phrased as a
+NEWS-PHOTO-CAPTION style search (subject + event keywords, the way a wire-photo caption or article
+headline would describe it) — explicitly NOT the visual-scene-description style used for stock
+footage elsewhere in this app, since Google Image search indexes real caption/article text, not
+scene descriptions. Both context-resolution rules above apply here identically: carry forward the
+established time/edition/event, and resolve a progression fragment as the relationship to the
+subject being followed. E.g. "Harry Kane Golden Boot award ceremony 2018 photo", not "man holding
+golden boot trophy".
+
+"quote": set ONLY when the claim quotes or closely paraphrases something the subject actually SAID
 OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions of
-actions or events, and general statements are NOT quotes; set "quote" to null. Never invent a
-quote. ("A missed penalty." describes an action, so quote is null.)
+actions or events, and general statements are NOT quotes; set to null. Never invent a quote.
+("A missed penalty." describes an action, so quote is null.)
 
-"youtubeQuery": 3-6 words, the best real YouTube search to surface this footage — for "specific",
-a TITLE/KEYWORD match (a specific person/event's name + distinguishing details); for "generic", a
-concrete action + category describing the KIND of real moment (see above). Set for both
-footageTypes — YouTube search always runs whenever "mediaType" calls for video (see STEP 2 below).
+EDITORIAL VIDEO B-ROLL — additive, only affects claims where mediaType includes "video". Also
+return "visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":string|null.
 
-STEP 2 — judge "mediaType" per claim.
+"exact" is the default: youtubeQuery should directly show/document the claim as already specified.
+"subject_broll" is for a resolved, real subject (subject must be set) where the claim is a trait,
+arc, or compressed narration rather than one filmable instant — a skilled editor would use truthful
+illustrative footage OF THAT SUBJECT (training, interviews, walking, matchday routine, whatever
+fits their actual domain and story stage) rather than proof of an inferred action at the narrated
+instant. Do not invent an unstated event, injury, quote, or relationship. eraHint must carry the
+strongest available era discriminator (explicit year/event first, otherwise career stage, age
+language, team/employer, product era) — never search a subject's current era for narration about
+an earlier period. visualGoal is <=12 words describing what the footage should communicate. Set
+eraHint/visualGoal to null when mediaType is photo-only or mode is "exact" with nothing era-specific
+to add.
 
-For EACH claim, judge which medium(s) actually fit — don't always search video and fall back to
-photo, and don't search both indiscriminately either:
-
-- "video": the claim is a real, singular, filmable instant — an action or moment that happened at
-  one identifiable point in time (a goal, a missed penalty, a speech, a product launch event).
-- "photo": the claim is a cumulative or status fact with NO single filmable moment — a running
-  tally, a record, a vague "record after record" — but real news/press photography of the
-  subject in that context plausibly exists.
-- "both": ambiguous, OR significant enough that a real broadcast moment AND a notable press photo
-  both plausibly exist — major awards, ceremonies, and records commonly are (a Golden Boot
-  ceremony is both a filmable award moment AND something press photographers cover).
-
-GUARDRAIL: do not default to "photo" just because a claim sounds like an achievement. Check FIRST
-whether the claim resolves to one identifiable real event with likely footage — only fall back to
-"photo" when no single event can be pointed to. Reason through each claim individually; don't
-pattern-match on "sounds like an award/record = photo".
-
-Worked example, all three Kane claims reasoned individually:
-  - "Kane became the tournament's top scorer" — this happened at one identifiable goal (the goal
-    that put him ahead) AND is the kind of milestone press photographers capture separately →
-    mediaType: "both".
-  - "Kane won the Golden Boot" — a real ceremony/moment (broadcast) that's also routinely
-    press-photographed → mediaType: "both".
-  - "Kane kept breaking record after record" — genuinely cumulative, no single filmable instant,
-    but real photos of him at various record-breaking moments exist → mediaType: "photo".
-
-"photoQuery": set ONLY when mediaType is "photo" or "both". Phrase it as a NEWS-PHOTO-CAPTION
-style search (subject + event/context keywords) — e.g. "Harry Kane Golden Boot ceremony 2022",
-"Harry Kane World Cup all-time top scorer record". This is explicitly NOT a visual-scene-
-description ("a man holding a trophy") — Google Image search indexes real caption and article
-text written about the photo, not scene descriptions, so phrase it the way a real news caption or
-headline would read.
-
-EDITORIAL B-ROLL EXTENSION — ADDITIVE, DOES NOT REPLACE STEP 2:
-mediaType/photoQuery from STEP 2 above still apply in full — judge "video"/"photo"/"both" per
-claim exactly as instructed there; do not default to "video" just because b-roll exists as an
-option below. In addition, for the video side of any claim, also return
-"visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":string, and
-"youtubeQueries": an array of one or two distinct video searches (the best first). Keep
-"youtubeQuery" equal to youtubeQueries[0] for backwards compatibility.
-
-"exact" retains every existing rule: the clip should directly show or document the claim.
-"subject_broll" is different: the narration concerns one resolved real subject, while a skilled
-editor would use truthful illustrative footage OF THAT SUBJECT to embody an abstract trait, arc,
-or compressed period. This is not evidence that an inferred action happened at the narrated
-instant, so do not invent high-stakes facts.
-
-Derive subject_broll queries through this mechanism, not fixed trait-to-shot mappings:
-1. Identify what the narration needs the visual to communicate.
-2. Generate observable manifestations grounded in the subject's real domain, era and story stage:
-   recurring behaviour, process, environment, contextual detail, consequence, or contrast.
-3. Reject anything introducing an unsupported specific event, person, place, injury, relationship,
-   quote, or causal claim.
-4. Prefer manifestations likely to be documented in real footage and searchable in titles.
-5. Make the searches visually distinct, then retain at most the best two.
-
-Do not select an action because a similar adjective appeared in a prompt example. The same trait
-can look completely different for people in different domains; derive the visual from what this
-subject actually does and from this particular point in their story.
-
-For subject_broll, resolve the subject and ERA from the whole script context. Every query must
-contain the subject plus the strongest available era discriminator: explicit year/event first;
-otherwise career stage, age language, team/employer, product generation, location, kit/clothing,
-or dated surrounding events. Never return current footage for a childhood/early-career beat just
-because current footage is more popular. Diversify the two searches by observable manifestation
-or shot function rather than using synonyms.
-
-The optional PLANNED VISUAL fields in the user message came from whole-script segmentation. Treat
-them as useful prior reasoning, but correct them when the local context proves them wrong. Exact
-claims must never be weakened into b-roll. If uncertain, retain exact behaviour and the original
-single youtubeQuery.`;
+An optional "PLANNED VISUAL" block may appear in the user message, carried over from whole-script
+segmentation (segment.js). Treat it as a useful prior, but correct it when the local claim-level
+context proves it wrong — never let it downgrade a genuinely exact claim into b-roll.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
-one moment of a video script. YouTube's own ordering is unreliable here — its top hits are often
+one claim of a video script. YouTube's own ordering is unreliable here — its top hits are often
 reactions, "watch me react", watchalongs, or compilations rather than the clean primary footage.
 
-You get the moment, its subject and footageType, and candidates (title, channel, duration in
+You get the claim, its subject and footageType, and candidates (title, channel, duration in
 seconds, view count, short description). Score each 0-100:
 - Relevance: does it actually show THIS subject doing/saying THIS thing (specific), or clearly
   illustrate THIS concept (generic)? Off-topic = near 0.
 - Source quality: strongly prefer primary footage (broadcast, official channel, the real clip)
-  over reaction videos, watchalongs, essays, or compilations-of-compilations — unless the moment
+  over reaction videos, watchalongs, essays, or compilations-of-compilations — unless the claim
   itself wants that.
 - Fit: a focused clip beats a 3-hour livestream as a cut source; a credible/official channel beats
   a random reupload.
@@ -259,31 +274,21 @@ VISUAL MODE matters:
 Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the clip.`;
 
-const PHOTO_RERANK_PROMPT = `You rank Google Image Search results by how good each is as the real news/press
-photo for ONE claim from a video script. You do NOT see the actual pixels — score using the
-title, snippet, and source domain only, the same way a researcher would triage search results
-before opening them.
-
-You get the claim, its subject, the search query used, and candidates (title, snippet, source
-domain). Score each 0-100:
-- Relevance: does the title/snippet actually describe a real photo of THIS subject in THIS
-  context/event? Off-topic or generic stock-photo-sounding results = near 0.
-- Source credibility: strongly prefer results whose domain reads like a real news outlet, sports
-  broadcaster, wire service, or official org site over generic content farms, unrelated blogs, or
-  social media reposts of unclear origin.
-- Specificity: a title/snippet naming the actual event/date/context beats a vague or generic one.
-
-Return strict JSON only, no prose: {"ranking":[{"id":"...","score":0-100,"reason":"<=8 words"}]}
-Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the photo needed.`;
-
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext, plannedVisual;
+  let segmentText, scriptContext, debugImagesOnly, plannedVisual;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
     scriptContext = body.context;
+    // Test/debug flag from app.js's "Photos-only test mode" toggle — forces photo search on every
+    // claim regardless of its judged mediaType, and skips video search entirely (no YouTube quota
+    // + Groq rerank round trip), so the photo pipeline can be iterated on cheaply. Off by default;
+    // every existing call site that doesn't send this flag behaves exactly as before.
+    debugImagesOnly = !!body.debugImagesOnly;
+    // Optional prior from whole-script segmentation (segment.js's editorial visual plan) — a hint
+    // to verify against local claim-level context, not to trust blindly.
     plannedVisual = {
       visualMode: body.visualMode,
       visualQueries: body.visualQueries,
@@ -301,24 +306,26 @@ export async function onRequestPost(context) {
     return Response.json({ error: "ANTHROPIC_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
-  // 1. Claude splits the moment into claims and resolves each one's intent (see header comment
-  //    for why this call site moved off Groq, and for why splitting happens here at all).
+  // 1. Claude splits the moment into claims and extracts intent per claim (see header comment for
+  //    why this call site moved off Groq, and the SYSTEM_PROMPT's STEP 1/STEP 2 for what changed
+  //    2026-07-21). Still exactly ONE Claude call regardless of how many claims come back.
   let userContent = scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
     : `The moment:\n${segmentText}`;
   if (plannedVisual && Object.values(plannedVisual).some(Boolean)) {
-    userContent += `\n\nPLANNED VISUAL (use as a prior, verify against context):\n${JSON.stringify(plannedVisual)}`;
+    userContent += `\n\nPLANNED VISUAL (use as a prior, verify against local context):\n${JSON.stringify(plannedVisual)}`;
   }
 
-  let rawClaims;
+  let parsed;
   try {
     const claudeRes = await claudeChat(env, {
       model: "claude-sonnet-5",
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userContent }],
-      // Bumped 4096 -> 8192 (2026-07-19): the answer is now an array of claims instead of one
-      // small object, on top of claude-sonnet-5's adaptive thinking sharing the same budget (see
-      // _claude.js) — an estimate to re-verify against real usage, not a confirmed-safe number.
+      // Bumped 4096 -> 8192 (2026-07-21): the answer can now be an ARRAY of claims instead of one
+      // small object, on top of claude-sonnet-5's default adaptive thinking sharing this same
+      // budget (see _claude.js and the prior 1024->4096 bump this file's git history already has).
+      // An estimate to re-verify against real multi-claim usage, not a confirmed-safe number.
       max_tokens: 8192,
     });
 
@@ -328,223 +335,92 @@ export async function onRequestPost(context) {
     }
 
     const data = await claudeRes.json();
-    const parsed = JSON.parse(extractJson(extractText(data)));
-    // Defensive: don't let a malformed/empty model response crash the .map/.forEach below with an
-    // unhelpful TypeError — same discipline segment.js applies to its own array response.
-    rawClaims = Array.isArray(parsed.claims) ? parsed.claims : [];
+    parsed = JSON.parse(extractJson(extractText(data)));
   } catch (err) {
     return Response.json({ error: `Intent extraction failed: ${err.message}` }, { status: 502 });
   }
 
-  if (!rawClaims.length) {
-    return Response.json({ claims: [] });
-  }
+  const rawClaims = Array.isArray(parsed.claims) && parsed.claims.length
+    ? parsed.claims
+    // Defensive fallback if the model returns something malformed — treat the whole moment as one
+    // video claim rather than failing the click outright.
+    : [{ claim: segmentText, footageType: "specific", subject: null, quote: null, mediaType: "video", youtubeQuery: segmentText }];
 
-  if (!env.YOUTUBE_API_KEY) {
-    return Response.json({ error: "YOUTUBE_API_KEY is not set on this Cloudflare project" }, { status: 500 });
-  }
+  console.log(
+    `[evidence-search] ${rawClaims.length} claim(s) debugImagesOnly=${debugImagesOnly} ` +
+    `moment=${JSON.stringify(segmentText.slice(0, 100))}`
+  );
 
-  // Normalize each claim's fields once, up front. New planning fields are additive; malformed
-  // visualMode/query arrays fall back to the old exact, single-query video behaviour.
-  const claims = rawClaims.map((c) => {
-    const footageType = c.footageType === "specific" ? "specific" : "generic";
+  // 2. Run every claim concurrently, and within each claim run video/photo search concurrently —
+  //    a claim only searches the medium(s) its own mediaType calls for (not "always both" the way
+  //    reference-search.js's reaction-clip feature works), since an unwanted video search for a
+  //    claim with no real filmable moment would reliably return nothing useful. debugImagesOnly
+  //    overrides mediaType to force photo search on every claim and skip video on all of them.
+  const claimResults = await Promise.all(rawClaims.map(async (c) => {
+    const footageType = c.footageType === "generic" ? "generic" : "specific";
     const quote = footageType === "specific" && c.quote && String(c.quote).trim() ? String(c.quote).trim() : null;
     const mediaType = ["video", "photo", "both"].includes(c.mediaType) ? c.mediaType : "video";
+    const claimText = (c.claim && String(c.claim).trim()) || segmentText;
+    const youtubeQuery = (c.youtubeQuery || c.subject || claimText).trim();
+    const photoQuery = (c.photoQuery || youtubeQuery).trim();
+    // Additive editorial fields — only meaningful for the video side. subject_broll requires a
+    // real resolved subject, same guard as segment.js's own enforceVisualPlan.
     const visualMode = c.visualMode === "subject_broll" && c.subject ? "subject_broll" : "exact";
-    const queryCandidates = [c.youtubeQuery, ...(Array.isArray(c.youtubeQueries) ? c.youtubeQueries : [])]
-      .map((q) => String(q || "").trim())
-      .filter(Boolean)
-      .filter((q, i, all) => all.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i)
-      .slice(0, 2);
+    const eraHint = c.eraHint && String(c.eraHint).trim() ? String(c.eraHint).trim().slice(0, 100) : null;
+    const visualGoal = c.visualGoal && String(c.visualGoal).trim() ? String(c.visualGoal).trim().slice(0, 160) : null;
+
+    // YOUTUBE_API_KEY is fail-open, not hard-guarded (see header comment) — a missing key just
+    // silently drops video search for every claim rather than 500ing an all-photo-capable request.
+    const wantsVideo = !debugImagesOnly && (mediaType === "video" || mediaType === "both") && !!env.YOUTUBE_API_KEY;
+    const wantsPhoto = debugImagesOnly || mediaType === "photo" || mediaType === "both";
+
+    const [videoCandidates, photoCandidates] = await Promise.all([
+      wantsVideo
+        ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote, visualMode, eraHint, visualGoal }, env)
+        : Promise.resolve([]),
+      wantsPhoto ? searchGoogleImages(env, photoQuery) : Promise.resolve([]),
+    ]);
+
+    console.log(
+      `[evidence-search]   claim=${JSON.stringify(claimText.slice(0, 80))} mediaType=${mediaType} visualMode=${visualMode} ` +
+      `youtubeQuery=${wantsVideo ? JSON.stringify(youtubeQuery) : "(skipped)"} eraHint=${JSON.stringify(eraHint)} ` +
+      `photoQuery=${wantsPhoto ? JSON.stringify(photoQuery) : "(skipped)"} ` +
+      `video=${videoCandidates.length} photo=${photoCandidates.length}`
+    );
+
     return {
-      claim: String(c.claim || segmentText).trim(),
+      claim: claimText,
       footageType,
       subject: c.subject || null,
       quote,
       mediaType,
       visualMode,
-      visualGoal: c.visualGoal || null,
-      eraHint: c.eraHint || null,
-      youtubeQueries: queryCandidates,
-      youtubeQuery: queryCandidates[0] || c.subject || c.claim || segmentText,
-      photoQuery: mediaType !== "video" && c.photoQuery && String(c.photoQuery).trim() ? String(c.photoQuery).trim() : null,
+      eraHint,
+      visualGoal,
+      youtubeQuery: wantsVideo ? youtubeQuery : null,
+      photoQuery: wantsPhoto ? photoQuery : null,
+      videoCandidates,
+      photoCandidates,
+      videoSearched: wantsVideo,
+      photoSearched: wantsPhoto,
     };
-  });
-
-  for (const c of claims) {
-    console.log(
-      `[evidence-search] claim=${JSON.stringify(c.claim.slice(0, 80))} footageType=${c.footageType} ` +
-      `subject=${JSON.stringify(c.subject)} mediaType=${c.mediaType} visualMode=${c.visualMode} eraHint=${JSON.stringify(c.eraHint)} ` +
-      `youtubeQueries=${JSON.stringify(c.youtubeQueries)} photoQuery=${JSON.stringify(c.photoQuery)} quote=${JSON.stringify(c.quote)}`
-    );
-  }
-
-  // 2. Fan out to a search task per claim x medium, run them ALL concurrently through one flat
-  //    Promise.all (matching reference-search.js's "never-throwing pipelines, no rejected-promise
-  //    branch to handle" pattern), then reassemble by claim index.
-  const tasks = [];
-  claims.forEach((claim, i) => {
-    if (claim.mediaType === "video" || claim.mediaType === "both") {
-      tasks.push({ i, medium: "video", promise: searchVideoForClaim(claim, env) });
-    }
-    if (claim.mediaType === "photo" || claim.mediaType === "both") {
-      tasks.push({ i, medium: "photo", promise: searchPhotoForClaim(claim, env) });
-    }
-  });
-  const results = await Promise.all(tasks.map((t) => t.promise));
-  const videoByClaim = new Map();
-  const photoByClaim = new Map();
-  tasks.forEach((t, idx) => (t.medium === "video" ? videoByClaim : photoByClaim).set(t.i, results[idx]));
-
-  const responseClaims = claims.map((claim, i) => ({
-    claim: claim.claim,
-    footageType: claim.footageType,
-    subject: claim.subject,
-    quote: claim.quote,
-    mediaType: claim.mediaType,
-    visualMode: claim.visualMode,
-    visualGoal: claim.visualGoal,
-    eraHint: claim.eraHint,
-    videoCandidates: videoByClaim.get(i) || [],
-    photoCandidates: photoByClaim.get(i) || [],
   }));
 
-  return Response.json({ claims: responseClaims });
+  return Response.json({ claims: claimResults });
 }
 
-// Runs the full YouTube pipeline (search -> enrich -> rerank -> filter -> top 5) for ONE claim.
-// NEVER throws — resolves to [] on any failure, so it can run alongside searchPhotoForClaim() via
-// a plain Promise.all with no rejected-promise case either caller needs to handle.
-async function searchVideoForClaim(claim, env) {
+// Never throws — a claim's video search failing (quota, API error, zero results) should never
+// block or fail the claim's photo search (or any other claim's search) running alongside it.
+async function searchVideoForClaim(query, intent, env) {
   try {
-    const queries = (claim.youtubeQueries && claim.youtubeQueries.length
-      ? claim.youtubeQueries
-      : [claim.youtubeQuery || claim.subject || claim.claim]).slice(0, 2);
-    // search.list is 100 quota units against a shared 10,000/day cap, and a segment can now split
-    // into several claims — firing every claim's second query unconditionally multiplies that cost
-    // for no benefit on the common case where the first query already returns plenty. Only spend
-    // the second query's quota as a bounded fallback when the first genuinely came up thin.
-    let candidates = await searchYouTubeVideos(queries[0], env.YOUTUBE_API_KEY).catch(() => []);
-    if (candidates.length < 4 && queries[1]) {
-      const more = await searchYouTubeVideos(queries[1], env.YOUTUBE_API_KEY).catch(() => []);
-      candidates = candidates.concat(more).filter(
-        (c, i, all) => all.findIndex((x) => x.videoId === c.videoId) === i
-      );
-    }
-    candidates = candidates.slice(0, 20);
+    const candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
     await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
-    // Rerank against the CLAIM's own text, not the whole multi-claim segment — a candidate is
-    // being scored against one specific fact, not the whole beat.
-    const reranked = await rerankCandidates(
-      {
-        segmentText: claim.claim,
-        subject: claim.subject,
-        footageType: claim.footageType,
-        quote: claim.quote,
-        visualMode: claim.visualMode,
-        visualGoal: claim.visualGoal,
-        eraHint: claim.eraHint,
-      },
-      candidates,
-      env
-    );
+    const reranked = await rerankCandidates(intent, candidates, env);
     candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
     const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
     return filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
-  } catch (err) {
-    console.log(`[evidence-search] video pipeline failed for claim ${JSON.stringify(claim.claim.slice(0, 60))}: ${err.message}`);
-    return [];
-  }
-}
-
-// Runs the full Google Custom Search (image mode) pipeline for ONE claim. NEVER throws — resolves
-// to [] on any failure (missing keys, network/parse error, no results), same contract as
-// reference-search.js's searchPexelsReaction — photo only broadens this endpoint, so a missing/
-// misconfigured GOOGLE_CSE_API_KEY/GOOGLE_CSE_ID degrades a claim to video-only instead of failing
-// the whole request.
-async function searchPhotoForClaim(claim, env) {
-  if (!env.GOOGLE_CSE_API_KEY || !env.GOOGLE_CSE_ID) {
-    console.log(`[evidence-search] GOOGLE_CSE_API_KEY/GOOGLE_CSE_ID not set, skipping photo search for claim ${JSON.stringify(claim.claim.slice(0, 60))}`);
-    return [];
-  }
-  try {
-    const query = (claim.photoQuery || claim.subject || claim.claim).trim();
-    const candidates = await searchPhotoEvidence(query, env.GOOGLE_CSE_API_KEY, env.GOOGLE_CSE_ID);
-    if (!candidates.length) return [];
-    const reranked = await rerankPhotoCandidates(
-      { claim: claim.claim, subject: claim.subject, query },
-      candidates,
-      env
-    );
-    candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-    const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
-    return filtered.slice(0, 5);
-  } catch (err) {
-    console.log(`[evidence-search] photo pipeline failed for claim ${JSON.stringify(claim.claim.slice(0, 60))}: ${err.message}`);
-    return [];
-  }
-}
-
-// Google Custom Search JSON API, image mode. 10 is the API's documented per-request cap (smaller
-// than YouTube's 12 — don't ask for more, it's not honored). Google CSE items carry no natural
-// stable identifier the way YouTube (videoId) or Pexels (id) do, so `id` here is a request-scoped
-// index — never persisted, only used to correlate the rerank's ranking response back to a
-// candidate within this one response cycle.
-export async function searchPhotoEvidence(query, apiKey, cx) {
-  const url =
-    "https://www.googleapis.com/customsearch/v1" +
-    `?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&searchType=image&num=10&safe=off`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Google CSE error: ${errText}`);
-  }
-  const data = await res.json();
-  return (data.items || []).map((item, i) => ({
-    id: `photo-${i}`,
-    title: item.title || "",
-    snippet: item.snippet || "",
-    displayLink: item.displayLink || "",
-    thumb: item.image?.thumbnailLink || "",
-    sourceLink: item.image?.contextLink || item.link,
-    imageUrl: item.link || "",
-  }));
-}
-
-// Scores each photo candidate 0-100 against the claim, writing c.score / c.reason in place.
-// Mirrors rerankCandidates's shape/contract exactly (same Groq model, same boolean-return
-// contract so callers can tell a real 0 apart from "rerank didn't run") but scores by
-// title/snippet/displayLink domain credibility, since raw pixels aren't inspected.
-export async function rerankPhotoCandidates(intent, candidates, env) {
-  if (candidates.length <= 1 || !env.GROQ_API_KEY) return false;
-  const list = candidates.map((c) => ({ id: c.id, title: c.title, snippet: c.snippet, displayLink: c.displayLink }));
-  const user =
-    `CLAIM: ${intent.claim}\n` +
-    `SUBJECT: ${intent.subject || "(none)"}\n` +
-    `QUERY: ${intent.query}\n` +
-    `\nCANDIDATES:\n${JSON.stringify(list)}`;
-  try {
-    const res = await groqChat(env, {
-      model: "openai/gpt-oss-20b",
-      messages: [
-        { role: "system", content: PHOTO_RERANK_PROMPT },
-        { role: "user", content: user },
-      ],
-      temperature: 0,
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    const ranking = Array.isArray(parsed.ranking) ? parsed.ranking : [];
-    const byId = new Map(ranking.map((r) => [r.id, r]));
-    for (const c of candidates) {
-      const r = byId.get(c.id);
-      c.score = r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : 0;
-      c.reason = r ? String(r.reason || "").slice(0, 60) : "";
-    }
-    return true;
   } catch {
-    return false; // best-effort: leave candidates unscored, original order preserved
+    return [];
   }
 }
 
