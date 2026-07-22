@@ -780,7 +780,7 @@ export function enforceProductFocus(segments) {
 // This only catches ONE failure direction — a hollow "feel" — not the reverse (a real anchor
 // existed but the model dropped to "nothing" anyway), which needs semantic judgment no mechanical
 // check can provide.
-function enforceFeelQueryRule(segments) {
+export function enforceFeelQueryRule(segments) {
   for (const seg of segments) {
     if (seg.family !== "feel") continue;
     const hasQuery = Boolean(seg.query && String(seg.query).trim());

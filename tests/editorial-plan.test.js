@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   enforceProductFocus,
   enforceVisualPlan,
+  enforceFeelQueryRule,
   normalizeCoveragePlan,
   summarizeCoverage,
 } from "../functions/api/segment.js";
@@ -147,6 +148,33 @@ test("explicit subject or era conflicts invalidate reuse", () => {
     { family: "nothing", eraHint: "1990", coverageMode: "callback", visualRef: "v0" },
   ]);
   assert.deepEqual(rows.map(s => s.coverageMode), ["new", "none", "none"]);
+});
+
+// Regression: enforceFeelQueryRule used to run BEFORE enforceVisualPlan and only checked the
+// legacy `query` field. A feel segment whose model output left `query` empty but populated
+// `visualQueries` (which the schema explicitly allows — `query` is only supposed to mirror
+// visualQueries[0], not be independently authored) was silently and permanently downgraded to
+// "nothing" before enforceVisualPlan ever got a chance to backfill `query`. Real usable visuals
+// were lost. Fixed by reordering the pipeline (enforceVisualPlan first) AND making the rule check
+// visualQueries directly, so correctness doesn't depend on call order.
+test("feel segment with only visualQueries (empty legacy query) is not wrongly downgraded", () => {
+  const raw = [{ family: "feel", query: "", visualQueries: ["crowd cheering stadium", "fans celebrating goal"] }];
+
+  // Correct pipeline order: enforceVisualPlan backfills `query`, then enforceFeelQueryRule sees it.
+  const [afterCorrectOrder] = enforceFeelQueryRule(enforceVisualPlan(raw.map((s) => ({ ...s }))));
+  assert.equal(afterCorrectOrder.family, "feel");
+  assert.equal(afterCorrectOrder.query, "crowd cheering stadium");
+
+  // Defensive check: even called directly on the raw (pre-enforceVisualPlan) shape — as would
+  // happen if the pipeline were ever reordered again — the rule must not downgrade a segment that
+  // has real visualQueries just because the legacy `query` field is empty.
+  const [checkedDirectly] = enforceFeelQueryRule(raw.map((s) => ({ ...s })));
+  assert.equal(checkedDirectly.family, "feel");
+});
+
+test("feel segment with neither query nor visualQueries is still downgraded to nothing", () => {
+  const [seg] = enforceFeelQueryRule([{ family: "feel", query: "", visualQueries: [] }]);
+  assert.equal(seg.family, "nothing");
 });
 
 test("coverage summary matches modes and does not enforce a quota", () => {
