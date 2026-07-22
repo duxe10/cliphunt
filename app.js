@@ -75,11 +75,30 @@ let SEGMENTS = [];
 // segments with estimated timestamps. Clips start null (not yet hydrated).
 function buildLiveSegments(raw) {
   let cursor = 0;
+  const knownOrigins = new Map();
   return raw.map((s, i) => {
     const words = (s.text || "").trim().split(/\s+/).filter(Boolean).length;
     const durSec = Math.max(0.5, words / READING_WORDS_PER_SEC);
     const start = cursor;
     cursor += durSec;
+    // coverageMode/visualId/visualRef (see segment.js's sequence coverage pass): validated the
+    // same way normalizeCoveragePlan does server-side — a forward/missing/self reference can't
+    // survive into the UI, it just falls back to "new"/"none" the same way a legacy project would.
+    let coverageMode = ["new", "continue", "callback", "none"].includes(s.coverageMode)
+      ? s.coverageMode
+      : (s.family === "nothing" ? "none" : "new");
+    let visualId = s.visualId ? String(s.visualId) : null;
+    let visualRef = s.visualRef ? String(s.visualRef) : null;
+    if (coverageMode === "new") {
+      if (!visualId || knownOrigins.has(visualId)) visualId = `legacy-v${i}`;
+      knownOrigins.set(visualId, i);
+      visualRef = null;
+    } else if ((coverageMode === "continue" || coverageMode === "callback") && !knownOrigins.has(visualRef)) {
+      coverageMode = s.family === "nothing" ? "none" : "new";
+      visualId = coverageMode === "new" ? `legacy-v${i}` : null;
+      visualRef = null;
+      if (visualId) knownOrigins.set(visualId, i);
+    }
     return {
       idx: i,
       time: formatTime(start),
@@ -98,6 +117,18 @@ function buildLiveSegments(raw) {
       categoryClaim: s.categoryClaim || null,
       depictionType: s.depictionType || null,
       reason: s.reason || null,
+      // Editorial visual plan + sequence coverage (see segment.js) — additive, all null/"new" for
+      // any legacy project saved before this feature existed.
+      visualMode: s.visualMode || null,
+      visualQueries: Array.isArray(s.visualQueries) ? s.visualQueries : [],
+      visualGoal: s.visualGoal || null,
+      eraHint: s.eraHint || null,
+      coverageMode,
+      visualId,
+      visualRef,
+      continuityReason: s.continuityReason || null,
+      noneKind: s.noneKind || (coverageMode === "none" ? "unresolved" : null),
+      originIdx: visualRef ? knownOrigins.get(visualRef) : null,
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -189,6 +220,15 @@ function renderWorkspace() {
   const totalSec = SEGMENTS.reduce((sum, s) => sum + parseFloat(s.dur), 0);
   document.getElementById("stat-duration").textContent = `${formatTime(totalSec)} total`;
   document.getElementById("stat-scenes").textContent = `${SEGMENTS.length} scenes`;
+  const newCount = SEGMENTS.filter(s => s.coverageMode === "new").length;
+  const reusedCount = SEGMENTS.filter(s => s.coverageMode === "continue" || s.coverageMode === "callback").length;
+  const noneCount = SEGMENTS.filter(s => s.coverageMode === "none").length;
+  const visualsPill = document.getElementById("stat-visuals");
+  if (visualsPill) visualsPill.textContent = `${newCount} new visuals`;
+  const reusedPill = document.getElementById("stat-reused");
+  if (reusedPill) reusedPill.textContent = `${reusedCount} continued/reused`;
+  const pausesPill = document.getElementById("stat-pauses");
+  if (pausesPill) pausesPill.textContent = `${noneCount} narration pauses`;
   const edited = document.getElementById("stat-edited");
   if (edited) edited.textContent = `edited ${relativeTime(CURRENT_PROJECT.updatedAt)}`;
 
@@ -222,7 +262,8 @@ function renderWorkspace() {
   console.log(`[cliphunt] "${CURRENT_PROJECT.title}" — ${SEGMENTS.length} segments`);
   console.table(SEGMENTS.map(s => ({
     idx: s.idx, family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
-    depictionType: s.depictionType, query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
+    depictionType: s.depictionType, visualMode: s.visualMode, coverage: s.coverageMode,
+    query: s.query, reason: s.reason, text: (s.text || "").slice(0, 60),
   })));
 }
 
@@ -239,15 +280,25 @@ function refreshFootageButtonLabels() {
 }
 
 function segmentHtml(seg) {
-  const isEmpty = seg.family === "nothing";
-  const needsSearch = !isEmpty && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
+  // coverageMode (see segment.js's sequence coverage pass) is the authoritative "does this beat
+  // need its own visual" signal now — "none" subsumes the old family==="nothing" case plus any
+  // beat an already-established visual can honestly cover without a new search.
+  const isEmpty = seg.coverageMode === "none";
+  const isReuse = seg.coverageMode === "continue" || seg.coverageMode === "callback";
+  const needsSearch = !isEmpty && !isReuse && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
   // Evidence AND reference are both user-triggered (each costs a YouTube search, and re-hydrates
   // on every workspace load), so both get a "Find footage" button rather than auto-hydrating.
-  const needsFootage = !isEmpty && (seg.family === "evidence" || seg.family === "reference");
+  const needsFootage = !isEmpty && !isReuse && (seg.family === "evidence" || seg.family === "reference");
 
   let body;
   if (isEmpty) {
-    body = `<p class="no-clip-msg">Pacing beat — no clip needed here.</p>`;
+    const noneCopy = seg.noneKind === "deliberate_pause" ? "Intentional visual pause."
+      : seg.noneKind === "narration_only" ? "Narration-only beat."
+      : "Pacing beat — no clip needed here.";
+    body = `<p class="no-clip-msg">${noneCopy}</p>`;
+  } else if (isReuse) {
+    const verb = seg.coverageMode === "callback" ? "Reuse" : "Continue";
+    body = `<div class="continuity-note"><a href="#scene-${seg.originIdx}">${verb} SC.${String(seg.originIdx).padStart(2, "0")} visual</a>${seg.continuityReason ? ` · ${escapeHtml(seg.continuityReason)}` : ""}</div>`;
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
   } else if (needsFootage) {
@@ -272,13 +323,17 @@ function segmentHtml(seg) {
     ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.depictionType ? ` · depiction: ${seg.depictionType}` : ""}</p>`
     : "";
 
+  const badgeLabel = isReuse ? (seg.coverageMode === "callback" ? "Callback" : "Continue")
+    : isEmpty ? (seg.noneKind === "deliberate_pause" ? "Pause" : "Narration")
+    : FAMILY_LABEL[seg.family];
+
   return `
-    <div class="segment-row ${isEmpty ? "empty-beat" : ""}">
+    <div class="segment-row ${isEmpty ? "empty-beat" : ""} ${isReuse ? "continuity-beat" : ""}" id="scene-${seg.idx}">
       <div class="segment-meta">
         <div class="idx">SC.${String(seg.idx).padStart(2, "0")}</div>
         <div class="time">${seg.time}</div>
         <div class="dur">${seg.dur}</div>
-        <span class="badge badge-${seg.family}">${FAMILY_LABEL[seg.family]}</span>
+        <span class="badge badge-${isReuse ? seg.coverageMode : seg.family}">${badgeLabel}</span>
       </div>
       <div class="segment-body">
         <p class="segment-text">${escapeHtml(seg.text || "")}</p>
@@ -299,7 +354,9 @@ function segmentHtml(seg) {
 // which was enough to burst past Groq's per-minute rate limit. See stock-search-batch.js's header
 // comment for the full breakdown.
 async function hydrateClips() {
-  const targets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
+  // Only "new" beats need their own search — "continue"/"callback" reuse an earlier visual, and
+  // "none" has nothing to show (see segment.js's coverage pass / segmentHtml's isEmpty/isReuse).
+  const targets = SEGMENTS.filter(s => s.coverageMode === "new" && s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
   if (!targets.length) return;
 
   try {
@@ -307,7 +364,12 @@ async function hydrateClips() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        segments: targets.map(seg => ({ query: seg.query || seg.text, segmentText: seg.text })),
+        segments: targets.map(seg => ({
+          query: seg.query || seg.text,
+          queries: seg.visualQueries,
+          visualGoal: seg.visualGoal,
+          segmentText: completeVisualSpan(seg),
+        })),
       }),
     });
     const data = await res.json();
@@ -334,6 +396,16 @@ async function hydrateClips() {
       ? `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`
       : `<p class="no-clip-msg" id="clipqueue-${seg.idx}">No matching clips found.</p>`;
   }
+}
+
+// A "new" beat's search should cover every segment continuing/callback-referencing it too, not
+// just its own text — otherwise a continuation beat's extra detail never reaches the search that's
+// supposed to represent it. Reads SEGMENTS directly, not just the target list, since a referencing
+// segment could be anywhere later in the script.
+function completeVisualSpan(origin) {
+  const shared = SEGMENTS.filter(s => s.idx === origin.idx ||
+    ((s.coverageMode === "continue" || s.coverageMode === "callback") && s.visualRef === origin.visualId));
+  return shared.map(s => s.text).join(" ");
 }
 
 function clipCardHtml(segIdx, clipIdx, clip) {
@@ -370,6 +442,9 @@ const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="non
 // Results are cached in memory on the segment so re-preview doesn't re-search.
 async function findFootage(segIdx) {
   const seg = SEGMENTS[segIdx];
+  // "continue"/"callback" beats have no search plan of their own (see segment.js's coverage
+  // pass) — the button shouldn't even be rendered for them, but guard anyway.
+  if (!seg || seg.coverageMode !== "new") return;
   const container = document.getElementById(`evidence-${segIdx}`);
   if (!container) return;
   const imagesOnly = DEBUG_IMAGES_ONLY && seg.family !== "reference";
@@ -393,8 +468,20 @@ async function findFootage(segIdx) {
       // debugImagesOnly is ignored by reference-search.js (it has no such flag). For evidence
       // beats it now forces every claim to search photos and skip video (see evidence-search.js,
       // 2026-07-21) — the old segment-level depictionType gate is no longer read there, superseded
-      // by the new per-claim mediaType judgment, so it's no longer sent.
-      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly }),
+      // by the new per-claim mediaType judgment, so it's no longer sent. visualMode/visualQueries/
+      // visualGoal/eraHint (segment.js's editorial plan) ride along as a prior for evidence-search
+      // to verify against local claim context — ignored by reference-search.js. segmentText spans
+      // every segment continuing/callback-referencing this one (see completeVisualSpan), not just
+      // this segment's own text.
+      body: JSON.stringify({
+        segmentText: completeVisualSpan(seg),
+        context,
+        debugImagesOnly: imagesOnly,
+        visualMode: seg.visualMode,
+        visualQueries: seg.visualQueries,
+        visualGoal: seg.visualGoal,
+        eraHint: seg.eraHint,
+      }),
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");

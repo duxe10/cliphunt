@@ -150,7 +150,12 @@ const STOCK_RERANK_BATCH_PROMPT = `You score how well each stock-footage clip ma
 of a video script. You get a list of segments, each with a moment (and its resolved context, if
 given) plus candidate clips — same rubric as scoring one moment at a time: does the clip's title
 (a real but terse auto-extracted slug, not a full sentence) plausibly describe footage fitting
-THAT segment's moment? Score each segment's candidates independently of every other segment's —
+THAT segment's moment? When an editorial visual goal is present, score the clip as a skilled
+faceless-video editor: reward a concrete shot that communicates the intended idea or story beat,
+even when it is an honest visual metaphor rather than a literal action stated in the narration.
+Prefer human action, tension, consequence, contrast, and contextual detail over generic scenery.
+The matchedQuery tells you which proposed shot strategy surfaced a candidate; it is context, not
+proof that the thin Pexels title really contains every word. Score each segment's candidates independently of every other segment's —
 a clip scoring well for one moment says nothing about its fit for another.
 
 Return strict JSON only, no prose: {"segments":[{"i":0,"ranking":[{"id":"...","score":0-100,"reason":"<=8 words"}]}]}
@@ -176,7 +181,9 @@ export async function rerankStockCandidatesBatch(items, env) {
     moment: it.segmentText,
     context: it.context || undefined,
     query: it.query,
-    candidates: it.clips.map((c) => ({ id: c.id, title: c.title, duration: c.duration })),
+    visualGoal: it.visualGoal || undefined,
+    visualQueries: it.queries || undefined,
+    candidates: it.clips.map((c) => ({ id: c.id, title: c.title, duration: c.duration, matchedQuery: c.matchedQuery })),
   }));
 
   let rankingBySegment = new Map();

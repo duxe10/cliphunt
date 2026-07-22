@@ -1218,6 +1218,50 @@ the three real, independently-evidenced facts — the gap wasn't in `segment.js`
   verified live — the negative/non-achievement worked examples above are exactly what a first live
   test should probe, alongside the original Kane regression check.
 
+## Editorial visual planning + sequence coverage (`segment.js`, `evidence-search.js`, `app.js`, 2026-07-23)
+Two additive layers on top of everything above — a segment/claim with none of these fields
+degrades to exactly the prior behavior:
+
+- **Per-segment/claim `visualMode`**: `"exact"` (existing behavior, footage must directly show the
+  claim), `"subject_broll"` (the narration is about a resolved real subject but the honest edit is
+  illustrative footage OF THAT SUBJECT — a trait/arc/compressed period, not proof of an inferred
+  action at the narrated instant; requires `subject` set, carries an `eraHint` so a childhood beat
+  never searches a subject's current era), or `"stock"` (unchanged `feel` behavior, now allowed to
+  infer a conventional low-stakes visual metaphor). `visualQueries` (1-3 diversified searches) and
+  `visualGoal` ride alongside. `segment.js`'s `enforceVisualPlan()` owns the routing — same
+  "model proposes, code corrects" split as `enforceEvidenceRule`.
+- **Sequence-level coverage pass**: `coverageMode` (`new`/`continue`/`callback`/`none`) traverses
+  the whole segmented sequence so adjacent beats about the same moment share one visual instead of
+  re-searching per segment. `normalizeCoveragePlan()` validates every `visualRef` in one ordered
+  pass — forward references, missing IDs, and chained references all collapse to `none`/`new`
+  rather than being trusted. `app.js` renders `continue`/`callback` beats as a small "Continue
+  SC.NN visual" link instead of their own search button, and `completeVisualSpan()` feeds
+  evidence-search/stock-search the FULL span of text across every beat referencing one visual, not
+  just the originating segment's own sentence.
+- **`segment.js`'s endpoint is now streamed** (`ReadableStream`, leading whitespace flush + 10s
+  heartbeat padding, `_claude.js`'s `collectClaudeStream`) with the response also constrained via
+  Anthropic's native `output_config.format` JSON-schema — the coverage-pass fields make responses
+  long enough to risk Cloudflare's non-streaming edge timeout (524). The browser always gets HTTP
+  200 by the time headers are sent (before the model has even run); a real failure only ever shows
+  up as `data.error` in the body — every caller checks `data.error`, not just `res.ok`.
+- **Reconciliation note**: this was originally built on a branch that also re-implemented
+  multi-claim decomposition and photo search from scratch, using a NEW Google Custom Search
+  integration (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID`) and dropping `reference`-family (meme/reaction)
+  support entirely. By the time this landed, `master` had already independently gained its own
+  multi-claim/photo work (see the section above) using the EXISTING SerpAPI integration and keeping
+  `reference` fully supported. Reconciled by keeping master's version of both and layering only the
+  genuinely new visualMode/coverage/streaming pieces on top — the Google CSE path and the
+  reference-family removal were dropped as redundant/undiscussed, not carried forward.
+- A real pre-existing bug also found and fixed here (unrelated to this feature): an unescaped
+  backtick in `segment.js`'s own prompt text (the "Then came France" example, referencing
+  `` `evidence-search.js` ``) broke the file at parse time. Confirmed via `git stash` this predated
+  this work.
+- Not yet verified against real API calls (no live keys in the environment this was built in) —
+  only the deterministic pipeline functions have isolated unit test coverage (`tests/`). First live
+  test should confirm: visibly correct `continue`/`callback` grouping on a real multi-beat moment,
+  `subject_broll` querying the right era, and no truncation on a long real script now that output
+  includes several more fields per segment.
+
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional

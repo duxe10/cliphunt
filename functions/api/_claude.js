@@ -39,22 +39,26 @@ const MAX_WAIT_MS = 2000;
 // are real billed spend on a small account — this is a cost control, not just a reliability fix.
 // Callers must still budget max_tokens generously enough that low-effort thinking PLUS the
 // actual answer both fit — see call-site comments for specific values.
-export async function claudeChat(env, { model, system, messages, max_tokens }, maxRetries = 2) {
+export async function claudeChat(env, { model, system, messages, max_tokens, output_schema, stream = false, signal }, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal,
       headers: {
         "x-api-key": env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model, system, messages, max_tokens,
+        model, system, messages, max_tokens, stream,
         thinking: { type: "adaptive" },
-        output_config: { effort: "low" },
+        output_config: {
+          effort: "low",
+          ...(output_schema ? { format: { type: "json_schema", schema: output_schema } } : {}),
+        },
       }),
     });
-    if (res.ok) return res;
+    if (res.ok) return stream ? collectClaudeStream(res) : res;
     if (attempt >= maxRetries) return res;
 
     if (RETRY_STATUS.has(res.status)) {
@@ -67,6 +71,54 @@ export async function claudeChat(env, { model, system, messages, max_tokens }, m
 
     return res;
   }
+}
+
+async function collectClaudeStream(res) {
+  const reader = res.body?.getReader();
+  if (!reader) return new Response(JSON.stringify({ type: "error", error: { message: "Claude stream had no body" } }), { status: 502 });
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let stopReason = null;
+  let messageId = null;
+
+  const consume = (raw) => {
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      const event = JSON.parse(payload);
+      if (event.type === "error") throw new Error(event.error?.message || "Claude stream failed");
+      if (event.type === "message_start") messageId = event.message?.id || null;
+      if (event.type === "content_block_start" && event.content_block?.type === "text") text += event.content_block.text || "";
+      if (event.type === "content_block_delta" && event.delta?.type === "text_delta") text += event.delta.text || "";
+      if (event.type === "message_delta" && event.delta?.stop_reason) stopReason = event.delta.stop_reason;
+    }
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const boundary = buffer.lastIndexOf("\n\n");
+      if (boundary >= 0) {
+        consume(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) consume(buffer);
+  } catch (err) {
+    return new Response(JSON.stringify({ type: "error", error: { message: err.message } }), { status: 502 });
+  }
+
+  return new Response(JSON.stringify({
+    id: messageId,
+    type: "message",
+    stop_reason: stopReason,
+    content: [{ type: "text", text }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 // Confirmed live: a successful response's actual JSON answer isn't reliably content[0] — a
@@ -88,8 +140,37 @@ export function extractText(data) {
 // fenced body if present, otherwise returns the text unchanged for JSON.parse to handle (and
 // fail loudly on, if it's actually malformed rather than just fenced).
 export function extractJson(text) {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text || "");
-  return (fenced ? fenced[1] : text || "").trim();
+  let source = String(text || "").trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(source);
+  if (fenced) source = fenced[1].trim();
+  else source = source.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  // A response can contain an opening fence without a closing one, or a short prose preface.
+  // Isolate the first complete top-level JSON object/array without being confused by braces or
+  // escaped quotes inside JSON strings. If it is genuinely truncated, return the cleaned source
+  // so JSON.parse still reports the useful structural error rather than an irrelevant backtick.
+  const start = source.search(/[\[{]/);
+  if (start < 0) return source;
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i++) {
+    const char = source[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{" || char === "[") stack.push(char);
+    else if (char === "}" || char === "]") {
+      const opener = stack.pop();
+      if ((char === "}" && opener !== "{") || (char === "]" && opener !== "[")) return source;
+      if (!stack.length) return source.slice(start, i + 1);
+    }
+  }
+  return source.slice(start);
 }
 
 function sleep(ms) {

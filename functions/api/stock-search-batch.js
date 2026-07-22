@@ -33,21 +33,44 @@ export async function onRequestPost(context) {
     return Response.json({ error: "PEXELS_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
-  const queries = segments.map((seg) => (seg.query || seg.segmentText || "").trim());
+  const queries = segments.map((seg) => {
+    const primary = (seg.query || seg.segmentText || "").trim();
+    const alternatives = Array.isArray(seg.queries) ? seg.queries : [];
+    return [primary, ...alternatives]
+      .map((q) => String(q || "").trim())
+      .filter(Boolean)
+      .filter((q, i, all) => all.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i)
+      .slice(0, 3);
+  });
   const clipsByIndex = new Array(segments.length).fill(null);
 
   let cursor = 0;
   async function worker() {
     while (cursor < segments.length) {
       const i = cursor++;
-      const query = queries[i];
-      if (!query) { clipsByIndex[i] = []; continue; }
+      const segmentQueries = queries[i];
+      if (!segmentQueries.length) { clipsByIndex[i] = []; continue; }
       try {
-        const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=10&orientation=landscape`;
-        const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
-        if (!res.ok) { clipsByIndex[i] = []; continue; }
-        const data = await res.json();
-        clipsByIndex[i] = (data.videos || []).map((v) => mapPexelsVideo(v)).filter((c) => c && c.downloadUrl);
+        const pools = [];
+        // Search concepts sequentially inside each worker: the worker pool already provides
+        // concurrency across segments, and multiplying both dimensions would create a burst.
+        for (const query of segmentQueries) {
+          try {
+            const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=4&orientation=landscape`;
+            const res = await fetch(url, { headers: { Authorization: env.PEXELS_API_KEY } });
+            if (!res.ok) continue;
+            const data = await res.json();
+            pools.push(...(data.videos || []).map((v) => {
+              const clip = mapPexelsVideo(v);
+              return clip ? { ...clip, matchedQuery: query } : null;
+            }).filter((c) => c && c.downloadUrl));
+          } catch {
+            // One weak/failed alternative must not erase candidates from the other concepts.
+          }
+        }
+        clipsByIndex[i] = pools
+          .filter((c, idx, all) => all.findIndex((x) => x.id === c.id) === idx)
+          .slice(0, 12);
       } catch {
         clipsByIndex[i] = [];
       }
@@ -57,9 +80,11 @@ export async function onRequestPost(context) {
 
   const items = segments.map((seg, i) => ({
     i,
-    segmentText: seg.segmentText || queries[i],
+    segmentText: seg.segmentText || queries[i][0],
     context: seg.context || null,
-    query: queries[i],
+    query: queries[i][0],
+    queries: queries[i],
+    visualGoal: seg.visualGoal || null,
     clips: clipsByIndex[i] || [],
   }));
 

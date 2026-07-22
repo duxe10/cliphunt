@@ -331,6 +331,13 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .segment-row.empty-beat { opacity: .5; }
 
+.segment-row.continuity-beat {
+  margin-left: 22px;
+  border-top-left-radius: 4px;
+}
+
+.segment-row.continuity-beat + .segment-row.continuity-beat { margin-top: -7px; }
+
 .segment-meta {
   padding: 16px 14px;
   border-right: 1px dashed var(--border);
@@ -377,6 +384,16 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .badge-evidence { background: var(--evidence-bg); color: var(--evidence); }
 .badge-reference { background: var(--reference-bg); color: var(--reference); }
 .badge-nothing { background: var(--nothing-bg); color: var(--nothing); }
+.badge-continue { background: var(--feel-bg); color: var(--feel); }
+.badge-callback { background: var(--reference-bg); color: var(--reference); }
+
+.continuity-note {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.continuity-note a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
 .segment-body { padding: 16px 18px; }
 .segment-text { font-size: 15px; margin: 0 0 14px; line-height: 1.45; font-weight: 400; }

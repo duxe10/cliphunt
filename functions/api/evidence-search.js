@@ -78,7 +78,7 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","youtubeQuery":"...","photoQuery":"..."}]}
+{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","youtubeQuery":"...","photoQuery":"...","visualMode":"exact|subject_broll","eraHint":"...","visualGoal":"..."}]}
 
 STEP 1 — split the moment into claims:
 
@@ -229,7 +229,26 @@ golden boot trophy".
 "quote": set ONLY when the claim quotes or closely paraphrases something the subject actually SAID
 OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions of
 actions or events, and general statements are NOT quotes; set to null. Never invent a quote.
-("A missed penalty." describes an action, so quote is null.)`;
+("A missed penalty." describes an action, so quote is null.)
+
+EDITORIAL VIDEO B-ROLL — additive, only affects claims where mediaType includes "video". Also
+return "visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":string|null.
+
+"exact" is the default: youtubeQuery should directly show/document the claim as already specified.
+"subject_broll" is for a resolved, real subject (subject must be set) where the claim is a trait,
+arc, or compressed narration rather than one filmable instant — a skilled editor would use truthful
+illustrative footage OF THAT SUBJECT (training, interviews, walking, matchday routine, whatever
+fits their actual domain and story stage) rather than proof of an inferred action at the narrated
+instant. Do not invent an unstated event, injury, quote, or relationship. eraHint must carry the
+strongest available era discriminator (explicit year/event first, otherwise career stage, age
+language, team/employer, product era) — never search a subject's current era for narration about
+an earlier period. visualGoal is <=12 words describing what the footage should communicate. Set
+eraHint/visualGoal to null when mediaType is photo-only or mode is "exact" with nothing era-specific
+to add.
+
+An optional "PLANNED VISUAL" block may appear in the user message, carried over from whole-script
+segmentation (segment.js). Treat it as a useful prior, but correct it when the local claim-level
+context proves it wrong — never let it downgrade a genuinely exact claim into b-roll.`;
 
 const RERANK_PROMPT = `You rank YouTube search results by how good each is as the clip to CUT TO for
 one claim of a video script. YouTube's own ordering is unreliable here — its top hits are often
@@ -245,13 +264,20 @@ seconds, view count, short description). Score each 0-100:
 - Fit: a focused clip beats a 3-hour livestream as a cut source; a credible/official channel beats
   a random reupload.
 
+VISUAL MODE matters:
+- exact: demand direct support for the stated claim, as above.
+- subject_broll: do NOT demand proof of the abstract narration. Instead demand the correct real
+  subject, the requested era, and footage plausibly showing the editorial visual goal (training,
+  preparation, recovery, isolation, behind-the-scenes work, etc.). Wrong age/team/company era is a
+  major mismatch even when the subject is correct. Generic footage without the subject is near 0.
+
 Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the clip.`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext, debugImagesOnly;
+  let segmentText, scriptContext, debugImagesOnly, plannedVisual;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
@@ -261,6 +287,14 @@ export async function onRequestPost(context) {
     // + Groq rerank round trip), so the photo pipeline can be iterated on cheaply. Off by default;
     // every existing call site that doesn't send this flag behaves exactly as before.
     debugImagesOnly = !!body.debugImagesOnly;
+    // Optional prior from whole-script segmentation (segment.js's editorial visual plan) — a hint
+    // to verify against local claim-level context, not to trust blindly.
+    plannedVisual = {
+      visualMode: body.visualMode,
+      visualQueries: body.visualQueries,
+      visualGoal: body.visualGoal,
+      eraHint: body.eraHint,
+    };
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -275,9 +309,12 @@ export async function onRequestPost(context) {
   // 1. Claude splits the moment into claims and extracts intent per claim (see header comment for
   //    why this call site moved off Groq, and the SYSTEM_PROMPT's STEP 1/STEP 2 for what changed
   //    2026-07-21). Still exactly ONE Claude call regardless of how many claims come back.
-  const userContent = scriptContext && scriptContext.trim()
+  let userContent = scriptContext && scriptContext.trim()
     ? `The script so far (everything before this moment — use it to resolve who/what the moment is about):\n${scriptContext}\n\nThe moment:\n${segmentText}`
     : `The moment:\n${segmentText}`;
+  if (plannedVisual && Object.values(plannedVisual).some(Boolean)) {
+    userContent += `\n\nPLANNED VISUAL (use as a prior, verify against local context):\n${JSON.stringify(plannedVisual)}`;
+  }
 
   let parsed;
   try {
@@ -326,6 +363,11 @@ export async function onRequestPost(context) {
     const claimText = (c.claim && String(c.claim).trim()) || segmentText;
     const youtubeQuery = (c.youtubeQuery || c.subject || claimText).trim();
     const photoQuery = (c.photoQuery || youtubeQuery).trim();
+    // Additive editorial fields — only meaningful for the video side. subject_broll requires a
+    // real resolved subject, same guard as segment.js's own enforceVisualPlan.
+    const visualMode = c.visualMode === "subject_broll" && c.subject ? "subject_broll" : "exact";
+    const eraHint = c.eraHint && String(c.eraHint).trim() ? String(c.eraHint).trim().slice(0, 100) : null;
+    const visualGoal = c.visualGoal && String(c.visualGoal).trim() ? String(c.visualGoal).trim().slice(0, 160) : null;
 
     // YOUTUBE_API_KEY is fail-open, not hard-guarded (see header comment) — a missing key just
     // silently drops video search for every claim rather than 500ing an all-photo-capable request.
@@ -334,14 +376,14 @@ export async function onRequestPost(context) {
 
     const [videoCandidates, photoCandidates] = await Promise.all([
       wantsVideo
-        ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote }, env)
+        ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote, visualMode, eraHint, visualGoal }, env)
         : Promise.resolve([]),
       wantsPhoto ? searchGoogleImages(env, photoQuery) : Promise.resolve([]),
     ]);
 
     console.log(
-      `[evidence-search]   claim=${JSON.stringify(claimText.slice(0, 80))} mediaType=${mediaType} ` +
-      `youtubeQuery=${wantsVideo ? JSON.stringify(youtubeQuery) : "(skipped)"} ` +
+      `[evidence-search]   claim=${JSON.stringify(claimText.slice(0, 80))} mediaType=${mediaType} visualMode=${visualMode} ` +
+      `youtubeQuery=${wantsVideo ? JSON.stringify(youtubeQuery) : "(skipped)"} eraHint=${JSON.stringify(eraHint)} ` +
       `photoQuery=${wantsPhoto ? JSON.stringify(photoQuery) : "(skipped)"} ` +
       `video=${videoCandidates.length} photo=${photoCandidates.length}`
     );
@@ -352,6 +394,9 @@ export async function onRequestPost(context) {
       subject: c.subject || null,
       quote,
       mediaType,
+      visualMode,
+      eraHint,
+      visualGoal,
       youtubeQuery: wantsVideo ? youtubeQuery : null,
       photoQuery: wantsPhoto ? photoQuery : null,
       videoCandidates,
@@ -455,6 +500,9 @@ export async function rerankCandidates(intent, candidates, env, systemPrompt = R
     `MOMENT: ${intent.segmentText}\n` +
     `SUBJECT: ${intent.subject || "(none)"}\n` +
     `FOOTAGE TYPE: ${intent.footageType}\n` +
+    `VISUAL MODE: ${intent.visualMode || "exact"}\n` +
+    (intent.visualGoal ? `EDITORIAL VISUAL GOAL: ${intent.visualGoal}\n` : "") +
+    (intent.eraHint ? `REQUIRED ERA: ${intent.eraHint}\n` : "") +
     (intent.quote ? `SPOKEN LINE: ${intent.quote}\n` : "") +
     `\nCANDIDATES:\n${JSON.stringify(list)}`;
   try {

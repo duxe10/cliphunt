@@ -110,7 +110,12 @@
           body: JSON.stringify({ script }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+        // /api/segment streams its response to dodge Cloudflare's edge timeout on long outputs
+        // (see segment.js) — the HTTP status is always 200 by the time headers are sent, before
+        // the model has even run, so an upstream failure only ever shows up as data.error, not a
+        // non-ok status.
+        if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong');
+        if (!Array.isArray(data.segments)) throw new Error('The visual plan response was incomplete. No project was saved.');
 
         // The segmenter already returns family/subject/categoryClaim/depictionType/reason per
         // segment (see segment.js) — logged here immediately so a decision breakdown is visible
