@@ -102,7 +102,7 @@ to the actual matchup/event, not just the bare new name. "Then came France." —
 narrating England's group stage and Round of 16 win over Senegal, this introduces France as the
 NEXT, brand-new opponent for the first time: subject: "England vs France, 2022 World Cup
 quarterfinal", depictionType: "instant" (a specific, real, newly-established fixture — a real
-photo/video search is worth trying, same reasoning `evidence-search.js`'s own context-resolution
+photo/video search is worth trying, same reasoning \`evidence-search.js\`'s own context-resolution
 rules already apply once they get the chance). Same pattern, same script: "But then came Croatia."
 introduces Croatia as the next opponent for the first time (the semi-final) — subject: "England
 vs Croatia, 2018 World Cup semi-final", depictionType: "instant" for the same reason.
@@ -240,6 +240,29 @@ person — "Many players remember the exact moment they signed their first contr
 common, class-level event (signing a first contract) surviving the same strip-the-verb test, not a
 hypothetical.
 
+Separately from "subject" above, also set "resolvedSubject" whenever "subject" resolved to null,
+BUT a LATER segment in the script goes on to name a real person/entity that this segment was
+actually describing all along — resolved using the WHOLE script, including segments after this
+one, since a script can describe someone before ever naming them (a deliberate build-up/reveal
+narrative device). Do NOT set this when "subject" already resolved to a real name — leave
+"resolvedSubject" null in that ordinary case; this field exists only for segments that stay
+genuinely oblique on their own but a later reveal explains, not as a duplicate of "subject". Do not
+let this field change "subject", "family", or "categoryClaim" themselves — purely additive.
+
+Example: "Nobody believed the scrawny kid from the estate would make it." (subject: null — no real
+name here or established before it) followed several segments later by "That kid was Ousmane
+Dembélé." — resolvedSubject: "Ousmane Dembélé" on the FIRST segment, even though subject stayed
+null there. Reuse the exact same name string across every segment in one build-up chain. Contrast:
+"The chat lost it when the demo video hit the front page." — resolvedSubject also stays null here,
+since nothing anywhere in the whole script, forward or back, ever names a real entity this was
+about — don't invent an identity where none exists anywhere in the script.
+
+Also set "explicitRevealDevice": true only on a segment where "resolvedSubject" is set and the
+segment's OWN phrasing is itself a deliberate withholding/reveal device — "little did anyone know,"
+"you'll never guess," "years later, that person became" — not merely because the identity happens
+to be undisclosed yet. Most oblique build-up segments do NOT have this device explicitly in their
+own words; default false.
+
 Also name the "categoryClaim": this is the concreteness test above, applied to a whole CLASS of
 real people/things instead of one resolved individual. Name a short phrase for the real, general
 phenomenon ONLY when the segment describes a whole CLASS of real people/things DOING something a
@@ -251,6 +274,18 @@ useful SIGNAL for noticing candidate sentences, but it is NOT the test by itself
 quantifier+category sentences describe an internal, mental, or emotional state (wondering, hoping,
 believing, wishing, dreaming, feeling proud, wanting) that no camera could ever capture, no matter
 how many real people are doing it.
+
+But apply the SAME strip-the-framing-verb test used for "subject"'s memory-framing exception above:
+an aspiration/desire verb (dream, wish, hope, want) wrapping a real, external, class-level event
+does NOT by itself disqualify categoryClaim — strip the verb and check what's left. "It is every
+player's dream to score at a World Cup" strips to "score at a World Cup" — a real, external,
+repeatable, filmable class-level event (the same real content as the footballers-celebrating
+example below, just aspiration-framed) — categoryClaim: "players scoring at a World Cup", NOT null.
+Contrast: "Some players dream of a life without the pressure" strips to "a life without the
+pressure" — nothing real, external, or filmable survives, only an unfilmable wish — categoryClaim
+stays null, same shape as the "want to feel like their work matters" example below. Identical test
+to the subject-level one: does a real, external, class-level thing survive stripping the framing
+verb, or only a hypothetical/internal state?
 
 Two examples of genuine categoryClaims: "For most footballers, scoring at a World Cup is the
 highlight of their career" -> categoryClaim: "footballers celebrating scoring at a World Cup"
@@ -481,7 +516,7 @@ founders spend years replaying the moment they turned down the offer", "gives me
 concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"depictionType":"instant","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","depictionType":"fallback","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"instant","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"fallback","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"resolvedSubject":"...","explicitRevealDevice":false,"reason":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -532,7 +567,8 @@ export async function onRequestPost(context) {
 
     const merged = mergeFragments(parsed.segments);
     const evidenceResolved = enforceEvidenceRule(merged);
-    const corrected = enforceFeelQueryRule(evidenceResolved);
+    const queryChecked = enforceFeelQueryRule(evidenceResolved);
+    const corrected = computeRevealConfidence(queryChecked);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
     // just real-time eyes on what the model actually decided per segment while testing. One line
@@ -548,6 +584,7 @@ export async function onRequestPost(context) {
         `[segment] reqId=${reqId} #${i} family=${seg.family} ` +
         `subject=${JSON.stringify(seg.subject ?? null)} categoryClaim=${JSON.stringify(seg.categoryClaim ?? null)} ` +
         `depictionType=${seg.depictionType ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
+        `resolvedSubject=${JSON.stringify(seg.resolvedSubject ?? null)} revealConfidence=${seg.revealConfidence ?? "-"} ` +
         `reason=${JSON.stringify(seg.reason ?? null)} text=${JSON.stringify(seg.text.slice(0, 100))}`
       );
     });
@@ -639,5 +676,66 @@ function enforceFeelQueryRule(segments) {
       seg.reason = "feel had no query — mechanically downgraded, no real anchor found";
     }
   }
+  return segments;
+}
+
+// Replaces an earlier binary "isRevealBeat" design (a hard yes/no on whether showing a
+// build-up's real subject early is allowed) — a wrong binary guess fails catastrophically, since
+// the subject-specific candidate is never even fetched. This computes a graded 0-100
+// "revealConfidence" instead, so a wrong estimate only affects ranking among the several
+// candidates evidence-search.js already fetches per claim, not availability. Deliberately mostly
+// mechanical: the model only contributes "resolvedSubject" (identity) and "explicitRevealDevice"
+// (one narrow, easy yes/no classification) — everything else here is arithmetic over segment
+// indices, not a fresh model guess.
+function computeRevealConfidence(segments) {
+  const chainRunLength = new Map(); // normalized resolvedSubject -> consecutive unnamed run length
+  const chainHasDevice = new Map(); // normalized resolvedSubject -> seen explicitRevealDevice in this run
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+
+    // Defensive guard against a model self-contradiction: resolvedSubject only makes sense when
+    // "subject" itself is null (see the prompt's own instruction) — force it null otherwise rather
+    // than trust the model followed that rule, same mechanical-proxy philosophy as
+    // enforceEvidenceRule above.
+    if (seg.subject && String(seg.subject).trim()) {
+      seg.resolvedSubject = null;
+    }
+
+    const rs = seg.resolvedSubject && String(seg.resolvedSubject).trim();
+    if (!rs) {
+      seg.revealConfidence = null;
+      continue;
+    }
+
+    const key = rs.toLowerCase();
+    // Has this name appeared as literal text anywhere from segment 0 through this one (inclusive)?
+    // Checked in code, not trusted to the model — this is the one fact that must not depend on the
+    // model getting it right. If yes, this was never really an early reveal at all (ordinary
+    // continuity on an already-established subject), so there is nothing to hedge on.
+    const alreadyNamed = segments
+      .slice(0, i + 1)
+      .some((s) => (s.text || "").toLowerCase().includes(key));
+
+    if (alreadyNamed) {
+      seg.revealConfidence = 100;
+      chainRunLength.delete(key);
+      chainHasDevice.delete(key);
+      continue;
+    }
+
+    const runLen = (chainRunLength.get(key) || 0) + 1;
+    chainRunLength.set(key, runLen);
+    if (seg.explicitRevealDevice === true) chainHasDevice.set(key, true);
+
+    // Decays with each additional consecutive segment that keeps this subject unnamed — one
+    // oblique mention is weak evidence of deliberate withholding, several in a row is a real
+    // sustained mystery-structure signal. Nudged down further, not decided solely by, the one
+    // narrow model flag.
+    let confidence = Math.max(5, 60 - (runLen - 1) * 15);
+    if (chainHasDevice.get(key)) confidence = Math.max(5, confidence - 20);
+    seg.revealConfidence = confidence;
+  }
+
   return segments;
 }

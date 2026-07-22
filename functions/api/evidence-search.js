@@ -78,7 +78,7 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","youtubeQuery":"...","photoQuery":"..."}]}
+{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","depictionTier":"exact|broad","youtubeQuery":"...","photoQuery":"...","youtubeQueryLoose":"...","photoQueryLoose":"...","worldKnowledgeResolved":false,"confidence":"high|low"}]}
 
 STEP 1 — split the moment into claims:
 
@@ -148,6 +148,18 @@ This applies to a script about ANY topic — sports, business, science, politics
   "subject" = that entity. "youtubeQuery" = subject + the distinguishing keywords (event,
   opponent, year) most likely to appear in a real video's title.
 
+      A THIRD kind of resolution, distinct from the two rules above — those only carry forward what
+      the script ITSELF already established. Sometimes a claim obliquely alludes to a real,
+      specific, well-known incident WITHOUT the script ever stating what it was ("an embarrassing
+      moment", "the scandal that followed"). Only when you have genuine, confident real-world
+      knowledge of the SPECIFIC incident being referenced — not a guess — resolve it: set
+      "worldKnowledgeResolved": true, "confidence": "high", and build "youtubeQuery"/"photoQuery"
+      around the actual resolved incident. If you cannot confidently identify the specific real
+      incident, only a vague sense that something happened, set "worldKnowledgeResolved": false,
+      "confidence": "low", and fall back to the vague query the claim's own text supports, exactly
+      as if this rule didn't exist. A wrong specific guess is worse than an honest vague one — never
+      resolve one you aren't genuinely confident about.
+
 - "generic": the claim is a self-contained GENERAL statement true of a whole category, not one
   identifiable instance — usually signalled by quantifiers like "most", "every", "people",
   "everyone", or a general truth. Two examples, deliberately different domains: "For most
@@ -212,6 +224,21 @@ all achievements, not all sports, not all positive):
 These examples illustrate the shape test, not an exhaustive list of qualifying topics — apply the
 same reasoning to any domain or valence.
 
+Decide "depictionTier" — a DIFFERENT axis from "footageType", and only meaningful when footageType
+is "specific" (set "exact" for any "generic" claim — a category-level claim's query is already
+non-literal by nature, this distinction doesn't apply to it). Not who the claim is about, but how
+literally the visual needs to match: "exact" — the claim is a specific, literally-depictable fact
+or moment (a goal, a quote, a signing, a specific record) — search for that exact thing. "broad" —
+the claim is about a specific, real, IDENTIFIED person, but the claim itself is vague, subjective,
+or an ongoing judgment ("his form had been slipping", "she'd lost a step") — an exact literal clip
+risks implying a specific failure/moment that may not have happened as described; the correct
+choice is genuine but GENERIC footage of that same real person (training, a match, a public
+appearance), not a fabricated specific depiction. Two examples: "He scored twice in the final." ->
+depictionTier: "exact". "His form had been slipping for months." (about a named, real player) ->
+depictionTier: "broad" — subject stays the real player, but youtubeQuery should target generic
+presence footage ("[player] training session", "[player] warming up before match"), not an invented
+specific failure.
+
 "youtubeQuery": set when mediaType is "video" or "both" (null otherwise) — 3-6 words, the best real
 YouTube search to surface this footage — for "specific", a TITLE/KEYWORD match (a specific
 person/event's name + distinguishing details); for "generic", a concrete action + category
@@ -225,6 +252,14 @@ scene descriptions. Both context-resolution rules above apply here identically: 
 established time/edition/event, and resolve a progression fragment as the relationship to the
 subject being followed. E.g. "Harry Kane Golden Boot award ceremony 2018 photo", not "man holding
 golden boot trophy".
+
+Also set "youtubeQueryLoose"/"photoQueryLoose": a deliberately BROADER fallback version of the same
+query, used only if the tight query above returns nothing — drop the single most restrictive
+qualifier (an exact era/season, or one specific action/qualifier) while keeping the subject and at
+least one other qualifier, rather than dropping straight to a bare subject name. E.g. tight
+"youtubeQuery": "Ousmane Dembélé Dortmund debut goal 2016" -> loose: "Ousmane Dembélé Dortmund
+goals" (dropped the exact debut/match detail, kept player + club). Set to null whenever the tight
+version is also null (mediaType doesn't call for that medium).
 
 "quote": set ONLY when the claim quotes or closely paraphrases something the subject actually SAID
 OUT LOUD — a spoken line that could appear in a video's captions. Narration, descriptions of
@@ -248,10 +283,25 @@ seconds, view count, short description). Score each 0-100:
 Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the clip.`;
 
+// Used instead of RERANK_PROMPT when a claim's depictionTier is "broad" (see SYSTEM_PROMPT) — the
+// claim is intentionally non-literal, so scoring should reward genuine subject presence, not
+// penalize a candidate for not depicting the vague claim exactly.
+const RERANK_PROMPT_SUBJECT_PRESENCE = `You rank YouTube search results for a claim that is
+intentionally GENERIC/BROAD rather than an exact depiction — the claim is a vague or ongoing
+judgment about a real, named subject (e.g. "his form had been slipping"), and showing an exact
+literal moment would misrepresent it. Score each 0-100 on whether the subject is genuinely,
+plausibly PRESENT in a believable context (training, playing, appearing) — NOT on whether it
+depicts the specific claim literally, since it shouldn't. Off-subject or clearly staged/unrelated =
+near 0. Prefer real, recent, credible footage of the subject over anything fabricated-looking or
+off-topic.
+
+Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
+Include EVERY candidate exactly once, best first. 0 = unusable, 100 = clearly the subject, plausible context.`;
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  let segmentText, scriptContext, debugImagesOnly;
+  let segmentText, scriptContext, debugImagesOnly, resolvedSubject, revealConfidence;
   try {
     const body = await request.json();
     segmentText = body.segmentText;
@@ -261,6 +311,12 @@ export async function onRequestPost(context) {
     // + Groq rerank round trip), so the photo pipeline can be iterated on cheaply. Off by default;
     // every existing call site that doesn't send this flag behaves exactly as before.
     debugImagesOnly = !!body.debugImagesOnly;
+    // Additive, optional — populated from segment.js's computeRevealConfidence, via app.js's
+    // SEGMENTS, only for a segment that stays genuinely oblique on its own but a later part of the
+    // script reveals who it's about. Absent on every existing call site; behavior below is
+    // unchanged when these aren't sent.
+    resolvedSubject = body.resolvedSubject || null;
+    revealConfidence = Number.isFinite(body.revealConfidence) ? body.revealConfidence : null;
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -314,6 +370,15 @@ export async function onRequestPost(context) {
     `moment=${JSON.stringify(segmentText.slice(0, 100))}`
   );
 
+  // Only the genuinely ambiguous middle confidence band pays for a second, supplemental search
+  // (capability 3) — high confidence is already resolvable via ordinary prior-context (nothing to
+  // add here), low confidence deliberately stays generic-only to bound cost. See segment.js's
+  // computeRevealConfidence for how this number is derived.
+  const REVEAL_MIDDLE_MIN = 31;
+  const REVEAL_MIDDLE_MAX = 69;
+  const inMiddleBand =
+    revealConfidence != null && revealConfidence >= REVEAL_MIDDLE_MIN && revealConfidence <= REVEAL_MIDDLE_MAX;
+
   // 2. Run every claim concurrently, and within each claim run video/photo search concurrently —
   //    a claim only searches the medium(s) its own mediaType calls for (not "always both" the way
   //    reference-search.js's reaction-clip feature works), since an unwanted video search for a
@@ -324,38 +389,74 @@ export async function onRequestPost(context) {
     const quote = footageType === "specific" && c.quote && String(c.quote).trim() ? String(c.quote).trim() : null;
     const mediaType = ["video", "photo", "both"].includes(c.mediaType) ? c.mediaType : "video";
     const claimText = (c.claim && String(c.claim).trim()) || segmentText;
+    // Capability 2: only trust a world-knowledge-resolved incident when the model is genuinely
+    // confident — this flag is logged for manual spot-checking, not branched on in code, since
+    // factual-recall correctness isn't mechanically checkable; the model's own query already
+    // reflects the resolved (or honestly vague) result per the prompt's own gating.
+    const worldKnowledgeResolved = !!c.worldKnowledgeResolved && c.confidence === "high";
     const youtubeQuery = (c.youtubeQuery || c.subject || claimText).trim();
     const photoQuery = (c.photoQuery || youtubeQuery).trim();
+    const youtubeQueryLoose = (c.youtubeQueryLoose && String(c.youtubeQueryLoose).trim()) || null;
+    const photoQueryLoose = (c.photoQueryLoose && String(c.photoQueryLoose).trim()) || null;
+
+    // Capability 4: distinct axis from footageType/mediaType — only meaningful for "specific"
+    // claims. mediaType "photo" is already defined (see SYSTEM_PROMPT) as cumulative/no-single-
+    // instant, the same shape as "broad" — correct a model self-contradiction mechanically rather
+    // than trust it, same philosophy as segment.js's enforceEvidenceRule.
+    let depictionTier = footageType === "specific" && c.depictionTier === "broad" ? "broad" : "exact";
+    if (mediaType === "photo" && depictionTier === "exact") depictionTier = "broad";
+    const rerankPrompt = depictionTier === "broad" ? RERANK_PROMPT_SUBJECT_PRESENCE : RERANK_PROMPT;
 
     // YOUTUBE_API_KEY is fail-open, not hard-guarded (see header comment) — a missing key just
     // silently drops video search for every claim rather than 500ing an all-photo-capable request.
     const wantsVideo = !debugImagesOnly && (mediaType === "video" || mediaType === "both") && !!env.YOUTUBE_API_KEY;
     const wantsPhoto = debugImagesOnly || mediaType === "photo" || mediaType === "both";
 
+    const intent = { segmentText: claimText, subject: c.subject, footageType, quote };
+
     const [videoCandidates, photoCandidates] = await Promise.all([
-      wantsVideo
-        ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote }, env)
-        : Promise.resolve([]),
-      wantsPhoto ? searchGoogleImages(env, photoQuery) : Promise.resolve([]),
+      wantsVideo ? searchVideoForClaim(youtubeQuery, youtubeQueryLoose, intent, env, rerankPrompt) : Promise.resolve([]),
+      wantsPhoto ? searchPhotoForClaim(env, photoQuery, photoQueryLoose) : Promise.resolve([]),
     ]);
+
+    // Capability 3 consumption: fires only in the middle confidence band, and only for a claim
+    // that came back without its own specific subject — exactly the "still oblique" case
+    // resolvedSubject exists for. A wrong revealConfidence estimate only changes whether this
+    // extra candidate exists in the ranked set, never silently blocks it.
+    let hedgeVideo = [];
+    let hedgePhoto = [];
+    const shouldHedge = inMiddleBand && resolvedSubject && (footageType === "generic" || !c.subject);
+    if (shouldHedge) {
+      const hedgeQuery = `${resolvedSubject} ${(c.youtubeQuery || claimText).trim()}`.trim();
+      const hedgeIntent = { segmentText: claimText, subject: resolvedSubject, footageType: "specific", quote: null };
+      [hedgeVideo, hedgePhoto] = await Promise.all([
+        wantsVideo ? searchVideoForClaim(hedgeQuery, null, hedgeIntent, env, RERANK_PROMPT) : Promise.resolve([]),
+        wantsPhoto ? searchPhotoForClaim(env, hedgeQuery, null) : Promise.resolve([]),
+      ]);
+    }
+
+    const mergedVideo = mergeAndCapCandidates(videoCandidates, hedgeVideo, 5);
+    const mergedPhoto = mergeAndCapCandidates(photoCandidates, hedgePhoto, 8);
 
     console.log(
       `[evidence-search]   claim=${JSON.stringify(claimText.slice(0, 80))} mediaType=${mediaType} ` +
+      `depictionTier=${depictionTier} worldKnowledgeResolved=${worldKnowledgeResolved} hedge=${shouldHedge ? "fired" : "-"} ` +
       `youtubeQuery=${wantsVideo ? JSON.stringify(youtubeQuery) : "(skipped)"} ` +
       `photoQuery=${wantsPhoto ? JSON.stringify(photoQuery) : "(skipped)"} ` +
-      `video=${videoCandidates.length} photo=${photoCandidates.length}`
+      `video=${mergedVideo.length} photo=${mergedPhoto.length}`
     );
 
     return {
       claim: claimText,
       footageType,
-      subject: c.subject || null,
+      subject: c.subject || (shouldHedge ? resolvedSubject : null),
       quote,
       mediaType,
+      depictionTier,
       youtubeQuery: wantsVideo ? youtubeQuery : null,
       photoQuery: wantsPhoto ? photoQuery : null,
-      videoCandidates,
-      photoCandidates,
+      videoCandidates: mergedVideo,
+      photoCandidates: mergedPhoto,
       videoSearched: wantsVideo,
       photoSearched: wantsPhoto,
     };
@@ -366,17 +467,52 @@ export async function onRequestPost(context) {
 
 // Never throws — a claim's video search failing (quota, API error, zero results) should never
 // block or fail the claim's photo search (or any other claim's search) running alongside it.
-async function searchVideoForClaim(query, intent, env) {
+// `looseQuery` (capability 1): a deliberately broader fallback query, retried ONCE — and only
+// once — when the tight query's post-filter result is empty, rather than giving up. Rerank runs
+// once per attempt, against that attempt's own result set only, never against both.
+async function searchVideoForClaim(query, looseQuery, intent, env, systemPrompt = RERANK_PROMPT) {
   try {
-    const candidates = await searchYouTubeVideos(query, env.YOUTUBE_API_KEY);
-    await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
-    const reranked = await rerankCandidates(intent, candidates, env);
-    candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
-    const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+    const attempt = async (q) => {
+      const candidates = await searchYouTubeVideos(q, env.YOUTUBE_API_KEY);
+      await enrichCandidates(candidates, env.YOUTUBE_API_KEY);
+      const reranked = await rerankCandidates(intent, candidates, env, systemPrompt);
+      candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+      return reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+    };
+
+    let filtered = await attempt(query);
+    if (filtered.length === 0 && looseQuery && looseQuery !== query) {
+      console.log(`[evidence-search] loosened video retry fired query=${JSON.stringify(looseQuery)}`);
+      filtered = await attempt(looseQuery);
+    }
+
     return filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
   } catch {
     return [];
   }
+}
+
+// Same one-retry-on-empty pattern as searchVideoForClaim, for capability 1's photo path. The
+// check is on SerpAPI's own post-filter result (_serpapi.js's domain/gif filters can zero out a
+// non-empty raw response) — that's the count that actually matters to the user, not the raw hit
+// count. Never throws — searchGoogleImages itself already fails open to [].
+async function searchPhotoForClaim(env, query, looseQuery) {
+  let candidates = await searchGoogleImages(env, query);
+  if (candidates.length === 0 && looseQuery && looseQuery !== query) {
+    console.log(`[evidence-search] loosened photo retry fired query=${JSON.stringify(looseQuery)}`);
+    candidates = await searchGoogleImages(env, looseQuery);
+  }
+  return candidates;
+}
+
+// Merges a capability-3 supplemental "hedge" search's results into a claim's main candidates
+// without duplicates, capped back down to the same limit the main search already uses (5 for
+// video, 8 for photo — see MAX_IMAGES in _serpapi.js). No-op when there's nothing to merge.
+function mergeAndCapCandidates(primary, supplemental, cap) {
+  if (!supplemental.length) return primary;
+  const seen = new Set(primary.map((c) => c.videoId || c.pageUrl));
+  const extra = supplemental.filter((c) => !seen.has(c.videoId || c.pageUrl));
+  return [...primary, ...extra].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, cap);
 }
 
 // YouTube Data API search.list (fetch 12 to rerank from). Exported so reference-search.js's meme

@@ -394,7 +394,17 @@ async function findFootage(segIdx) {
       // beats it now forces every claim to search photos and skip video (see evidence-search.js,
       // 2026-07-21) — the old segment-level depictionType gate is no longer read there, superseded
       // by the new per-claim mediaType judgment, so it's no longer sent.
-      body: JSON.stringify({ segmentText: seg.text, context, debugImagesOnly: imagesOnly }),
+      // resolvedSubject/revealConfidence (additive, both usually null/absent): only populated by
+      // segment.js's computeRevealConfidence for a segment that stays genuinely oblique on its own
+      // but a later part of the script reveals who it's about — ignored by reference-search.js and
+      // by evidence-search.js itself outside the middle confidence band (see its header comment).
+      body: JSON.stringify({
+        segmentText: seg.text,
+        context,
+        debugImagesOnly: imagesOnly,
+        resolvedSubject: seg.resolvedSubject ?? null,
+        revealConfidence: seg.revealConfidence ?? null,
+      }),
     });
     const search = await searchRes.json();
     if (!searchRes.ok) throw new Error(search.error || "Search failed");
