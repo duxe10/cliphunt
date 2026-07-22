@@ -98,6 +98,16 @@ function buildLiveSegments(raw) {
       categoryClaim: s.categoryClaim || null,
       depictionType: s.depictionType || null,
       reason: s.reason || null,
+      // visualSource/inheritedSubjectForFiller/subjectFillerQuery (2026-07-22, see segment.js's
+      // enforceVisualSourceRule): a "feel" segment centered on an already-established real
+      // subject prefers generic YouTube presence footage of them over anonymous stock. fillerClips
+      // is the PERSISTED cache for that path specifically (unlike stock, which always live-
+      // refetches — see hydrateClips()'s header comment) — reused across reloads instead of
+      // re-spending YouTube quota on an unchanged project.
+      visualSource: s.visualSource || null,
+      inheritedSubjectForFiller: s.inheritedSubjectForFiller || null,
+      subjectFillerQuery: s.subjectFillerQuery || null,
+      fillerClips: s.fillerClips || null,
       clips: null, // null = not hydrated yet, vs [] = hydrated but genuinely nothing found
     };
   });
@@ -289,19 +299,61 @@ function segmentHtml(seg) {
   `;
 }
 
-// Fires real Pexels searches for feel segments after the initial render, then swaps each
-// segment's "Searching…" placeholder for real results in place. Gifs (Giphy) were dropped
-// entirely — low quality, too short to be useful cuts — so "feel" is Pexels-only now.
-//
-// One /api/stock-search-batch call for ALL feel segments at once, not one /api/stock-search call
-// per segment — a script with many feel beats used to fire that many concurrent Groq rerank
-// calls simultaneously (via the Promise.all this used to have), on every single workspace load,
-// which was enough to burst past Groq's per-minute rate limit. See stock-search-batch.js's header
-// comment for the full breakdown.
-async function hydrateClips() {
-  const targets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
-  if (!targets.length) return;
+// Writes a subject-filler result back into the persisted project (localStorage), unlike stock —
+// see this file's header comment: clips normally live-refetch every load rather than persisting.
+// Subject-filler is the one deliberate exception (see segment.js's enforceVisualSourceRule and
+// subject-filler-batch.js's header comment): YouTube's search.list costs 100 of the app's 10,000
+// daily quota units, so re-fetching on every reload doesn't scale the way live Pexels refetching
+// does. A reload of an unchanged project should cost zero new YouTube quota.
+function persistFillerClips(segIdx, clips) {
+  const projects = getProjects();
+  const proj = projects.find(p => p.id === CURRENT_PROJECT.id);
+  if (!proj || !proj.segments[segIdx]) return;
+  proj.segments[segIdx].fillerClips = clips;
+  saveProjects(projects);
+  if (CURRENT_PROJECT.segments[segIdx]) CURRENT_PROJECT.segments[segIdx].fillerClips = clips;
+}
 
+// Fires real Pexels searches for stock-sourced feel segments, and YouTube subject-filler searches
+// for feel/promoted-nothing segments centered on an already-established real subject (see
+// segment.js's enforceVisualSourceRule), after the initial render — swaps each segment's
+// "Searching…" placeholder for real results in place. Gifs (Giphy) were dropped entirely — low
+// quality, too short to be useful cuts.
+//
+// Both sources are batched, not fired per-segment: a script with many feel beats used to fire that
+// many concurrent Groq rerank calls simultaneously on every workspace load, bursting past Groq's
+// per-minute rate limit — see stock-search-batch.js's header comment. subject-filler-batch.js
+// applies the same one-combined-rerank-call discipline, plus its own pooled-by-subject retrieval
+// (see its header comment) so the same real person's footage doesn't repeat across segments.
+async function hydrateClips() {
+  const feelTargets = SEGMENTS.filter(s => s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
+  if (!feelTargets.length) return;
+
+  const stockTargets = feelTargets.filter(s => s.visualSource !== "subject");
+  const fillerTargets = feelTargets.filter(s => s.visualSource === "subject");
+  // Already-persisted subject-filler results (see persistFillerClips) skip the network call
+  // entirely — this is what makes an unchanged project's reload cost zero new YouTube quota.
+  const fillerCached = fillerTargets.filter(s => Array.isArray(s.fillerClips));
+  const fillerToFetch = fillerTargets.filter(s => !Array.isArray(s.fillerClips));
+
+  fillerCached.forEach(seg => { seg.clips = seg.fillerClips; });
+
+  await Promise.all([
+    hydrateStockClips(stockTargets),
+    hydrateFillerClips(fillerToFetch),
+  ]);
+
+  renderHydratedClips(stockTargets, 4);
+  // Own dedup namespace, separate from stock's — a narrower per-subject real pool than Pexels'
+  // broad stock categories, and mixing the two would let an unrelated stock clip's id collide
+  // with nothing meaningful. subject-filler-batch.js already rotates picks per subject server-
+  // side; this just also protects against the SAME cached+freshly-fetched clip reappearing
+  // across two segments in one render pass.
+  renderHydratedClips([...fillerCached, ...fillerToFetch], 3);
+}
+
+async function hydrateStockClips(targets) {
+  if (!targets.length) return;
   try {
     const res = await fetch("/api/stock-search-batch", {
       method: "POST",
@@ -316,24 +368,106 @@ async function hydrateClips() {
   } catch {
     targets.forEach(seg => { seg.clips = []; });
   }
+}
 
-  // Cross-segment dedup: with a wider pool per segment, greedily assign non-duplicate
-  // clips in segment order so the same clip doesn't get reused across scenes. If a segment
-  // has nothing left after filtering, fall back to its own (duplicate) pool rather than
-  // showing "no clips found".
+async function hydrateFillerClips(targets) {
+  if (!targets.length) return;
+  try {
+    const res = await fetch("/api/subject-filler-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        segments: targets.map(seg => ({ subject: seg.inheritedSubjectForFiller, query: seg.subjectFillerQuery })),
+      }),
+    });
+    const data = await res.json();
+    const byIndex = new Map(res.ok && Array.isArray(data.results) ? data.results.map(r => [r.i, r.clips]) : []);
+    targets.forEach((seg, i) => {
+      const clips = byIndex.get(i) || [];
+      seg.clips = clips;
+      persistFillerClips(seg.idx, clips);
+    });
+  } catch {
+    targets.forEach(seg => { seg.clips = []; });
+  }
+}
+
+// Cross-segment dedup: with a wider pool per segment, greedily assign non-duplicate clips in
+// segment order so the same clip doesn't get reused across scenes, then render each segment's
+// queue in place. Shared by both stock and subject-filler target lists (called separately, each
+// with its own dedup namespace — see hydrateClips()).
+function renderHydratedClips(targets, maxPerSegment) {
   const usedIds = new Set();
   for (const seg of targets) {
-    const unique = seg.clips.filter(c => !usedIds.has(c.id));
-    const picked = (unique.length ? unique : seg.clips).slice(0, 4);
-    picked.forEach(c => usedIds.add(c.id));
+    const unique = seg.clips.filter(c => !usedIds.has(c.id || c.videoId));
+    const picked = (unique.length ? unique : seg.clips).slice(0, maxPerSegment);
+    picked.forEach(c => usedIds.add(c.id || c.videoId));
     seg.clips = picked;
 
     const container = document.getElementById(`clipqueue-${seg.idx}`);
     if (!container) continue;
+    // source:"youtube" (subject-filler) renders through the YouTube-shaped card/preview path —
+    // a Pexels-shaped clip has no videoId/downloadUrl equivalent and openPreview's trim feature
+    // relies on Pexels' CORS-friendly CDN, which a YouTube link can't provide.
     container.outerHTML = seg.clips.length
-      ? `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`
+      ? `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) =>
+          c.source === "youtube" ? fillerCardHtml(seg.idx, i, c) : clipCardHtml(seg.idx, i, c)
+        ).join("")}</div>`
       : `<p class="no-clip-msg" id="clipqueue-${seg.idx}">No matching clips found.</p>`;
   }
+}
+
+// Subject-filler clips are YouTube-shaped (videoId/title/channel/url), not Pexels-shaped
+// (downloadUrl/previewUrl) — mirrors claimVideoCardHtml/openClaimVideoPreview's YouTube-iframe
+// preview exactly, just reading from SEGMENTS[segIdx].clips[clipIdx] (this feature's own
+// clip-queue indexing) instead of a nested claims/videoCandidates path.
+function fillerCardHtml(segIdx, clipIdx, cand) {
+  const thumbStyle = cand.thumb
+    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
+    : "";
+  const label = evidenceLabel(cand);
+  return `
+    <div class="clip-card" onclick="openFillerPreview(${segIdx}, ${clipIdx})">
+      <div class="clip-thumb" style="${thumbStyle}">
+        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
+        ${cand.thumb ? "" : PLAY_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${label.text}</div>
+    </div>`;
+}
+
+function openFillerPreview(segIdx, clipIdx) {
+  const cand = SEGMENTS[segIdx].clips[clipIdx];
+
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = "";
+  document.getElementById("modal-play").style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = `https://www.youtube.com/embed/${cand.videoId}?autoplay=1`;
+  iframe.style.display = "block";
+
+  document.getElementById("modal-title").textContent = cand.title || "";
+  document.getElementById("modal-sub").textContent = `YouTube · ${cand.channel || ""} · ${evidenceLabel(cand).text}`;
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = cand.url;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} Watch on YouTube`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none"; // trim is stock-only
+
+  document.getElementById("modal-overlay").classList.add("open");
 }
 
 function clipCardHtml(segIdx, clipIdx, clip) {

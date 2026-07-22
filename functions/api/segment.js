@@ -435,6 +435,48 @@ Then pick one "family":
   event (evidence/categoryClaim territory); only an isolated abstract-state or bare-internal-state
   clause with no anchor is "nothing".
 
+For every "feel" segment, and for the one "nothing" sub-case that's a bare internal/emotional
+state with no anchor (see above), also decide "anchorType": "person" or "scene". "person" — the
+anchor (or, for the bare-internal-state case, the internal experience itself) centers on a
+specific individual's body, gesture, or presence — the kind of moment generic footage of the RIGHT
+real person could stand in for (someone sitting alone, someone walking, someone training). "scene"
+— the moment is genuinely about atmosphere, weather, an empty venue, or a crowd/nation as a mass
+with no individual singled out — nothing a specific person's footage could represent; this
+genuinely needs real stock. Test: if you swapped in generic footage of one specific real person
+doing something plausible, would that still fit this moment, or does the moment only make sense as
+an unpeopled scene/crowd shot? "He sat alone in the locker room, replaying the moment" ->
+anchorType: "person". "Rain fell steadily against the window" or "The stadium fell completely
+silent, eighty thousand people holding their breath" -> anchorType: "scene" — no individual to
+substitute in, this is genuinely about the space/crowd itself, not a person.
+
+When "anchorType" is "person", also set "inheritedSubjectForFiller": the real, specific person this
+moment's anchor is ABOUT, but ONLY when that person has ALREADY been established as a real
+"subject" on an earlier segment in this exact script — never invent or assume an identity that
+hasn't actually been evidenced yet. Leave null whenever the "person" in this anchor is
+unnamed/anonymous/hypothetical (a barista, a stranger, "someone", a generic role) even if a real
+subject exists elsewhere in the script — this field requires this SPECIFIC anchor to genuinely be
+about that already-established real person, not just be A person while the script happens to be
+about someone else. "He sat alone in the locker room" after several segments about Harry Kane ->
+inheritedSubjectForFiller: "Harry Kane" (this IS Kane, the story's established subject). "A cleaner
+mopped the empty corridor after the match" (also after a Kane-centered script) ->
+inheritedSubjectForFiller: null — this anchor is about an unnamed, unrelated person, not Kane, even
+though Kane is the script's real subject elsewhere.
+
+When "inheritedSubjectForFiller" is set, also set "subjectFillerQuery": a short (3-7 word) YouTube
+search phrase for GENERIC presence footage of that real person — training, walking, an interview,
+arriving at a venue — built from THIS segment's own tone/setting, not a fabricated specific action
+this segment doesn't describe, and not copied verbatim from another segment's query (later
+segments about the same person should read as their own natural angle, not a repeated phrase). E.g.
+"Harry Kane training session" for a training-adjacent moment, "Harry Kane press conference" for one
+framed around reflection/interviews.
+
+Include "anchorType"/"inheritedSubjectForFiller"/"subjectFillerQuery" only where the paragraphs
+above say to (a "feel" segment, or the one specific "nothing" sub-case) — omit all three entirely
+for "evidence", "reference", and every other "nothing" sub-case, same as "depictionType" is omitted
+below. Omit "inheritedSubjectForFiller"/"subjectFillerQuery" (leave them out, not null) whenever
+"anchorType" is "scene" or whenever a "person" anchor's individual isn't an already-established
+real subject.
+
 Every segment — not just "nothing" ones — should also include a brief "reason": a handful of
 words tracing the classification/query back to what's actually in the text, not a restatement of
 the family or query itself. For "feel", name the anchor (or "atmosphere, no single anchor" when
@@ -516,7 +558,7 @@ founders spend years replaying the moment they turned down the offer", "gives me
 concreteness test failing: the segment is "nothing", not "feel" with a fabricated symbolic shot.
 
 Return strict JSON only, no prose, no markdown fences:
-{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"instant","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"fallback","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"resolvedSubject":"...","explicitRevealDevice":false,"reason":"..."}]}`;
+{"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"anchorType":"person","inheritedSubjectForFiller":"...","subjectFillerQuery":"...","query":"...","reason":"..."},{"text":"...","family":"feel","subject":null,"categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"anchorType":"scene","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"instant","query":"...","reason":"..."},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","resolvedSubject":null,"explicitRevealDevice":false,"depictionType":"fallback","query":"...","reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"resolvedSubject":"...","explicitRevealDevice":false,"reason":"..."},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"resolvedSubject":null,"explicitRevealDevice":false,"anchorType":"person","inheritedSubjectForFiller":"...","subjectFillerQuery":"...","reason":"..."}]}`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -567,7 +609,8 @@ export async function onRequestPost(context) {
 
     const merged = mergeFragments(parsed.segments);
     const evidenceResolved = enforceEvidenceRule(merged);
-    const queryChecked = enforceFeelQueryRule(evidenceResolved);
+    const sourceResolved = enforceVisualSourceRule(evidenceResolved);
+    const queryChecked = enforceFeelQueryRule(sourceResolved);
     const corrected = computeRevealConfidence(queryChecked);
 
     // Live-tail visibility only (wrangler pages deployment tail) — NOT a durable/queryable store,
@@ -585,6 +628,8 @@ export async function onRequestPost(context) {
         `subject=${JSON.stringify(seg.subject ?? null)} categoryClaim=${JSON.stringify(seg.categoryClaim ?? null)} ` +
         `depictionType=${seg.depictionType ?? "-"} query=${JSON.stringify(seg.query ?? null)} ` +
         `resolvedSubject=${JSON.stringify(seg.resolvedSubject ?? null)} revealConfidence=${seg.revealConfidence ?? "-"} ` +
+        `anchorType=${seg.anchorType ?? "-"} visualSource=${seg.visualSource ?? "-"} ` +
+        `inheritedSubjectForFiller=${JSON.stringify(seg.inheritedSubjectForFiller ?? null)} ` +
         `reason=${JSON.stringify(seg.reason ?? null)} text=${JSON.stringify(seg.text.slice(0, 100))}`
       );
     });
@@ -669,12 +714,60 @@ function enforceEvidenceRule(segments) {
 // This only catches ONE failure direction — a hollow "feel" — not the reverse (a real anchor
 // existed but the model dropped to "nothing" anyway), which needs semantic judgment no mechanical
 // check can provide.
+// Updated for subjectFillerQuery: a "feel" segment with a real subjectFillerQuery but no stock
+// query is now a legitimate, not hollow, state (enforceVisualSourceRule already verified the
+// subject) — only downgrade when BOTH are empty.
 function enforceFeelQueryRule(segments) {
   for (const seg of segments) {
-    if (seg.family === "feel" && !(seg.query && String(seg.query).trim())) {
+    const hasQuery = seg.query && String(seg.query).trim();
+    const hasFillerQuery = seg.subjectFillerQuery && String(seg.subjectFillerQuery).trim();
+    if (seg.family === "feel" && !hasQuery && !hasFillerQuery) {
       seg.family = "nothing";
       seg.reason = "feel had no query — mechanically downgraded, no real anchor found";
     }
+  }
+  return segments;
+}
+
+// Reduces reliance on generic stock footage: prefers generic filler footage of an already-
+// established real subject over anonymous stock, but ONLY when the model's claimed identity is
+// mechanically verifiable — same "model proposes identity, code fact-checks against literal prior
+// text before trusting it" pattern as computeRevealConfidence's alreadyNamed scan below. Runs after
+// enforceEvidenceRule (needs the final feel/evidence boundary) and before enforceFeelQueryRule
+// (whose query-presence check needs to see any "nothing"->"feel" promotion this makes first).
+function enforceVisualSourceRule(segments) {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const eligible =
+      (seg.family === "feel" || seg.family === "nothing") && seg.anchorType === "person";
+
+    if (!eligible) {
+      if (seg.family === "feel") seg.visualSource = "stock";
+      continue;
+    }
+
+    const name = seg.inheritedSubjectForFiller && String(seg.inheritedSubjectForFiller).trim();
+    const fillerQuery = seg.subjectFillerQuery && String(seg.subjectFillerQuery).trim();
+    // Mechanical fact-check: the claimed name must actually appear as literal text somewhere
+    // STRICTLY BEFORE this segment — never trust the model's own claim that a subject was
+    // "already established" without checking the actual prior text.
+    const verified =
+      name &&
+      fillerQuery &&
+      segments.slice(0, i).some((s) => (s.text || "").toLowerCase().includes(name.toLowerCase()));
+
+    if (!verified) {
+      seg.inheritedSubjectForFiller = null;
+      seg.subjectFillerQuery = null;
+      if (seg.family === "feel") seg.visualSource = "stock";
+      continue; // "nothing" stays unpromoted — no verified subject, genuinely nothing to show
+    }
+
+    if (seg.family === "nothing") {
+      seg.family = "feel";
+      seg.reason = `${seg.reason || ""} — promoted to subject filler (${name})`.trim();
+    }
+    seg.visualSource = "subject";
   }
   return segments;
 }
