@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   hashPassword, verifyPassword, signSession, verifySession, scriptSeconds, TRIAL_SECONDS_MAX,
+  TRIAL_SECONDS_MAX_ACCOUNT,
 } from "../functions/api/_auth.js";
 import { onRequestPost as segmentPost } from "../functions/api/segment.js";
 
@@ -58,7 +59,7 @@ test("segment endpoint refuses an exhausted trial without calling the model", as
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
       }),
       env: { ANTHROPIC_API_KEY: "test-only", AUTH_KV: mockKV(), SESSION_SECRET: "test-secret" },
-      data: { user: { email: "t@example.test", trialSecondsUsed: TRIAL_SECONDS_MAX } },
+      data: { user: { email: "t@example.test", trialSecondsUsed: TRIAL_SECONDS_MAX_ACCOUNT } },
     });
     assert.equal(response.status, 402);
     const data = await response.json();
@@ -83,7 +84,7 @@ test("a fresh account cannot reset the trial when the IP-level record is exhaust
     });
     const testEnv = { ANTHROPIC_API_KEY: "test-only", AUTH_KV: mockKV(), SESSION_SECRET: "test-secret" };
     const key = await ipTrialKey(req, testEnv);
-    await testEnv.AUTH_KV.put(key, String(TRIAL_SECONDS_MAX));
+    await testEnv.AUTH_KV.put(key, String(TRIAL_SECONDS_MAX_ACCOUNT));
 
     const response = await segmentPost({
       request: req,
@@ -150,6 +151,100 @@ test("a failed segmentation consumes no trial budget", async () => {
     assert.match(data.error, /upstream failure/);
     assert.equal(kv.store.has("user:failed@example.test"), false);
     assert.equal([...kv.store.keys()].filter((k) => k.startsWith("trial:")).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── Guest access (2026-07-23) ──
+// The app is usable with no account at all: guests get TRIAL_SECONDS_MAX tracked purely on the
+// IP-hash record; accounts get TRIAL_SECONDS_MAX_ACCOUNT (+5 min — the honest half of the
+// "sign up for more usage" banner).
+
+test("a guest (no user) can segment, consuming the IP record only", async () => {
+  const originalFetch = globalThis.fetch;
+  const modelPayload = JSON.stringify({ segments: [{
+    text: "Hello world.", family: "feel", subject: null, categoryClaim: null,
+    query: "person greeting", reason: "greeting", visualMode: "stock",
+    visualQueries: ["person greeting"], eraHint: null, visualGoal: null,
+    coverageMode: "new", visualId: "v0", visualRef: null, continuityReason: null, noneKind: null,
+  }] });
+  const sse = [
+    { type: "message_start", message: { id: "m" } },
+    { type: "content_block_delta", delta: { type: "text_delta", text: modelPayload } },
+    { type: "message_delta", delta: { stop_reason: "end_turn" } },
+  ].map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+  globalThis.fetch = async () => new Response(sse, { status: 200 });
+  try {
+    const kv = mockKV();
+    const response = await segmentPost({
+      request: new Request("https://example.test/api/segment", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
+      }),
+      env: { ANTHROPIC_API_KEY: "test-only", AUTH_KV: kv, SESSION_SECRET: "test-secret" },
+      data: { user: null },
+    });
+    const data = JSON.parse(await response.text());
+    assert.equal(data.error, undefined, data.error);
+    // No account record is written for a guest — only the IP record.
+    assert.equal([...kv.store.keys()].filter((k) => k.startsWith("user:")).length, 0);
+    const ipEntries = [...kv.store.keys()].filter((k) => k.startsWith("trial:"));
+    assert.equal(ipEntries.length, 1);
+    assert.equal(kv.store.get(ipEntries[0]), "1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a guest is refused at the GUEST cap even though an account would still have headroom", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("model must not be called"); };
+  try {
+    const { ipTrialKey } = await import("../functions/api/_auth.js");
+    const req = new Request("https://example.test/api/segment", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
+    });
+    const testEnv = { ANTHROPIC_API_KEY: "test-only", AUTH_KV: mockKV(), SESSION_SECRET: "test-secret" };
+    await testEnv.AUTH_KV.put(await ipTrialKey(req, testEnv), String(TRIAL_SECONDS_MAX));
+    const response = await segmentPost({ request: req, env: testEnv, data: { user: null } });
+    assert.equal(response.status, 402);
+    const data = await response.json();
+    assert.match(data.error, /[Ss]ign up free/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("signing up genuinely unlocks more: same IP record, account gets the bigger cap", async () => {
+  const originalFetch = globalThis.fetch;
+  const modelPayload = JSON.stringify({ segments: [{
+    text: "Hello world.", family: "feel", subject: null, categoryClaim: null,
+    query: "person greeting", reason: "greeting", visualMode: "stock",
+    visualQueries: ["person greeting"], eraHint: null, visualGoal: null,
+    coverageMode: "new", visualId: "v0", visualRef: null, continuityReason: null, noneKind: null,
+  }] });
+  const sse = [
+    { type: "message_start", message: { id: "m" } },
+    { type: "content_block_delta", delta: { type: "text_delta", text: modelPayload } },
+    { type: "message_delta", delta: { stop_reason: "end_turn" } },
+  ].map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+  globalThis.fetch = async () => new Response(sse, { status: 200 });
+  try {
+    const { ipTrialKey } = await import("../functions/api/_auth.js");
+    const req = new Request("https://example.test/api/segment", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
+    });
+    const kv = mockKV();
+    const testEnv = { ANTHROPIC_API_KEY: "test-only", AUTH_KV: kv, SESSION_SECRET: "test-secret" };
+    // IP already at the guest cap — a guest would be refused (previous test), but an account
+    // still has the +5min headroom.
+    await kv.put(await ipTrialKey(req, testEnv), String(TRIAL_SECONDS_MAX));
+    const response = await segmentPost({
+      request: req, env: testEnv,
+      data: { user: { email: "upgraded@example.test", trialSecondsUsed: 0 } },
+    });
+    const data = JSON.parse(await response.text());
+    assert.equal(data.error, undefined, data.error);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -15,7 +15,10 @@
 const PROJECTS_KEY = "cliphunt_projects";
 
 // ── Auth ────────────────────────────────────────────────────────────────────
-let AUTH = null; // { email, trialSecondsUsed, trialSecondsMax } once ensureAuth() resolves
+// Guest access (2026-07-23): nobody is redirected to login any more. "me" always answers — with
+// account details for a session, or {anonymous:true} plus the guest trial numbers for everyone
+// else. Guests see a slim signup banner and a Sign in chip; the server meters their spend by IP.
+let AUTH = null; // { email?, anonymous?, trialSecondsUsed, trialSecondsMax } once ensureAuth() resolves
 
 async function ensureAuth() {
   try {
@@ -23,14 +26,16 @@ async function ensureAuth() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "me" }),
     });
-    if (!res.ok) throw new Error("unauthenticated");
+    if (!res.ok) throw new Error("auth unavailable");
     AUTH = await res.json();
-    renderAccountChip();
-    return AUTH;
   } catch {
-    window.location.href = "login.html";
-    return new Promise(() => {}); // never resolves — page is navigating away
+    // Network hiccup or misconfigured deployment — behave as a fresh guest so the page still
+    // works; the server remains the real gate on any spend.
+    AUTH = { anonymous: true, trialSecondsUsed: 0, trialSecondsMax: 600 };
   }
+  renderAccountChip();
+  renderGuestBanner();
+  return AUTH;
 }
 
 function fmtClock(totalSec) {
@@ -38,9 +43,38 @@ function fmtClock(totalSec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// Slim one-liner under the topbar, guests only — the standing invitation to convert, with the
+// honest pitch (accounts really do get +5 minutes, see _auth.js). Dismissible per browser
+// session so it never turns into nagging.
+function renderGuestBanner() {
+  if (!AUTH || !AUTH.anonymous) return;
+  if (sessionStorage.getItem("ch_guest_banner_dismissed")) return;
+  if (document.querySelector(".guest-banner")) return;
+  const topbar = document.querySelector(".topbar");
+  if (!topbar) return;
+  const banner = document.createElement("div");
+  banner.className = "guest-banner";
+  banner.innerHTML = `
+    <span class="guest-banner-text">You're using SceneHunt as a guest — sign up free to save your projects and get 5 extra minutes of usage.</span>
+    <a class="btn btn-primary guest-banner-cta" href="login.html">Sign up free</a>
+    <button class="guest-banner-close" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>`;
+  topbar.insertAdjacentElement("afterend", banner);
+  banner.querySelector(".guest-banner-close").addEventListener("click", () => {
+    sessionStorage.setItem("ch_guest_banner_dismissed", "1");
+    banner.remove();
+  });
+}
+
 function renderAccountChip() {
   const slot = document.getElementById("account-slot");
   if (!slot || !AUTH) return;
+  if (AUTH.anonymous) {
+    // The banner carries the primary signup CTA; the chip stays quiet for returning users.
+    slot.innerHTML = `<a class="btn btn-ghost" href="login.html">Sign in</a>`;
+    return;
+  }
   const remaining = Math.max(0, (AUTH.trialSecondsMax || 0) - (AUTH.trialSecondsUsed || 0));
   const initial = (AUTH.email || "?").charAt(0).toUpperCase();
   // Native <details> gives an accessible, zero-JS dropdown; light-dismiss handled below.
@@ -1201,10 +1235,10 @@ function exportLinks() {
 }
 
 // One script serves all pages; dispatch by which page's root element is present. Pages render
-// IMMEDIATELY from local data — auth resolves in parallel and redirects to login.html if signed
-// out (the server refuses API calls without a session either way, see _middleware.js). Blocking
-// first paint on an auth round trip added ~300ms of blank page for every visit for no security
-// gain; perceived speed is part of the product.
+// IMMEDIATELY from local data — auth resolves in parallel and only affects chrome (account chip,
+// guest banner, trial meters). Nobody is redirected: guests are first-class users, metered
+// server-side by IP (see _auth.js). Blocking first paint on an auth round trip added ~300ms of
+// blank page for every visit for no security gain; perceived speed is part of the product.
 document.addEventListener("DOMContentLoaded", () => {
   const isWorkspace = document.getElementById("segments");
   const isDashboard = document.getElementById("project-grid");

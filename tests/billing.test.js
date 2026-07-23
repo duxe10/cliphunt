@@ -35,3 +35,11 @@ test("billing returns the payment link with the signed-in email prefilled once c
   assert.equal(url.origin + url.pathname, "https://buy.stripe.com/test_abc123");
   assert.equal(url.searchParams.get("prefilled_email"), "buyer@example.test");
 });
+
+// Guests can browse pricing, but checkout needs an account to attach the subscription to.
+test("billing refuses a guest with a clear create-an-account message", async () => {
+  const res = await onRequestPost(ctx({ plan: "starter" }, {}, null));
+  assert.equal(res.status, 401);
+  const data = await res.json();
+  assert.match(data.error, /free account/);
+});

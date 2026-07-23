@@ -20,6 +20,14 @@ const PLANS = {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
+  // Guests can browse pricing, but a subscription needs an account to attach to — the middleware
+  // no longer blocks anonymous requests (guest access, 2026-07-23), so this endpoint checks for
+  // itself.
+  const authedUser = context.data && context.data.user;
+  if (!authedUser) {
+    return Response.json({ error: "Create a free account first — your subscription needs an account to attach to." }, { status: 401 });
+  }
+
   let body;
   try {
     body = await request.json();

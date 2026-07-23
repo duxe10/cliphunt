@@ -33,13 +33,13 @@
         </div>
       </div>
 
-      <div class="auth-side-foot">Free trial covers 10 minutes of script. No card needed.</div>
+      <div class="auth-side-foot">Free accounts include 15 minutes of script. No card needed.</div>
     </div>
 
     <div class="auth-main">
       <div class="auth-card">
         <h1 id="auth-title">Create your account</h1>
-        <p class="auth-sub" id="auth-sub">Your free trial starts immediately — 10 minutes of script, no card needed.</p>
+        <p class="auth-sub" id="auth-sub">Your free trial starts immediately — 15 minutes of script, no card needed.</p>
 
         <form id="auth-form" novalidate>
           <div class="field">
@@ -91,7 +91,7 @@
       const signup = mode === "signup";
       titleEl.textContent = signup ? "Create your account" : "Welcome back";
       subEl.textContent = signup
-        ? "Your free trial starts immediately — 10 minutes of script, no card needed."
+        ? "Your free trial starts immediately — 15 minutes of script, no card needed."
         : "Sign in to keep hunting footage for your scripts.";
       submitEl.textContent = signup ? "Start free trial" : "Sign in";
       submitEl.disabled = false;
@@ -150,11 +150,14 @@
       submitEl.textContent = mode === "signup" ? "Start free trial" : "Sign in";
     }
 
-    // Already signed in? Skip straight through.
+    // Already signed in? Skip straight through. ("me" answers 200 for guests too now, so check
+    // for a real account, not just an OK response.)
     fetch("/api/auth", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "me" }),
-    }).then((r) => { if (r.ok) window.location.href = "index.html"; }).catch(() => {});
+    }).then((r) => r.json()).then((d) => {
+      if (d && d.email && !d.anonymous) window.location.href = "index.html";
+    }).catch(() => {});
   </script>
 </body>
 </html>

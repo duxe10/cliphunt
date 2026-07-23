@@ -284,11 +284,13 @@
         window.location.href = "workspace.html?id=" + encodeURIComponent(project.id);
       } catch (err) {
         errorEl.textContent = err.message;
-        // A 402 is the trial wall — the next step is a plan, so put the door right in the message.
+        // A 402 is the trial wall — the next step depends on who hit it: guests should sign up
+        // (free, +5 minutes), account holders should see plans.
         if (err.status === 402) {
+          const guest = AUTH && AUTH.anonymous;
           const link = document.createElement("a");
-          link.href = "pricing.html";
-          link.textContent = "View plans";
+          link.href = guest ? "login.html" : "pricing.html";
+          link.textContent = guest ? "Sign up free" : "View plans";
           link.style.cssText = "color:var(--accent); font-weight:600; margin-left:8px; text-decoration:underline; text-underline-offset:3px;";
           errorEl.appendChild(link);
         }

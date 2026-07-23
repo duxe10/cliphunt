@@ -3,7 +3,7 @@
 // session gate in _middleware.js (it IS the way you get a session). See _auth.js for the model.
 import {
   hashPassword, verifyPassword, signSession, sessionCookieHeader, clearSessionCookieHeader,
-  getSessionUser, ipTrialKey, TRIAL_SECONDS_MAX,
+  getSessionUser, ipTrialKey, TRIAL_SECONDS_MAX, TRIAL_SECONDS_MAX_ACCOUNT,
 } from "./_auth.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,16 +25,23 @@ export async function onRequestPost(context) {
 
   if (action === "me") {
     const user = await getSessionUser(request, env);
-    if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
     // Trial remaining reflects BOTH the account counter and the network-level record, so the UI
-    // never promises budget the segment endpoint would then refuse.
+    // never promises budget the segment endpoint would then refuse. Guests get a 200 with their
+    // own (IP-tracked, smaller) budget — the app is usable without an account.
     const ipKey = await ipTrialKey(request, env);
     const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
+    if (!user) {
+      return Response.json({
+        anonymous: true,
+        trialSecondsUsed: Math.min(ipUsed, TRIAL_SECONDS_MAX),
+        trialSecondsMax: TRIAL_SECONDS_MAX,
+      });
+    }
     const used = Math.max(user.trialSecondsUsed || 0, ipUsed);
     return Response.json({
       email: user.email,
-      trialSecondsUsed: Math.min(used, TRIAL_SECONDS_MAX),
-      trialSecondsMax: TRIAL_SECONDS_MAX,
+      trialSecondsUsed: Math.min(used, TRIAL_SECONDS_MAX_ACCOUNT),
+      trialSecondsMax: TRIAL_SECONDS_MAX_ACCOUNT,
     });
   }
 
@@ -69,8 +76,8 @@ export async function onRequestPost(context) {
     const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
     return new Response(JSON.stringify({
       email,
-      trialSecondsUsed: Math.min(ipUsed, TRIAL_SECONDS_MAX),
-      trialSecondsMax: TRIAL_SECONDS_MAX,
+      trialSecondsUsed: Math.min(ipUsed, TRIAL_SECONDS_MAX_ACCOUNT),
+      trialSecondsMax: TRIAL_SECONDS_MAX_ACCOUNT,
     }), {
       status: 200,
       headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookieHeader(token) },
@@ -93,8 +100,8 @@ export async function onRequestPost(context) {
     const used = Math.max(user.trialSecondsUsed || 0, ipUsed);
     return new Response(JSON.stringify({
       email: user.email,
-      trialSecondsUsed: Math.min(used, TRIAL_SECONDS_MAX),
-      trialSecondsMax: TRIAL_SECONDS_MAX,
+      trialSecondsUsed: Math.min(used, TRIAL_SECONDS_MAX_ACCOUNT),
+      trialSecondsMax: TRIAL_SECONDS_MAX_ACCOUNT,
     }), {
       status: 200,
       headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookieHeader(token) },

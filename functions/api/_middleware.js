@@ -1,11 +1,10 @@
-// Pages Functions middleware — runs before EVERY /api/* handler. This is the actual enforcement
-// point for "signed in users only": the frontend redirects to login.html for UX, but nothing
-// client-side is trusted — every paid/quota-spending endpoint (segment, evidence-search,
-// reference-search, stock-search*, transcribe, stock-download) refuses here without a valid
-// signed session cookie. /api/auth is the one exemption (it's how you GET a session).
-//
-// The verified user record is attached to context.data.user so downstream handlers (segment.js's
-// trial accounting) don't re-verify or re-fetch it.
+// Pages Functions middleware — runs before EVERY /api/* handler. Since guest access (2026-07-23),
+// this no longer blocks anonymous requests: it RESOLVES identity. A valid session cookie attaches
+// the full user record to context.data.user; no session attaches null, and the request proceeds
+// as a guest. Spend control lives where the spend happens — segment.js meters both guests (by
+// IP-hash record) and accounts (by max(account, IP)); see _auth.js for the budget model.
+// /api/auth is exempt (it's how sessions are created), and billing.js does its own user check
+// (a subscription needs an account to attach to).
 import { getSessionUser } from "./_auth.js";
 
 export async function onRequest(context) {
@@ -15,16 +14,12 @@ export async function onRequest(context) {
   if (url.pathname === "/api/auth") return context.next();
 
   // If auth infrastructure isn't configured (e.g. a preview deployment without the KV binding or
-  // secret), fail closed with a clear message rather than silently open.
+  // secret), fail closed with a clear message rather than silently open — the trial metering
+  // depends on it.
   if (!env.AUTH_KV || !env.SESSION_SECRET) {
     return Response.json({ error: "Auth is not configured on this deployment" }, { status: 500 });
   }
 
-  const user = await getSessionUser(request, env);
-  if (!user) {
-    return Response.json({ error: "Sign in to use SceneHunt" }, { status: 401 });
-  }
-
-  context.data.user = user;
+  context.data.user = await getSessionUser(request, env);
   return context.next();
 }

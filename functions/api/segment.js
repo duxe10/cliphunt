@@ -6,7 +6,7 @@
 // abstract-state gap), and the one call per script, so cost stays predictable per project. This
 // is a real billed Anthropic balance, not a free tier — see _claude.js's header comment.
 import { claudeChat, extractText, extractJson } from "./_claude.js";
-import { ipTrialKey, scriptSeconds, TRIAL_SECONDS_MAX } from "./_auth.js";
+import { ipTrialKey, scriptSeconds, TRIAL_SECONDS_MAX, TRIAL_SECONDS_MAX_ACCOUNT } from "./_auth.js";
 
 // 2026-07-22: EDITORIAL VISUAL PLANNING + SEQUENCE COVERAGE. Two additive layers on top of the
 // classification prompt above (unchanged): (1) per-segment visualMode/visualQueries/eraHint/
@@ -677,31 +677,39 @@ export async function onRequestPost(context) {
   // account record and a keyed hash of the caller's IP — whichever has used more wins, so a fresh
   // account from the same network doesn't reset the clock (see _auth.js). Checked BEFORE the
   // Claude call; consumed only AFTER a successful generation, so a failed run never burns budget.
-  const user = context.data && context.data.user;
-  if (!user) {
-    return Response.json({ error: "Sign in to use SceneHunt" }, { status: 401 });
-  }
+  // Guests are welcome (no account needed) — their budget is TRIAL_SECONDS_MAX tracked purely on
+  // the IP-hash record; accounts get TRIAL_SECONDS_MAX_ACCOUNT (+5 min, the honest half of the
+  // "sign up for more usage" nudge). Either way spend is written to the IP record, so no network
+  // can exceed the account cap in total across any mix of guests and fresh accounts.
+  const user = (context.data && context.data.user) || null;
+  const maxSeconds = user ? TRIAL_SECONDS_MAX_ACCOUNT : TRIAL_SECONDS_MAX;
   const secondsNeeded = scriptSeconds(script);
   const ipKey = await ipTrialKey(request, env);
   const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
-  const usedSoFar = Math.max(user.trialSecondsUsed || 0, ipUsed);
-  const remaining = Math.max(0, TRIAL_SECONDS_MAX - usedSoFar);
+  const usedSoFar = Math.max((user && user.trialSecondsUsed) || 0, ipUsed);
+  const remaining = Math.max(0, maxSeconds - usedSoFar);
   if (secondsNeeded > remaining) {
     const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    const outOfBudget = user
+      ? "Your free trial is used up. Upgrade to keep using SceneHunt."
+      : "Your free guest trial is used up. Sign up free for 5 more minutes, or upgrade for full access.";
+    const trimHint = user
+      ? `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or upgrade for full access.`
+      : `This script is about ${fmt(secondsNeeded)} of narration, but your guest trial has ${fmt(remaining)} left. Trim the script, or sign up free for 5 more minutes.`;
     return Response.json({
-      error: remaining === 0
-        ? "Your free trial is used up. Get in touch to keep using SceneHunt."
-        : `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or get in touch for full access.`,
+      error: remaining === 0 ? outOfBudget : trimHint,
       trialSecondsUsed: usedSoFar,
-      trialSecondsMax: TRIAL_SECONDS_MAX,
+      trialSecondsMax: maxSeconds,
     }, { status: 402 });
   }
   const consumeTrial = async () => {
-    const newUsed = Math.min(TRIAL_SECONDS_MAX, usedSoFar + secondsNeeded);
-    const updated = { ...user, trialSecondsUsed: newUsed };
-    await env.AUTH_KV.put(`user:${user.email.toLowerCase()}`, JSON.stringify(updated));
+    const newUsed = Math.min(TRIAL_SECONDS_MAX_ACCOUNT, usedSoFar + secondsNeeded);
+    if (user) {
+      const updated = { ...user, trialSecondsUsed: newUsed };
+      await env.AUTH_KV.put(`user:${user.email.toLowerCase()}`, JSON.stringify(updated));
+    }
     await env.AUTH_KV.put(ipKey, String(newUsed));
-    console.log(`[segment] trial consumed: +${secondsNeeded}s -> ${newUsed}/${TRIAL_SECONDS_MAX}s for ${user.email}`);
+    console.log(`[segment] trial consumed: +${secondsNeeded}s -> ${newUsed}/${maxSeconds}s for ${user ? user.email : "guest"}`);
   };
 
   // Structured JSON-schema output plus the coverage-pass fields can make this a long response —

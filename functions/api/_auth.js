@@ -21,9 +21,13 @@ const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
 const PBKDF2_ITERS = 100_000;
 
 // 10 minutes of narration at the app's own READING_WORDS_PER_SEC estimate (2.5 wps, see app.js).
-// This is the one-time trial budget: total across all of an account's segmentations, not
-// per-script.
+// This is the GUEST trial budget, tracked purely against the IP-hash record — the app is usable
+// without an account. Creating a free account adds a real +5 minutes (the "sign up for more
+// usage" nudge is honest, not hollow). Abuse math: spend is always recorded on the IP record and
+// checks use max(account, IP), so no single network can ever exceed TRIAL_SECONDS_MAX_ACCOUNT in
+// total, no matter how many fresh accounts or guest sessions it cycles through.
 export const TRIAL_SECONDS_MAX = 600;
+export const TRIAL_SECONDS_MAX_ACCOUNT = 900;
 export const READING_WORDS_PER_SEC = 2.5;
 
 const enc = new TextEncoder();
