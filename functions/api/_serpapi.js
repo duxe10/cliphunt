@@ -20,6 +20,16 @@ const FIXED_PARAMS = "engine=google_images&image_type=photo&imgsz=l&safe=active"
 // pins, not the actual source); the stock-agency domains only ever surface watermarked preview
 // images, useless to an editor.
 const BLOCKED_DOMAIN_RE = /pinterest\.|gettyimages\.|alamy\.|shutterstock\.|istockphoto\.|dreamstime\.|123rf\.|depositphotos\./i;
+// image_type=photo is Google's OWN filter, applied server-side before results ever reach here —
+// confirmed live it's not reliable: a short-form-video platform's video frame gets indexed by
+// Google Images as an "image" result same as any real photo, with nothing in the response
+// distinguishing the two. Being IN the images_results array does not mean it's actually a
+// photograph. TikTok is blocked outright — it's exclusively short-form video, so a result from it
+// here is never a real standalone photo, no exceptions to weigh. Other platforms that are
+// overwhelmingly video (Reels/Shorts) but do have genuine photo posts too (Instagram, Facebook)
+// are deliberately left unblocked rather than guessed at from a domain alone — a title/domain
+// pattern can't reliably tell a real photo post from a video thumbnail on those.
+const VIDEO_PLATFORM_RE = /tiktok\.com|youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv/i;
 const GIF_RE = /\.gif(\?|$)/i;
 
 const MAX_IMAGES = 8;
@@ -40,6 +50,7 @@ export async function searchGoogleImages(env, query) {
     const images = raw
       .filter((r) => r.thumbnail && r.link)
       .filter((r) => !BLOCKED_DOMAIN_RE.test(r.link) && !BLOCKED_DOMAIN_RE.test(r.source || ""))
+      .filter((r) => !VIDEO_PLATFORM_RE.test(r.link) && !VIDEO_PLATFORM_RE.test(r.source || ""))
       .filter((r) => !GIF_RE.test(r.original || ""))
       .slice(0, MAX_IMAGES)
       .map((r) => ({
