@@ -66,6 +66,16 @@ const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/p
 const DEBUG_IMAGES_KEY = "cliphunt_debug_images_only";
 let DEBUG_IMAGES_ONLY = localStorage.getItem(DEBUG_IMAGES_KEY) === "1";
 
+// Some creators' actual edit style never uses generic/atmospheric stock at all — every cut is
+// real footage of the subject or the actual event. For a project like that, auto-hydrated Pexels
+// stock on "feel" beats is pure noise, not a fallback anyone wants. This skips the stock-search-
+// batch call entirely for "feel" segments — they render as an explicit "stock skipped" state
+// instead of a generic clip queue. Persisted the same way as DEBUG_IMAGES_ONLY, applies to every
+// project until turned back off (not project-scoped — flip it back on for a project that DOES
+// want stock).
+const SKIP_STOCK_KEY = "cliphunt_skip_stock_footage";
+let SKIP_STOCK_FOOTAGE = localStorage.getItem(SKIP_STOCK_KEY) === "1";
+
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 
 let CURRENT_PROJECT = null;
@@ -257,6 +267,16 @@ function renderWorkspace() {
     };
   }
 
+  const skipStockToggle = document.getElementById("skip-stock-footage");
+  if (skipStockToggle) {
+    skipStockToggle.checked = SKIP_STOCK_FOOTAGE;
+    skipStockToggle.onchange = () => {
+      SKIP_STOCK_FOOTAGE = skipStockToggle.checked;
+      localStorage.setItem(SKIP_STOCK_KEY, SKIP_STOCK_FOOTAGE ? "1" : "0");
+      renderWorkspace(); // re-render: feel segments' clip queues need to flip to/from the skipped state
+    };
+  }
+
   // One-shot console dump of every segment's classification/reasoning on load — the segmenter
   // already computes subject/categoryClaim/depictionType/reason per segment (see segment.js),
   // this just surfaces it in the browser instead of requiring a live `wrangler pages deployment
@@ -287,7 +307,11 @@ function segmentHtml(seg) {
   // beat an already-established visual can honestly cover without a new search.
   const isEmpty = seg.coverageMode === "none";
   const isReuse = seg.coverageMode === "continue" || seg.coverageMode === "callback";
-  const needsSearch = !isEmpty && !isReuse && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
+  // See SKIP_STOCK_FOOTAGE's declaration — for a project whose real edit style never uses generic
+  // stock, this is checked BEFORE needsSearch so a skipped beat never shows "Searching…" and
+  // hydrateClips() (below) never spends the Pexels/Groq call at all.
+  const skipStock = SKIP_STOCK_FOOTAGE && seg.family === "feel" && !isEmpty && !isReuse;
+  const needsSearch = !isEmpty && !isReuse && !skipStock && seg.clips === null && SEARCHABLE_FAMILIES.includes(seg.family);
   // Evidence AND reference are both user-triggered (each costs a YouTube search, and re-hydrates
   // on every workspace load), so both get a "Find footage" button rather than auto-hydrating.
   const needsFootage = !isEmpty && !isReuse && (seg.family === "evidence" || seg.family === "reference");
@@ -301,6 +325,8 @@ function segmentHtml(seg) {
   } else if (isReuse) {
     const verb = seg.coverageMode === "callback" ? "Reuse" : "Continue";
     body = `<div class="continuity-note"><a href="#scene-${seg.originIdx}">${verb} SC.${String(seg.originIdx).padStart(2, "0")} visual</a>${seg.continuityReason ? ` · ${escapeHtml(seg.continuityReason)}` : ""}</div>`;
+  } else if (skipStock) {
+    body = `<p class="no-clip-msg">Stock footage skipped for this project.</p>`;
   } else if (needsSearch) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
   } else if (needsFootage) {
@@ -359,7 +385,12 @@ function segmentHtml(seg) {
 async function hydrateClips() {
   // Only "new" beats need their own search — "continue"/"callback" reuse an earlier visual, and
   // "none" has nothing to show (see segment.js's coverage pass / segmentHtml's isEmpty/isReuse).
-  const targets = SEGMENTS.filter(s => s.coverageMode === "new" && s.clips === null && SEARCHABLE_FAMILIES.includes(s.family));
+  // SKIP_STOCK_FOOTAGE excludes "feel" entirely here too — not just a UI label swap, this actually
+  // saves the Pexels + Groq rerank cost for a project that will never use the results.
+  const targets = SEGMENTS.filter(s =>
+    s.coverageMode === "new" && s.clips === null && SEARCHABLE_FAMILIES.includes(s.family) &&
+    !(SKIP_STOCK_FOOTAGE && s.family === "feel")
+  );
   if (!targets.length) return;
 
   try {
