@@ -600,6 +600,17 @@ export async function onRequestPost(context) {
     return Response.json({ error: "ANTHROPIC_API_KEY is not set on this Cloudflare project" }, { status: 500 });
   }
 
+  // A pasted script commonly leads with a markdown-style title line ("# Harry Kane's World Cup
+  // Curse") — a label, not narration. Confirmed live: Claude silently drops it from the segments
+  // array (reasonably, since it isn't spoken content), which then fails validateScriptCoverage's
+  // strict "every character must appear in some segment" check outright — the model was never
+  // asked to preserve a heading it correctly judged wasn't part of the narration. Rather than try
+  // to prompt the model into treating a title as narration (this file's own established lesson:
+  // a judgment call fighting a differently-reasonable interpretation elsewhere doesn't hold),
+  // strip it deterministically before it ever reaches Claude, so what's sent — and what
+  // validateScriptCoverage checks against — never included it in the first place.
+  script = stripLeadingTitle(script);
+
   // Structured JSON-schema output plus the coverage-pass fields can make this a long response —
   // long enough to risk Cloudflare's non-streaming edge timeout (524). Stream the upstream
   // Anthropic SSE response server-side (collectClaudeStream in _claude.js) instead, and keep the
@@ -740,6 +751,20 @@ export function validateScriptCoverage(script, segments) {
     );
   }
   return segments;
+}
+
+// Strips one or more consecutive leading markdown-heading lines ("# Title", "## Subtitle") from
+// the very start of a pasted script — a title/label a video creator often includes out of habit
+// (see new-project.html's own placeholder text, which uses exactly this shape), not narration to
+// be spoken or segmented. Only strips from the START of the script — a heading-shaped line
+// appearing later is left alone as real script content, not assumed to be a title.
+export function stripLeadingTitle(script) {
+  const raw = String(script || "");
+  const stripped = raw.replace(/^\s*(?:#{1,6}[ \t]+[^\r\n]*(?:\r?\n)+)+/, "");
+  // If the whole "script" turned out to be just a title line with no real body, don't strip it
+  // down to nothing — better to try segmenting the title as content than to send Claude (and
+  // validateScriptCoverage) an empty string.
+  return stripped.trim() ? stripped : raw;
 }
 
 // The model is unreliable at enforcing "don't split incomplete fragments" on its own, so this

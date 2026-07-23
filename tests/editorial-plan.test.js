@@ -6,6 +6,7 @@ import {
   enforceFeelQueryRule,
   normalizeCoveragePlan,
   summarizeCoverage,
+  stripLeadingTitle,
   SEGMENT_OUTPUT_SCHEMA,
 } from "../functions/api/segment.js";
 
@@ -250,4 +251,34 @@ test("coverage summary matches modes and does not enforce a quota", () => {
 test("the segment output schema no longer allows the model to emit family=reference", () => {
   const familyEnum = SEGMENT_OUTPUT_SCHEMA.properties.segments.items.properties.family.enum;
   assert.deepEqual(familyEnum, ["feel", "evidence", "nothing"]);
+});
+
+// Regression: confirmed live — a pasted script starting with a markdown title line ("# Harry
+// Kane's World Cup Curse") made Claude silently drop that line from the segments array (a
+// reasonable read, since it's a label, not narration), which then failed
+// validateScriptCoverage's strict "every character must appear" check outright. Fixed by
+// stripping a leading title deterministically before it's ever sent to the model.
+test("stripLeadingTitle removes a leading markdown title line, keeps the rest exact", () => {
+  const script = "# Harry Kane's World Cup Curse\n\nFor most footballers, scoring at a World Cup is the highlight.";
+  assert.equal(stripLeadingTitle(script), "For most footballers, scoring at a World Cup is the highlight.");
+});
+
+test("stripLeadingTitle removes multiple consecutive leading heading lines", () => {
+  const script = "# Title\n## Subtitle\nActual narration starts here.";
+  assert.equal(stripLeadingTitle(script), "Actual narration starts here.");
+});
+
+test("stripLeadingTitle leaves a script with no leading heading untouched", () => {
+  const script = "For most footballers, scoring at a World Cup is the highlight.";
+  assert.equal(stripLeadingTitle(script), script);
+});
+
+test("stripLeadingTitle leaves a heading appearing later in the script alone", () => {
+  const script = "He trained for years.\n# Not a title, this is mid-script.";
+  assert.equal(stripLeadingTitle(script), script);
+});
+
+test("stripLeadingTitle doesn't strip a script that is ONLY a title line, to avoid emptying it", () => {
+  const script = "# Just a title, no body at all";
+  assert.equal(stripLeadingTitle(script), script);
 });
