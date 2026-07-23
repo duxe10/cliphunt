@@ -62,7 +62,16 @@ export async function onRequestPost(context) {
     await env.AUTH_KV.put(key, JSON.stringify(user));
 
     const token = await signSession(env, email);
-    return new Response(JSON.stringify({ email, trialSecondsUsed: 0, trialSecondsMax: TRIAL_SECONDS_MAX }), {
+    // Report the IP-aware number from the very first response — a fresh account on a network
+    // that already consumed trial time inherits it (see _auth.js), and the signup response
+    // shouldn't promise budget that "me"/segment would then contradict a second later.
+    const ipKey = await ipTrialKey(request, env);
+    const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
+    return new Response(JSON.stringify({
+      email,
+      trialSecondsUsed: Math.min(ipUsed, TRIAL_SECONDS_MAX),
+      trialSecondsMax: TRIAL_SECONDS_MAX,
+    }), {
       status: 200,
       headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookieHeader(token) },
     });
