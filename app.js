@@ -96,8 +96,8 @@ function renderAccountChip() {
     : "Free trial";
   const quotaSub = subscribed ? "this month" : "left";
   const planCta = subscribed
-    ? `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>Manage plan</a>`
-    : `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.6.6-5 4.6 1.5 6.5L12 16.6 6 20l1.5-6.5-5-4.6 6.6-.6z"/></svg>View plans</a>`;
+    ? `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>Manage plan</a>`
+    : `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.6.6-5 4.6 1.5 6.5L12 16.6 6 20l1.5-6.5-5-4.6 6.6-.6z"/></svg>View plans</a>`;
   // Native <details> gives an accessible, zero-JS dropdown; light-dismiss handled below.
   slot.innerHTML = `
     <details class="account-menu" id="account-menu">
@@ -117,7 +117,7 @@ function renderAccountChip() {
         </div>
         ${planCta}
         <button class="account-signout" onclick="signOut()">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
           Sign out
         </button>
       </div>
@@ -210,7 +210,7 @@ const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="current
 // Article results (mediaType:"article", see evidence-search.js) carry no thumbnail at all — a
 // plain web search result, not an image/video search — so the card always shows this instead of
 // a real thumb, the same way clipCardHtml falls back to PLAY_ICON when a clip has none.
-const ARTICLE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>`;
+const ARTICLE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>`;
 
 let CURRENT_PROJECT = null;
 let SEGMENTS = [];
@@ -330,7 +330,7 @@ function renderDashboard() {
     return `
       <a class="project-card" href="workspace.html?id=${encodeURIComponent(p.id)}">
         <div class="project-thumb">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9"/><path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9"/><path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15"/><path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9"/><path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9"/><path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15"/><path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
         </div>
         <h4>${escapeHtml(p.title)}</h4>
         <span class="meta">${formatTime(totalSec)} · ${segs.length} scenes · ${relativeTime(p.updatedAt)}</span>
@@ -340,7 +340,7 @@ function renderDashboard() {
   const newCard = `
     <a class="project-card project-card-new" href="new-project.html">
       <div class="empty-icon" style="margin:0;">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </div>
       New Project
     </a>`;
@@ -475,7 +475,7 @@ function segmentHtml(seg) {
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
         <button class="btn btn-find-footage" data-family="${seg.family}" onclick="findFootage(${seg.idx})">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
           <span class="btn-label">${label}</span>
         </button>
       </div>`;
@@ -619,8 +619,8 @@ function clipCardHtml(segIdx, clipIdx, clip) {
   });
 }
 
-const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
-const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>`;
+const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
+const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>`;
 
 // ── Evidence footage (workspace.html) ───────────────────────────────────────
 // User clicks "Find footage"/"Find reaction clip" on an evidence or reference beat: evidence-search
