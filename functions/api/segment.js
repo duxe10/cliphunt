@@ -300,7 +300,11 @@ nothing described happening ("gives me a little hope", "the dream was alive") �
 
 Once "subject" or "categoryClaim" is set, also judge "depictionType": "instant" or "fallback" —
 NOT "does this segment show an action," but "is there a well-defined, SPECIFIC visual target worth
-searching an actual photograph for," which is a broader question than that. Four cases:
+searching an actual photograph for," which is a broader question than that. This judgment is
+diagnostic/UI display only now — evidence-search.js judges its own per-claim "mediaType"
+independently per click and does not read this field; reason about the four cases below purely as
+a specificity classification exercise, not as something that drives a real search decision. Four
+cases:
 - "instant": a specific physical action/moment ("He was still out training alone at 6am..."), a
   specific real event that this segment adds genuinely new, locatable detail to (the Qatar-arrival
   example above), a specific real event embedded elsewhere in the SAME sentence even when the
@@ -311,9 +315,7 @@ searching an actual photograph for," which is a broader question than that. Four
   for a photo search — a bare trait/reputation/role claim (Bellingham "emerged as a superstar,"
   Saka "was electric," the resilience/trust example above), or an inherited event with nothing new
   added (the Croatia example above). A general real-footage search is still worth trying; a photo
-  search is not (too likely to return generic, unverifiable junk for a query this broad). This
-  judgment is diagnostic/UI display only — evidence-search.js judges its own per-claim "mediaType"
-  independently and does not read this field.
+  search is not (too likely to return generic, unverifiable junk for a query this broad).
 categoryClaim-based evidence is almost always "instant" — a categoryClaim by definition names a
 real, capturable class-level action ("footballers celebrating a World Cup goal" already IS a
 specific enough visual target).
@@ -535,11 +537,6 @@ materially changes, or for any segment with its own search plan. Use "none" for 
 or wherever an already-established visual can honestly cover a beat without a new search. Every
 continue/callback visualRef must point DIRECTLY to an earlier new row, never another reference, and
 its subject/era must stay compatible with that origin.
-
-"reference" segments always get "new" — never "continue"/"callback"/"none". A recognized meme/
-reaction is looked up fresh per click through its own separate retrieval, with no single reusable
-visual the way a feel/evidence search produces one, so it can't honestly be marked as reusing or
-skipping an earlier visual the way the other families can.
 
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"...","visualMode":"stock","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"new","visualId":"v0","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"depictionType":"instant","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":"...","visualGoal":"...","coverageMode":"new","visualId":"v1","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","depictionType":"fallback","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"continue","visualId":null,"visualRef":"v1","continuityReason":"...","noneKind":null},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"...","visualMode":null,"visualQueries":[],"eraHint":null,"visualGoal":null,"coverageMode":"none","visualId":null,"visualRef":null,"continuityReason":null,"noneKind":"narration_only"}]}`;
@@ -880,11 +877,14 @@ export function normalizeCoveragePlan(segments) {
   const claimedIds = new Set();
 
   segments.forEach((seg, index) => {
-    // "reference" (meme/reaction) beats always stay "new" regardless of what the model said —
-    // reference-search.js's retrieval is a dual-source (YouTube reaction clips + Pexels stock),
-    // always re-searched per click, with no single trackable "visual" to continue/callback into
-    // the way one feel/evidence search produces. Letting a reference beat land in continue/
-    // callback silently drops its "Find reaction clip" button entirely, with nothing to replace it.
+    // This branch is currently unreachable: this function only ever processes FRESH model output
+    // (SEGMENT_OUTPUT_SCHEMA's family enum no longer includes "reference" at all, so Claude can't
+    // produce one), and is never re-run against old saved projects — app.js's own buildLiveSegments
+    // handles those independently. Kept as insurance for if "reference" is ever re-added to the
+    // schema: reference-search.js's retrieval is a dual-source (YouTube reaction + Pexels stock)
+    // lookup, always re-searched per click, with no single trackable "visual" to continue/callback
+    // into the way one feel/evidence search produces — a reference beat landing in continue/
+    // callback would silently drop its "Find reaction clip" button with nothing to replace it.
     if (seg.family === "reference") {
       let id = `legacy-v${index}`;
       while (claimedIds.has(id)) id = `${id}-x`;
