@@ -714,8 +714,30 @@ export function parseClaudeSegmentsResponse(data) {
 
 export function validateScriptCoverage(script, segments) {
   const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
-  if (normalize(segments.map((seg) => seg.text).join(" ")) !== normalize(script)) {
-    throw new Error("Claude's segments did not preserve the complete script exactly");
+  const reconstructed = normalize(segments.map((seg) => seg.text).join(" "));
+  const original = normalize(script);
+  if (reconstructed !== original) {
+    // Find the first point the two strings actually diverge, so the error is something a real
+    // wrangler-tail session can act on instead of a bare "didn't match" — this check was firing
+    // live with no way to tell paraphrasing/dropped text from a benign punctuation substitution
+    // (smart quotes, dash variants) the model may have silently "cleaned up" despite being told
+    // not to.
+    let i = 0;
+    const len = Math.min(reconstructed.length, original.length);
+    while (i < len && reconstructed[i] === original[i]) i++;
+    const context = 40;
+    const originalAround = original.slice(Math.max(0, i - context), i + context);
+    const reconstructedAround = reconstructed.slice(Math.max(0, i - context), i + context);
+    console.log(
+      `[segment] script coverage mismatch at char ${i} (original len=${original.length}, ` +
+      `reconstructed len=${reconstructed.length})\n` +
+      `  original:      …${originalAround}…\n` +
+      `  reconstructed: …${reconstructedAround}…`
+    );
+    throw new Error(
+      `Claude's segments did not preserve the complete script exactly (diverged at character ${i} — ` +
+      `original: "…${originalAround}…" vs reconstructed: "…${reconstructedAround}…")`
+    );
   }
   return segments;
 }
