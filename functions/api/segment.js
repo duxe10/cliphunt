@@ -311,8 +311,9 @@ searching an actual photograph for," which is a broader question than that. Four
   for a photo search — a bare trait/reputation/role claim (Bellingham "emerged as a superstar,"
   Saka "was electric," the resilience/trust example above), or an inherited event with nothing new
   added (the Croatia example above). A general real-footage search is still worth trying; a photo
-  search is not (too likely to return generic, unverifiable junk for a query this broad) — see
-  evidence-search.js for how this actually gates the image search.
+  search is not (too likely to return generic, unverifiable junk for a query this broad). This
+  judgment is diagnostic/UI display only — evidence-search.js judges its own per-claim "mediaType"
+  independently and does not read this field.
 categoryClaim-based evidence is almost always "instant" — a categoryClaim by definition names a
 real, capturable class-level action ("footballers celebrating a World Cup goal" already IS a
 specific enough visual target).
@@ -352,9 +353,12 @@ Then pick one "family":
   or event when "fallback" — never stock b-roll, in either case. Because "subject" and
   "categoryClaim" already passed the resolution rules above by the time you reach this point, no
   further content check is needed here — just check whether either field is actually set.
-- "reference" — matches a known meme/cultural callback (subject and categoryClaim are usually
-  both null). A recognized meme/clip is itself a concrete, already-filmed thing, so it doesn't
-  need to separately pass the concreteness test.
+- "reference" is disabled for new projects — reaction/meme discovery is currently out of scope
+  (the retrieval side exists for old saved projects and a possible future re-enable, but new
+  segmentation must never produce it). A moment that looks like a known meme/cultural callback
+  should classify as "feel" (an original stock/editorial visual honestly communicating the beat)
+  if a real anchor exists, otherwise "nothing" — run it through those tests exactly as normal,
+  don't reach for a meme match.
 - "nothing" — the concreteness test above fails outright: after looking for one concrete,
   physically depictable thing actually present in this segment's own text, nothing survives. This
   single test covers several different SURFACES, which are not separate rules but the same
@@ -417,7 +421,7 @@ watching disappointment; tone: hope emerging". For "evidence", name what made "s
 "categoryClaim" resolve, plus "depictionType" — e.g. "resolved subject: Harry Kane; action:
 training alone at 6am; instant", "resolved subject: Jude Bellingham; reputation claim, no action;
 fallback", "categoryClaim: startups failing; visible action: office packed into boxes; instant".
-For "reference", name the recognized meme/clip — e.g. "recognized meme: Distracted Boyfriend". For
+For
 "nothing", keep naming which failure above applies, unchanged — e.g. "abstract state, no action",
 "bare internal state, no anchor", "rhetorical setup, not depicted now", "asserts nothing about a
 real name", "connective narration only". This field is never shown to the end user; it exists purely
@@ -433,8 +437,8 @@ not a mood word or an abstract claim, and never include "subject"'s name in it. 
 fuller end of that range whenever a physical anchor needs an emotional tone or arc layered onto
 it (see the anchor+tone special case below) — a query too short to carry both the anchor and the
 tone loses the tone first, which is exactly what makes a query read as generic instead of
-specific. This is the primary search for "feel" segments, and a fallback for "evidence"/
-"reference" segments in case no specific subject can actually be confirmed later. Good queries:
+specific. This is the primary search for "feel" segments, and a fallback for "evidence" segments
+in case no specific subject can actually be confirmed later. Good queries:
 "stormy sky timelapse", "empty stadium night", "hands typing on laptop", "stadium crowd
 celebrating goal", "small storefront closing down with moving boxes", "empty office packed into
 cardboard boxes", "dejected fans slowly turning hopeful". Bad queries: single mood words like
@@ -550,7 +554,14 @@ export const SEGMENT_OUTPUT_SCHEMA = {
         type: "object",
         properties: {
           text: { type: "string" },
-          family: { type: "string", enum: ["feel", "evidence", "reference", "nothing"] },
+          // "reference" is deliberately excluded here, not just discouraged in the prompt above —
+          // this is the actual enforcement (Anthropic's structured output constrains token
+          // generation to the schema, so the model literally cannot produce a value outside this
+          // list). reference-search.js/the frontend's reference-family rendering are untouched and
+          // still work for OLD saved projects with real "reference" segments; only new
+          // segmentation calls are affected. Re-add "reference" here to switch reaction/meme
+          // discovery back on for new projects.
+          family: { type: "string", enum: ["feel", "evidence", "nothing"] },
           subject: nullableString(),
           categoryClaim: nullableString(),
           depictionType: { anyOf: [{ type: "string", enum: ["instant", "fallback"] }, { type: "null" }] },

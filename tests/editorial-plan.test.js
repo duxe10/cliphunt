@@ -6,6 +6,7 @@ import {
   enforceFeelQueryRule,
   normalizeCoveragePlan,
   summarizeCoverage,
+  SEGMENT_OUTPUT_SCHEMA,
 } from "../functions/api/segment.js";
 
 test("old evidence output preserves exact search behavior", () => {
@@ -238,4 +239,15 @@ test("coverage summary matches modes and does not enforce a quota", () => {
   assert.deepEqual(summarizeCoverage(rows), {
     total: 3, new: 1, continue: 1, callback: 0, none: 1, unresolved: 0, fullyNothingRate: 1 / 3,
   });
+});
+
+// Reaction/meme discovery is out of scope for new projects (per direction, 2026-07-23) — enforced
+// at the schema level, not just discouraged in the prompt, so Claude's structured-output decoding
+// literally cannot produce "reference" for a new segmentation. reference-search.js and the
+// frontend's reference-family rendering stay untouched for OLD saved projects and a possible
+// future re-enable (see normalizeCoveragePlan's own reference-handling branch, still covered by
+// its own test) — only the schema that constrains NEW model output changes here.
+test("the segment output schema no longer allows the model to emit family=reference", () => {
+  const familyEnum = SEGMENT_OUTPUT_SCHEMA.properties.segments.items.properties.family.enum;
+  assert.deepEqual(familyEnum, ["feel", "evidence", "nothing"]);
 });

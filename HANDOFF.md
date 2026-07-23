@@ -1246,12 +1246,21 @@ degrades to exactly the prior behavior:
   up as `data.error` in the body — every caller checks `data.error`, not just `res.ok`.
 - **Reconciliation note**: this was originally built on a branch that also re-implemented
   multi-claim decomposition and photo search from scratch, using a NEW Google Custom Search
-  integration (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID`) and dropping `reference`-family (meme/reaction)
-  support entirely. By the time this landed, `master` had already independently gained its own
-  multi-claim/photo work (see the section above) using the EXISTING SerpAPI integration and keeping
-  `reference` fully supported. Reconciled by keeping master's version of both and layering only the
-  genuinely new visualMode/coverage/streaming pieces on top — the Google CSE path and the
-  reference-family removal were dropped as redundant/undiscussed, not carried forward.
+  integration (`GOOGLE_CSE_API_KEY`/`GOOGLE_CSE_ID`). By the time this landed, `master` had already
+  independently gained its own multi-claim/photo work (see the section above) using the EXISTING
+  SerpAPI integration. Reconciled by keeping master's version and layering only the genuinely new
+  visualMode/coverage/streaming pieces on top — the Google CSE path was dropped as redundant.
+- **Reaction/meme discovery disabled for new projects (2026-07-23, confirmed by direction)**: the
+  `family` enum in `SEGMENT_OUTPUT_SCHEMA` no longer includes `"reference"` — Anthropic's
+  structured-output decoding makes this an actual hard constraint, not just a prompt instruction,
+  so a new segmentation call literally cannot produce it. `reference-search.js` and every piece of
+  frontend rendering for `reference` beats (the "Find reaction clip" button, dual YouTube+Pexels
+  search, etc.) are untouched — old saved projects with real `reference` segments keep working
+  exactly as before, and re-adding `"reference"` to the schema enum is the entire re-enable path if
+  this changes again. `normalizeCoveragePlan()` still has a defensive branch forcing any
+  `reference` segment straight to `coverageMode:"new"` (never `continue`/`callback`) for exactly
+  that backward-compatibility case — it's now unreachable for fresh model output but stays correct
+  and tested for old data.
 - A real pre-existing bug also found and fixed here (unrelated to this feature): an unescaped
   backtick in `segment.js`'s own prompt text (the "Then came France" example, referencing
   `` `evidence-search.js` ``) broke the file at parse time. Confirmed via `git stash` this predated
