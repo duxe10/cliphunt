@@ -572,6 +572,31 @@ or wherever an already-established visual can honestly cover a beat without a ne
 continue/callback visualRef must point DIRECTLY to an earlier new row, never another reference, and
 its subject/era must stay compatible with that origin.
 
+The single test that actually decides "new" vs "continue" within an ongoing match/event, since this
+is the most common way this gate gets misapplied — inconsistently, in BOTH directions, not just one:
+does THIS segment's own text name a DIFFERENT specific, real, separately-documented action than
+whatever the currently-active visual already covers (a different goal, a different player's
+specific moment, a different named incident)? If yes, it's "new" — it has its own real, distinct,
+individually-findable footage, even though the match/event around it hasn't changed. Only use
+"continue" when this segment is narrating or elaborating on the SAME single already-covered
+action/instant — not a fresh one — or is genuinely connective/descriptive text with nothing of its
+own to search (hype framing, a scoreline restated, a transition).
+
+Two contrasting worked examples, same script, to make the distinction concrete: "England took the
+lead through a long-range free kick." (new — a specific, real, individually-findable goal) ->
+"The opponent leveled it midway through the second half, then completed the comeback in extra
+time." (STILL new, even mid-match — TWO more distinct real goals are named here, neither is the
+free kick already covered; if a sentence like this names more than one new action, split it into
+separate claims at evidence-search time, not fold it into a continue of the free kick). Contrast:
+"He stepped up to the penalty spot." -> "Facing the goalkeeper who was his own club teammate." ->
+"He drove it into the corner." — this is ONE continuous real action (a single penalty kick)
+narrated across three short sentences — only the FIRST is "new"; the other two are "continue",
+because neither adds a different action, they're the same instant continuing. The failure mode to
+avoid in both directions: don't collapse several genuinely different real goals into one "continue"
+chain just because they're part of the same match (throws away real, specific, findable footage for
+each one), and don't split one single continuous action into several "new" entries just because it's
+narrated across multiple short sentences (wastes several searches on what is really one clip).
+
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"...","visualMode":"stock","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"new","visualId":"v0","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"depictionType":"instant","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":"...","visualGoal":"...","coverageMode":"new","visualId":"v1","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","depictionType":"fallback","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"continue","visualId":null,"visualRef":"v1","continuityReason":"...","noneKind":null},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"...","visualMode":null,"visualQueries":[],"eraHint":null,"visualGoal":null,"coverageMode":"none","visualId":null,"visualRef":null,"continuityReason":null,"noneKind":"narration_only"}]}`;
 
