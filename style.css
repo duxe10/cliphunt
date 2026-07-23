@@ -6,15 +6,15 @@
    Content pops against the dark; the red carries every primary action.
    ══════════════════════════════════════════════════════════════════════════ */
 :root {
-  --bg: #0f0f13;
-  --surface: #1a1a21;      /* elevated cards float above the bg */
-  --surface-2: #23232c;
-  --surface-3: #2e2e39;
-  --border: #2c2c37;
-  --border-soft: #212129;
+  --bg: #060608;           /* deep true black — the ground, not grey */
+  --surface: #101013;      /* cards sit just above it */
+  --surface-2: #17171b;
+  --surface-3: #232329;
+  --border: #29292f;
+  --border-soft: #1b1b1f;
   --text: #ffffff;         /* pure white — max pop */
-  --text-dim: #a4a4b0;
-  --text-faint: #6a6a77;
+  --text-dim: #9b9ba7;
+  --text-faint: #64646f;
 
   --accent: #fe2c55;       /* TikTok red */
   --accent-hover: #ff4d6f;
@@ -71,7 +71,7 @@ button, input, textarea { font-family: inherit; }
   top: 0;
   z-index: 20;
   backdrop-filter: blur(18px);
-  background-color: rgba(15,15,19,.78);
+  background-color: rgba(6,6,8,.82);
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -94,7 +94,6 @@ button, input, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(254,44,85,.35);
 }
 
 /* ---- Buttons (pills) ---- */
@@ -120,9 +119,8 @@ button, input, textarea { font-family: inherit; }
 .btn-primary {
   background: var(--accent);
   color: #fff;
-  box-shadow: 0 6px 18px rgba(254,44,85,.28);
 }
-.btn-primary:hover { transform: translateY(-1px); background: var(--accent-hover); box-shadow: 0 10px 26px rgba(254,44,85,.4); }
+.btn-primary:hover { transform: translateY(-1px); background: var(--accent-hover); }
 
 .btn-dark {
   background: var(--surface-2);
@@ -537,15 +535,14 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .clip-card {
   flex: 0 0 auto;
-  width: 208px;
+  width: 222px;
   scroll-snap-align: start;
   cursor: pointer;
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
   border: 1px solid var(--border-soft);
-  background: var(--surface-2);
-  box-shadow: var(--shadow-1);
-  transition: border-color .16s ease, transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .16s ease;
+  background: var(--surface);
+  transition: border-color .18s ease, transform .18s cubic-bezier(.2,.7,.3,1), box-shadow .18s ease;
 }
 
 .clip-card:hover, .clip-card.selected {
@@ -556,13 +553,14 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .clip-thumb {
   position: relative;
-  height: 114px;
+  height: 125px;              /* true 16:9 on a 222px card */
   overflow: hidden;
   background: var(--surface-3);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
+  border-radius: 18px 18px 0 0;
 }
 
 /* Inner image layer so it can zoom on hover without moving the overlaid chips. */
@@ -570,72 +568,82 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   position: absolute;
   inset: 0;
   background: center/cover no-repeat;
-  transition: transform .4s cubic-bezier(.2,.7,.3,1);
+  transition: transform .5s cubic-bezier(.2,.7,.3,1);
 }
-.clip-card:hover .clip-img { transform: scale(1.06); }
+.clip-card:hover .clip-img { transform: scale(1.07); }
 
-/* Legibility scrim under the overlaid metadata, always on so chips read over any frame. */
+/* Soft top scrim so the overlaid chips read over any frame. */
 .clip-scrim {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(8,9,11,.55) 0%, transparent 32%),
-    linear-gradient(0deg, rgba(8,9,11,.35) 0%, transparent 34%);
+  background: linear-gradient(180deg, rgba(0,0,0,.5) 0%, transparent 34%);
   pointer-events: none;
 }
 
+/* Frosted dark pill + a colour dot per source — modern, and legible over any thumbnail (the old
+   bright solid rectangles read as dated badges). */
 .src-chip {
   position: absolute;
-  top: 9px;
-  left: 9px;
+  top: 10px;
+  left: 10px;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: .05em;
-  color: #0c0d08;
-  padding: 3px 8px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.35);
+  letter-spacing: .06em;
+  color: #fff;
+  padding: 4px 9px 4px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.1);
 }
-
-.src-youtube { background: #ff7a66; }
-.src-pexels { background: #63d6a0; }
-.src-image { background: #6bb4f0; }
-.src-photo { background: #c3a6f5; }
-.src-article { background: var(--accent); }
+.src-chip::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.src-youtube::before { background: #ff6b6b; }
+.src-pexels::before { background: var(--feel); }
+.src-image::before { background: var(--evidence); }
+.src-photo::before { background: var(--reference); }
+.src-article::before { background: var(--accent); }
 
 .clip-score {
   position: absolute;
-  top: 9px;
-  right: 9px;
+  top: 10px;
+  right: 10px;
   z-index: 2;
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-  color: var(--text);
-  background: rgba(10,11,13,.62);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,.08);
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.1);
 }
-.clip-score.ev-ok { color: #cdefda; }
-.clip-score.ev-warn { color: #e9d9b4; }
+.clip-score.ev-ok { color: #7dffc0; }
+.clip-score.ev-warn { color: var(--text-dim); }
 
-.clip-foot { padding: 11px 13px 13px; }
+.clip-foot { padding: 12px 14px 14px; }
 .clip-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
-  line-height: 1.35;
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .clip-meta {
-  margin-top: 5px;
+  margin-top: 6px;
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-faint);
@@ -681,7 +689,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8,6,4,.7);
+  background: rgba(0,0,0,.74);
   display: none;
   align-items: center;
   justify-content: center;
