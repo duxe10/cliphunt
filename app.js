@@ -380,6 +380,7 @@ function renderWorkspace() {
 
   root.innerHTML = SEGMENTS.map(seg => segmentHtml(seg)).join("");
   hydrateClips();
+  setupFilmstripScroll();
 
   const delBtn = document.getElementById("delete-project");
   if (delBtn) {
@@ -441,6 +442,23 @@ function refreshFootageButtonLabels() {
   });
 }
 
+// The filmstrips are single horizontal rows; a mouse-wheel (vertical) over one scrolls it
+// sideways so results aren't stranded off-screen. Trackpad horizontal swipes already work and are
+// left alone. Bound once, globally, via delegation — survives every re-render.
+let _filmstripWheelBound = false;
+function setupFilmstripScroll() {
+  if (_filmstripWheelBound) return;
+  _filmstripWheelBound = true;
+  document.addEventListener("wheel", (e) => {
+    const strip = e.target.closest && e.target.closest(".clip-queue");
+    if (!strip) return;
+    if (strip.scrollWidth <= strip.clientWidth + 4) return;   // nothing to scroll
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;      // already a horizontal gesture
+    strip.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+}
+
 function segmentHtml(seg) {
   // coverageMode (see segment.js's sequence coverage pass) is the authoritative "does this beat
   // need its own visual" signal now — "none" subsumes the old family==="nothing" case plus any
@@ -456,19 +474,39 @@ function segmentHtml(seg) {
   // on every workspace load), so both get a "Find footage" button rather than auto-hydrating.
   const needsFootage = !isEmpty && !isReuse && (seg.family === "evidence" || seg.family === "reference");
 
-  let body;
+  const scNo = `SC ${String(seg.idx).padStart(2, "0")}`;
+
+  // Non-visual beats — pacing pauses, narration-only, and continue/callback reuses — carry no
+  // thumbnails, so they render as SLIM one-line entries instead of full cards. A 10-20 min script
+  // is 150-200 scenes; collapsing the ~30-40% that have no media of their own is what keeps the
+  // page from being a wall of thick blocks.
   if (isEmpty) {
-    const noneCopy = seg.noneKind === "deliberate_pause" ? "Intentional visual pause."
-      : seg.noneKind === "narration_only" ? "Narration-only beat."
-      : "Pacing beat — no clip needed here.";
-    body = `<p class="no-clip-msg">${noneCopy}</p>`;
-  } else if (isReuse) {
-    const verb = seg.coverageMode === "callback" ? "Reuse" : "Continue";
-    body = `<div class="continuity-note"><a href="#scene-${seg.originIdx}">${verb} SC.${String(seg.originIdx).padStart(2, "0")} visual</a>${seg.continuityReason ? ` · ${escapeHtml(seg.continuityReason)}` : ""}</div>`;
-  } else if (skipStock) {
+    const label = seg.noneKind === "deliberate_pause" ? "Pause" : "Narration";
+    return `
+      <div class="scene scene-slim is-none" id="scene-${seg.idx}">
+        <span class="scene-tick">${seg.time}</span>
+        <span class="scene-flag flag-none">${label}</span>
+        <span class="scene-line">${escapeHtml(seg.text || "")}</span>
+      </div>`;
+  }
+  if (isReuse) {
+    const verb = seg.coverageMode === "callback" ? "Callback" : "Continue";
+    return `
+      <div class="scene scene-slim is-reuse" id="scene-${seg.idx}">
+        <span class="scene-tick">${seg.time}</span>
+        <span class="scene-flag flag-reuse">${verb}</span>
+        <span class="scene-line">${escapeHtml(seg.text || "")}</span>
+        <a class="scene-jump" href="#scene-${seg.originIdx}">Reuses SC ${String(seg.originIdx).padStart(2, "0")}</a>
+      </div>`;
+  }
+
+  // Real scenes render as a card: a compact header line, the scene text as the focus, then a
+  // single side-scrolling filmstrip of results.
+  let body;
+  if (skipStock) {
     body = `<p class="no-clip-msg">Stock footage skipped for this project.</p>`;
   } else if (needsSearch) {
-    body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Searching for clips…</p></div>`;
+    body = `<div class="clip-queue" id="clipqueue-${seg.idx}"><p class="no-clip-msg">Finding footage…</p></div>`;
   } else if (needsFootage) {
     const isReference = seg.family === "reference";
     const label = isReference ? "Find reaction clip" : (DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage");
@@ -483,34 +521,17 @@ function segmentHtml(seg) {
     body = `<div class="clip-queue" id="clipqueue-${seg.idx}">${seg.clips.map((c, i) => clipCardHtml(seg.idx, i, c)).join("")}</div>`;
   }
 
-  // The segmenter's own "reason" field, always shown (not gated behind a debug toggle — it's
-  // cheap and this is exactly the missing visibility that made "why did this land here" only
-  // answerable via a live wrangler tail before). depictionType is appended when present — purely
-  // diagnostic display now, not something findFootage()/evidence-search.js reads (see
-  // buildLiveSegments' comment above for why).
-  const reasonLine = seg.reason
-    ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.depictionType ? ` · depiction: ${seg.depictionType}` : ""}</p>`
-    : "";
-
-  const badgeLabel = isReuse ? (seg.coverageMode === "callback" ? "Callback" : "Continue")
-    : isEmpty ? (seg.noneKind === "deliberate_pause" ? "Pause" : "Narration")
-    : FAMILY_LABEL[seg.family];
-
   return `
-    <div class="segment-row ${isEmpty ? "empty-beat" : ""} ${isReuse ? "continuity-beat" : ""}" id="scene-${seg.idx}">
-      <div class="segment-meta">
-        <div class="idx">SC.${String(seg.idx).padStart(2, "0")}</div>
-        <div class="time">${seg.time}</div>
-        <div class="dur">${seg.dur}</div>
-        <span class="badge badge-${isReuse ? seg.coverageMode : seg.family}">${badgeLabel}</span>
+    <div class="scene scene-card fam-${seg.family}" id="scene-${seg.idx}">
+      <div class="scene-head">
+        <span class="scene-no">${scNo}</span>
+        <span class="scene-tick">${seg.time}</span>
+        <span class="scene-dur">${seg.dur}</span>
+        <span class="badge badge-${seg.family}">${FAMILY_LABEL[seg.family]}</span>
       </div>
-      <div class="segment-body">
-        <p class="segment-text">${escapeHtml(seg.text || "")}</p>
-        ${reasonLine}
-        ${body}
-      </div>
-    </div>
-  `;
+      <p class="scene-text">${escapeHtml(seg.text || "")}</p>
+      ${body}
+    </div>`;
 }
 
 // Fires real Pexels searches for feel segments after the initial render, then swaps each
