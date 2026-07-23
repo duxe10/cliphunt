@@ -179,27 +179,40 @@ to good news, bad news, and boring news alike, in any domain.
 
 - "video": the claim resolves to ONE identifiable real event/instant — a goal, a press conference,
   a product launch, a walkout, a collapse, a signing, an announcement. Doesn't matter if it's
-  positive or negative, routine or dramatic — if there is a single, real, locatable moment, it's
-  "video" (or "both" if a photo of that same moment also plausibly exists, which is common).
+  positive or negative, routine or dramatic — if there is a single, real, locatable moment, default
+  to "both" (see below) rather than "video" alone; reserve bare "video" for the narrower case where
+  a photo genuinely would not exist.
 - "photo": the claim is cumulative, ongoing, or a status/reputation fact with NO single filmable
   moment — "kept breaking record after record", "morale had been sinking for months", "developed a
   reputation for missing deadlines", "the region endured a decade of drought". Nothing a video
   camera could have captured as ONE scene, but a real photograph (a portrait, a stats graphic, an
   aerial/satellite shot, a press clipping) likely exists.
-- "both": ambiguous, or significant/notable enough that a real filmed moment AND a notable
-  standalone photo both plausibly exist.
+- "both": the DEFAULT for any single real identifiable instant in a domain with routine press/media
+  coverage (sports, entertainment, business, politics, viral/newsworthy moments of any kind) — real
+  photography covers essentially every such event, not only the famous ones. Do not gate "both" on
+  the claim feeling significant, historic, or headline-worthy; an ordinary league match, a routine
+  product announcement, an unremarkable press conference are ALL "both" by this same logic. Only
+  narrow to bare "video" when the specific claim's nature makes a standalone photo genuinely
+  implausible even though a moment was filmed (something covered exclusively by broadcast/livestream
+  with no independent press photography — rare, not the common case).
 
 GUARDRAIL, the actual failure mode this exists to prevent: do NOT let the claim's VALENCE (good
 news vs. bad news) or SHAPE-BY-ASSOCIATION (this sounds like the kind of thing that gets a trophy,
 so it must be "both"; this sounds vague, so it must be "photo") substitute for actually checking
 whether ONE real event can be pointed to. Achievements are not privileged as "video"/"both" over
 criticism or routine facts, and vagueness is not privileged as "photo" over specific-but-mundane
-facts — the ONLY question is whether one instant exists.
+facts — the ONLY question is whether one instant exists, and once it does, "both" is the default
+regardless of how ordinary or major that instant is.
 
 Worked through concretely, across different domains, valences, and claim shapes (deliberately not
-all achievements, not all sports, not all positive):
+all achievements, not all sports, not all positive, and deliberately including ordinary, non-major
+moments — press photography is comprehensive, not reserved for headlines):
 - "He became the club's all-time top scorer." (sports, achievement, single record-breaking goal) ->
   "both" — the goal itself was filmed, and a stats graphic/photo of the moment plausibly exists.
+- "He scored in a routine midweek league match nobody particularly remembers." (sports, deliberately
+  UNremarkable, still one real instant) -> "both", same as the record-breaking goal above — an
+  ordinary professional match is still real, photographed, filmable content; "unremarkable" affects
+  how easy the footage is to find, not whether the medium exists at all.
 - "He kept breaking record after record." (sports, achievement, but genuinely cumulative — no
   single instant) -> "photo".
 - "The CEO stormed out of the shareholder meeting after the vote." (business, NEGATIVE, single
