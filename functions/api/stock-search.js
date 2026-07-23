@@ -136,10 +136,14 @@ export async function rerankStockCandidates(intent, clips, env) {
       const r = byId.get(c.id);
       return { ...c, score: r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : null, reason: r ? String(r.reason || "").slice(0, 60) : null };
     });
-    // Conservative filter — Pexels' slug titles are thinner signal than YouTube's title+
-    // description+channel, so only drop clearly-wrong matches, not just low-confidence ones.
-    const kept = scored.filter((c) => c.score === null || c.score >= 20);
-    kept.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    // By this point the rerank call itself already succeeded (res.ok, JSON parsed) — a candidate
+    // missing from the model's own ranking despite every candidate being sent isn't "no signal,
+    // stay lenient," it's the model silently skipping something. Confirmed live: exactly this let
+    // an unrelated clip (wrong subject entirely) through with no score shown at all, indistinguishable
+    // from a genuinely vetted low-confidence result. Drop it — matches the MIN_RERANK_SCORE bar
+    // this app already enforces everywhere else (evidence-search.js, reference-search.js).
+    const kept = scored.filter((c) => c.score !== null && c.score >= 20);
+    kept.sort((a, b) => b.score - a.score);
     return kept;
   } catch {
     return clips;
@@ -210,13 +214,27 @@ export async function rerankStockCandidatesBatch(items, env) {
 
   return items.map((it) => {
     const ranking = rankingBySegment.get(it.i);
-    if (!ranking) return it.clips; // <=1 candidate (never sent), or the whole batch call failed
+    if (!ranking) {
+      // Two genuinely different cases share this branch, and confirmed live they need different
+      // handling: (1) the WHOLE batch call failed (network error, bad JSON) — rankingBySegment
+      // never got populated at all, so there's no signal for ANYONE; unfiltered pass-through is
+      // the least-bad option rather than silently failing every feel beat in the project.
+      // (2) the call succeeded and substantively scored OTHER segments, but this one segment's
+      // index is inexplicably missing from its response — that's the model dropping something it
+      // was actually given, not a total-failure case, and unfiltered pass-through here let an
+      // entirely wrong-sport clip through live with zero score shown, indistinguishable from a
+      // vetted result. Drop it, matching the per-candidate fix below.
+      return rankingBySegment.size ? [] : it.clips;
+    }
     const scored = it.clips.map((c) => {
       const r = ranking.get(c.id);
       return { ...c, score: r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : null, reason: r ? String(r.reason || "").slice(0, 60) : null };
     });
-    const kept = scored.filter((c) => c.score === null || c.score >= 20);
-    kept.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    // Same reasoning as the single-segment version above: a candidate missing from an otherwise-
+    // successful per-segment ranking isn't "no signal," it's the model skipping something it was
+    // actually sent. Drop rather than default-include.
+    const kept = scored.filter((c) => c.score !== null && c.score >= 20);
+    kept.sort((a, b) => b.score - a.score);
     return kept;
   });
 }
