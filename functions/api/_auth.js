@@ -30,6 +30,24 @@ export const TRIAL_SECONDS_MAX = 600;
 export const TRIAL_SECONDS_MAX_ACCOUNT = 900;
 export const READING_WORDS_PER_SEC = 2.5;
 
+// Paid plans (set on the user record by the Stripe webhook). Monthly quotas, matching the pricing
+// page: Starter 30 min/mo, Premium 120 min/mo. Metered against a month-scoped KV key so they
+// reset automatically on the 1st without any cron. A user counts as "subscribed" only while
+// subscriptionStatus is "active" — a cancelled/past-due account falls back to the free trial rules.
+export const PLAN_SECONDS = { starter: 30 * 60, premium: 120 * 60 };
+
+export function isSubscribed(user) {
+  return !!(user && user.subscriptionStatus === "active" && PLAN_SECONDS[user.plan]);
+}
+
+// usage:<email>:<YYYY-MM> in UTC — the whole point is that a new month is a new key, so quota
+// "resets" with zero moving parts.
+export function monthlyUsageKey(email) {
+  const now = new Date();
+  const ym = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `usage:${email.toLowerCase()}:${ym}`;
+}
+
 const enc = new TextEncoder();
 
 function b64url(bytes) {

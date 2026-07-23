@@ -39,7 +39,7 @@
           <li>Voiceover transcription</li>
           <li>Link export for your editor</li>
         </ul>
-        <button class="btn btn-dark pricing-cta" onclick="startCheckout('starter', this)">Choose Starter</button>
+        <button class="btn btn-dark pricing-cta" id="cta-starter" onclick="startCheckout('starter', this)">Choose Starter</button>
       </div>
 
       <div class="pricing-card pricing-card-featured">
@@ -54,7 +54,7 @@
           <li>Priority processing</li>
           <li>Early access to new features</li>
         </ul>
-        <button class="btn btn-primary pricing-cta" onclick="startCheckout('premium', this)">Choose Premium</button>
+        <button class="btn btn-primary pricing-cta" id="cta-premium" onclick="startCheckout('premium', this)">Choose Premium</button>
       </div>
     </div>
 
@@ -83,6 +83,23 @@
         note.textContent = err.message;
         btn.disabled = false;
         btn.textContent = original;
+      }
+    }
+
+    // Reflect the signed-in account's current plan (called by app.js once auth resolves).
+    function onAuthReady() {
+      if (!AUTH || AUTH.anonymous) return;
+      const active = AUTH.subscriptionStatus === "active" ? AUTH.plan : null;
+      for (const plan of ["starter", "premium"]) {
+        const btn = document.getElementById(`cta-${plan}`);
+        if (!btn) continue;
+        if (active === plan) {
+          btn.textContent = "Current plan";
+          btn.disabled = true;
+          btn.classList.add("pricing-current");
+        } else if (active) {
+          btn.textContent = plan === "premium" ? "Upgrade to Premium" : "Switch to Starter";
+        }
       }
     }
   </script>

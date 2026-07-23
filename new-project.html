@@ -129,7 +129,9 @@
       const script = document.getElementById("script-input").value;
       const words = script.trim() ? script.trim().split(/\s+/).length : 0;
       const seconds = Math.ceil(words / WPS);
-      const remaining = AUTH ? Math.max(0, AUTH.trialSecondsMax - AUTH.trialSecondsUsed) : 600;
+      const q = authQuota();
+      const remaining = q.remaining;
+      const balanceWord = q.subscribed ? "monthly balance" : "trial balance";
 
       document.getElementById("meter-words").textContent = `${words.toLocaleString()} word${words === 1 ? "" : "s"}`;
       document.getElementById("meter-duration").textContent = `${fmtClock(seconds)} spoken`;
@@ -138,8 +140,8 @@
       const fillEl = document.getElementById("meter-fill");
       const overBudget = seconds > remaining;
       trialEl.textContent = remaining > 0
-        ? (overBudget ? `over your ${fmtClock(remaining)} trial balance` : `${fmtClock(remaining)} trial balance`)
-        : "trial used up";
+        ? (overBudget ? `over your ${fmtClock(remaining)} ${balanceWord}` : `${fmtClock(remaining)} ${balanceWord}`)
+        : (q.subscribed ? "monthly quota used" : "trial used up");
       trialEl.classList.toggle("over", overBudget || remaining === 0);
       fillEl.style.width = `${Math.min(100, remaining ? Math.round(100 * seconds / remaining) : 100)}%`;
       fillEl.classList.toggle("over", overBudget || remaining === 0);
@@ -147,8 +149,9 @@
       const btn = document.getElementById("hunt-btn");
       btn.disabled = overBudget || remaining === 0;
       document.getElementById("hunt-note").textContent = (overBudget || remaining === 0)
-        ? (remaining === 0 ? "Your free trial is used up — get in touch for full access."
-          : "This script is longer than your remaining trial — trim it down to continue.")
+        ? (remaining === 0
+            ? (q.subscribed ? "You've used this month's quota — it resets on the 1st." : "Your free trial is used up — upgrade for full access.")
+            : `This script is longer than your remaining ${balanceWord} — trim it down to continue.`)
         : "Takes about a minute for a full-length script.";
     }
 

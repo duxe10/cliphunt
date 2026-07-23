@@ -6,7 +6,10 @@
 // abstract-state gap), and the one call per script, so cost stays predictable per project. This
 // is a real billed Anthropic balance, not a free tier — see _claude.js's header comment.
 import { claudeChat, extractText, extractJson } from "./_claude.js";
-import { ipTrialKey, scriptSeconds, TRIAL_SECONDS_MAX, TRIAL_SECONDS_MAX_ACCOUNT } from "./_auth.js";
+import {
+  ipTrialKey, scriptSeconds, TRIAL_SECONDS_MAX, TRIAL_SECONDS_MAX_ACCOUNT,
+  isSubscribed, PLAN_SECONDS, monthlyUsageKey,
+} from "./_auth.js";
 
 // 2026-07-22: EDITORIAL VISUAL PLANNING + SEQUENCE COVERAGE. Two additive layers on top of the
 // classification prompt above (unchanged): (1) per-segment visualMode/visualQueries/eraHint/
@@ -682,35 +685,65 @@ export async function onRequestPost(context) {
   // "sign up for more usage" nudge). Either way spend is written to the IP record, so no network
   // can exceed the account cap in total across any mix of guests and fresh accounts.
   const user = (context.data && context.data.user) || null;
-  const maxSeconds = user ? TRIAL_SECONDS_MAX_ACCOUNT : TRIAL_SECONDS_MAX;
   const secondsNeeded = scriptSeconds(script);
-  const ipKey = await ipTrialKey(request, env);
-  const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
-  const usedSoFar = Math.max((user && user.trialSecondsUsed) || 0, ipUsed);
-  const remaining = Math.max(0, maxSeconds - usedSoFar);
-  if (secondsNeeded > remaining) {
-    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-    const outOfBudget = user
-      ? "Your free trial is used up. Upgrade to keep using SceneHunt."
-      : "Your free guest trial is used up. Sign up free for 5 more minutes, or upgrade for full access.";
-    const trimHint = user
-      ? `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or upgrade for full access.`
-      : `This script is about ${fmt(secondsNeeded)} of narration, but your guest trial has ${fmt(remaining)} left. Trim the script, or sign up free for 5 more minutes.`;
-    return Response.json({
-      error: remaining === 0 ? outOfBudget : trimHint,
-      trialSecondsUsed: usedSoFar,
-      trialSecondsMax: maxSeconds,
-    }, { status: 402 });
-  }
-  const consumeTrial = async () => {
-    const newUsed = Math.min(TRIAL_SECONDS_MAX_ACCOUNT, usedSoFar + secondsNeeded);
-    if (user) {
-      const updated = { ...user, trialSecondsUsed: newUsed };
-      await env.AUTH_KV.put(`user:${user.email.toLowerCase()}`, JSON.stringify(updated));
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  // consumeBudget is set to an async fn to run AFTER a successful generation (so a failed run never
+  // burns budget). Two regimes: subscribed accounts meter monthly against their plan quota (no IP
+  // restriction — they're paying); everyone else uses the one-time free trial (IP-tracked, so a
+  // network can't farm it across guests/fresh accounts). Either way the budget check happens BEFORE
+  // the paid Claude call.
+  let consumeBudget;
+
+  if (isSubscribed(user)) {
+    const cap = PLAN_SECONDS[user.plan];
+    const mKey = monthlyUsageKey(user.email);
+    const used = Number(await env.AUTH_KV.get(mKey)) || 0;
+    const remaining = Math.max(0, cap - used);
+    if (secondsNeeded > remaining) {
+      const planName = user.plan.charAt(0).toUpperCase() + user.plan.slice(1);
+      return Response.json({
+        error: remaining === 0
+          ? `You've used your ${planName} plan's ${fmt(cap)} of script this month. It resets on the 1st${user.plan === "starter" ? ", or upgrade to Premium for more" : ""}.`
+          : `This script is about ${fmt(secondsNeeded)} of narration, but your ${planName} plan has ${fmt(remaining)} left this month.`,
+        planSecondsUsed: used,
+        planSecondsMax: cap,
+        plan: user.plan,
+      }, { status: 402 });
     }
-    await env.AUTH_KV.put(ipKey, String(newUsed));
-    console.log(`[segment] trial consumed: +${secondsNeeded}s -> ${newUsed}/${maxSeconds}s for ${user ? user.email : "guest"}`);
-  };
+    consumeBudget = async () => {
+      await env.AUTH_KV.put(mKey, String(Math.min(cap, used + secondsNeeded)));
+      console.log(`[segment] plan usage: +${secondsNeeded}s -> ${used + secondsNeeded}/${cap}s (${user.plan}) for ${user.email}`);
+    };
+  } else {
+    const maxSeconds = user ? TRIAL_SECONDS_MAX_ACCOUNT : TRIAL_SECONDS_MAX;
+    const ipKey = await ipTrialKey(request, env);
+    const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
+    const usedSoFar = Math.max((user && user.trialSecondsUsed) || 0, ipUsed);
+    const remaining = Math.max(0, maxSeconds - usedSoFar);
+    if (secondsNeeded > remaining) {
+      const outOfBudget = user
+        ? "Your free trial is used up. Upgrade to keep using SceneHunt."
+        : "Your free guest trial is used up. Sign up free for 5 more minutes, or upgrade for full access.";
+      const trimHint = user
+        ? `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or upgrade for full access.`
+        : `This script is about ${fmt(secondsNeeded)} of narration, but your guest trial has ${fmt(remaining)} left. Trim the script, or sign up free for 5 more minutes.`;
+      return Response.json({
+        error: remaining === 0 ? outOfBudget : trimHint,
+        trialSecondsUsed: usedSoFar,
+        trialSecondsMax: maxSeconds,
+      }, { status: 402 });
+    }
+    consumeBudget = async () => {
+      const newUsed = Math.min(TRIAL_SECONDS_MAX_ACCOUNT, usedSoFar + secondsNeeded);
+      if (user) {
+        const updated = { ...user, trialSecondsUsed: newUsed };
+        await env.AUTH_KV.put(`user:${user.email.toLowerCase()}`, JSON.stringify(updated));
+      }
+      await env.AUTH_KV.put(ipKey, String(newUsed));
+      console.log(`[segment] trial consumed: +${secondsNeeded}s -> ${newUsed}/${maxSeconds}s for ${user ? user.email : "guest"}`);
+    };
+  }
 
   // Structured JSON-schema output plus the coverage-pass fields can make this a long response —
   // long enough to risk Cloudflare's non-streaming edge timeout (524). Stream the upstream
@@ -728,8 +761,8 @@ export async function onRequestPost(context) {
       }, 10000);
       try {
         const segments = await generateVisualPlan(env, script, upstreamAbort.signal);
-        // Consume trial budget only on SUCCESS — a failed/errored run costs the user nothing.
-        await consumeTrial();
+        // Consume budget only on SUCCESS — a failed/errored run costs the user nothing.
+        await consumeBudget();
         if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ segments })));
       } catch (err) {
         if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ error: err.message || "Segmentation failed" })));

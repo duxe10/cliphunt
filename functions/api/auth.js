@@ -4,6 +4,7 @@
 import {
   hashPassword, verifyPassword, signSession, sessionCookieHeader, clearSessionCookieHeader,
   getSessionUser, ipTrialKey, TRIAL_SECONDS_MAX, TRIAL_SECONDS_MAX_ACCOUNT,
+  isSubscribed, PLAN_SECONDS, monthlyUsageKey,
 } from "./_auth.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,9 +38,23 @@ export async function onRequestPost(context) {
         trialSecondsMax: TRIAL_SECONDS_MAX,
       });
     }
+    // Subscribed accounts report their monthly plan quota instead of the trial.
+    if (isSubscribed(user)) {
+      const cap = PLAN_SECONDS[user.plan];
+      const monthUsed = Number(await env.AUTH_KV.get(monthlyUsageKey(user.email))) || 0;
+      return Response.json({
+        email: user.email,
+        plan: user.plan,
+        subscriptionStatus: user.subscriptionStatus,
+        planSecondsUsed: Math.min(monthUsed, cap),
+        planSecondsMax: cap,
+      });
+    }
     const used = Math.max(user.trialSecondsUsed || 0, ipUsed);
     return Response.json({
       email: user.email,
+      plan: user.plan || null,
+      subscriptionStatus: user.subscriptionStatus || null,
       trialSecondsUsed: Math.min(used, TRIAL_SECONDS_MAX_ACCOUNT),
       trialSecondsMax: TRIAL_SECONDS_MAX_ACCOUNT,
     });

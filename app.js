@@ -43,6 +43,16 @@ function fmtClock(totalSec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// One place the whole frontend asks "how much budget is left" — subscribed accounts report a
+// monthly plan quota, everyone else the free trial. Falls back to a full guest trial before AUTH
+// resolves so the length meter is never blank on first paint.
+function authQuota() {
+  const subscribed = AUTH && AUTH.plan && AUTH.subscriptionStatus === "active";
+  const max = subscribed ? AUTH.planSecondsMax : (AUTH ? AUTH.trialSecondsMax : 600);
+  const used = subscribed ? AUTH.planSecondsUsed : (AUTH ? AUTH.trialSecondsUsed : 0);
+  return { subscribed, max: max || 600, used: used || 0, remaining: Math.max(0, (max || 600) - (used || 0)) };
+}
+
 // Slim one-liner under the topbar, guests only — the standing invitation to convert, with the
 // honest pitch (accounts really do get +5 minutes, see _auth.js). Dismissible per browser
 // session so it never turns into nagging.
@@ -75,28 +85,37 @@ function renderAccountChip() {
     slot.innerHTML = `<a class="btn btn-ghost" href="login.html">Sign in</a>`;
     return;
   }
-  const remaining = Math.max(0, (AUTH.trialSecondsMax || 0) - (AUTH.trialSecondsUsed || 0));
   const initial = (AUTH.email || "?").charAt(0).toUpperCase();
+  const subscribed = AUTH.plan && AUTH.subscriptionStatus === "active";
+  // One quota block, either the monthly plan or the free trial.
+  const max = subscribed ? AUTH.planSecondsMax : AUTH.trialSecondsMax;
+  const used = subscribed ? AUTH.planSecondsUsed : AUTH.trialSecondsUsed;
+  const remaining = Math.max(0, (max || 0) - (used || 0));
+  const quotaLabel = subscribed
+    ? `${AUTH.plan.charAt(0).toUpperCase() + AUTH.plan.slice(1)} plan`
+    : "Free trial";
+  const quotaSub = subscribed ? "this month" : "left";
+  const planCta = subscribed
+    ? `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>Manage plan</a>`
+    : `<a class="account-plans" href="pricing.html"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.6.6-5 4.6 1.5 6.5L12 16.6 6 20l1.5-6.5-5-4.6 6.6-.6z"/></svg>View plans</a>`;
   // Native <details> gives an accessible, zero-JS dropdown; light-dismiss handled below.
   slot.innerHTML = `
     <details class="account-menu" id="account-menu">
       <summary aria-label="Account menu">
         <span class="account-avatar">${escapeHtml(initial)}</span>
         <span class="account-email">${escapeHtml(AUTH.email)}</span>
+        ${subscribed ? `<span class="account-plan-tag">${escapeHtml(AUTH.plan)}</span>` : ""}
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
       </summary>
       <div class="account-dropdown">
         <div class="account-trial">
           <div class="account-trial-label">
-            <span>Free trial</span>
-            <span class="account-trial-time">${fmtClock(remaining)} left</span>
+            <span>${quotaLabel}</span>
+            <span class="account-trial-time">${fmtClock(remaining)} ${quotaSub}</span>
           </div>
-          <div class="meter"><div class="meter-fill" style="width:${AUTH.trialSecondsMax ? Math.round(100 * remaining / AUTH.trialSecondsMax) : 0}%"></div></div>
+          <div class="meter"><div class="meter-fill" style="width:${max ? Math.round(100 * remaining / max) : 0}%"></div></div>
         </div>
-        <a class="account-plans" href="pricing.html">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.6.6-5 4.6 1.5 6.5L12 16.6 6 20l1.5-6.5-5-4.6 6.6-.6z"/></svg>
-          View plans
-        </a>
+        ${planCta}
         <button class="account-signout" onclick="signOut()">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
           Sign out
@@ -1248,8 +1267,31 @@ document.addEventListener("DOMContentLoaded", () => {
   ensureAuth().then(() => {
     // Pages that show trial-dependent UI refresh it once the real numbers arrive.
     if (typeof onAuthReady === "function") onAuthReady();
+    maybeShowUpgradeToast();
   });
   if (isWorkspace) renderWorkspace();
   else if (isDashboard) renderDashboard();
   else if (isNewProject && typeof initNewProject === "function") initNewProject();
 });
+
+// Returning from a successful Stripe checkout (billing.js success_url adds ?upgraded=1). The
+// webhook activates the plan server-side; this just confirms it warmly. If the webhook hasn't
+// landed in the split-second since redirect, the message stays generic ("subscription is
+// active") rather than naming a plan we can't yet see.
+function maybeShowUpgradeToast() {
+  const params = new URLSearchParams(location.search);
+  if (!params.get("upgraded")) return;
+  history.replaceState(null, "", location.pathname);
+  const subscribed = AUTH && AUTH.plan && AUTH.subscriptionStatus === "active";
+  const msg = subscribed
+    ? `You're on the ${AUTH.plan.charAt(0).toUpperCase() + AUTH.plan.slice(1)} plan — thanks for subscribing.`
+    : "Your subscription is active — thanks for subscribing.";
+  const toast = document.createElement("div");
+  toast.className = "toast toast-success";
+  toast.innerHTML = `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    <span>${escapeHtml(msg)}</span>`;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 5200);
+}
