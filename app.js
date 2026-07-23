@@ -111,8 +111,10 @@ function buildLiveSegments(raw) {
       // checked, not guessed at). Used to get dropped here before ever reaching the page, which
       // is the actual reason "why did this land on X" was only answerable via a live wrangler
       // tail — now it rides along with the segment and segmentHtml() renders it. depictionType
-      // ("instant"/"fallback", 2026-07-20) replaced the old "findable" field — it decides only
-      // whether findFootage() also gets an image search, see evidence-search.js.
+      // ("instant"/"fallback", 2026-07-20) replaced the old "findable" field. It no longer gates
+      // anything in findFootage() — evidence-search.js's 2026-07-21 multi-claim decomposition
+      // superseded it with a per-claim "mediaType" judgment and stopped reading it entirely (see
+      // that file's header comment). It's carried here purely for the UI's own diagnostic display.
       subject: s.subject || null,
       categoryClaim: s.categoryClaim || null,
       depictionType: s.depictionType || null,
@@ -317,8 +319,9 @@ function segmentHtml(seg) {
 
   // The segmenter's own "reason" field, always shown (not gated behind a debug toggle — it's
   // cheap and this is exactly the missing visibility that made "why did this land here" only
-  // answerable via a live wrangler tail before). depictionType is appended when present — it's
-  // what decides whether findFootage() also runs an image search (see evidence-search.js).
+  // answerable via a live wrangler tail before). depictionType is appended when present — purely
+  // diagnostic display now, not something findFootage()/evidence-search.js reads (see
+  // buildLiveSegments' comment above for why).
   const reasonLine = seg.reason
     ? `<p class="seg-reason">${escapeHtml(seg.reason)}${seg.depictionType ? ` · depiction: ${seg.depictionType}` : ""}</p>`
     : "";
