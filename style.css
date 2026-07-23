@@ -221,7 +221,10 @@ label.field-label {
   letter-spacing: .04em;
 }
 
-input[type="text"], textarea {
+/* Covers every text-like input — email/password included. (These two were once left to browser
+   defaults, which rendered white-on-dark system boxes on the auth card. Never scope this list
+   down to just type="text" again.) */
+input[type="text"], input[type="email"], input[type="password"], textarea {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -229,9 +232,18 @@ input[type="text"], textarea {
   color: var(--text);
   padding: 12px 14px;
   font-size: 14px;
+  font-family: var(--font-body);
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
 
-input[type="text"]::placeholder, textarea::placeholder { color: #566070; }
+input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input[type="text"]::placeholder, input[type="email"]::placeholder,
+input[type="password"]::placeholder, textarea::placeholder { color: #566070; }
 
 textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: var(--font-body); }
 
@@ -689,22 +701,22 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 }
 .account-signout:hover { color: var(--text); border-color: var(--text-dim); }
 
-/* ---- Auth page ---- */
-.auth-wrap {
+/* ---- Auth page (split layout) ----
+   Left: brand + what-you-get, with a CSS-only miniature of the actual product so the page sells
+   the thing it gates. Right: the form, one column, one dominant action. Collapses to a compact
+   single column under 880px. */
+.auth-shell {
+  display: grid;
+  grid-template-columns: minmax(360px, 5fr) 7fr;
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
 }
 
-.auth-card {
-  width: 400px;
-  max-width: 100%;
+.auth-side {
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-lg);
-  padding: 34px 32px 26px;
+  border-right: 1px solid var(--border-soft);
+  padding: 36px 44px;
+  display: flex;
+  flex-direction: column;
 }
 
 .auth-brand {
@@ -714,38 +726,138 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 17px;
-  margin-bottom: 26px;
 }
 .auth-brand .logo-mark { width: 32px; height: 32px; }
 
+.auth-side-body { margin: auto 0; padding: 48px 0; }
+
+.auth-headline {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0 0 22px;
+  text-wrap: balance;
+}
+
+.auth-bullets { list-style: none; padding: 0; margin: 0 0 34px; }
+.auth-bullets li {
+  position: relative;
+  padding: 6px 0 6px 26px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.auth-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 11px;
+  width: 12px;
+  height: 7px;
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(-45deg);
+}
+
+/* Miniature scene rows — decoration that happens to be the actual product. */
+.auth-preview { display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
+.ap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.ap-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.ap-bar { height: 6px; border-radius: 999px; background: var(--border); flex: 0 1 auto; }
+.ap-chip {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.ap-evidence { background: var(--evidence-bg); color: var(--evidence); }
+.ap-photo { background: var(--reference-bg); color: var(--reference); }
+.ap-feel { background: var(--feel-bg); color: var(--feel); }
+
+.auth-side-foot { color: var(--text-dim); font-size: 12px; }
+
+.auth-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.auth-card { width: 380px; max-width: 100%; }
+
 .auth-card h1 {
   font-family: var(--font-display);
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 700;
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   letter-spacing: -0.01em;
 }
 
-.auth-sub { color: var(--text-dim); font-size: 13.5px; margin: 0 0 24px; line-height: 1.5; }
+.auth-sub { color: var(--text-dim); font-size: 14px; margin: 0 0 28px; line-height: 1.5; }
 
-.auth-error { color: var(--danger); font-size: 13px; min-height: 18px; margin: 0 0 10px; }
+.auth-card input[type="email"], .auth-card input[type="password"] { padding: 13px 14px; font-size: 14.5px; }
 
-.auth-submit { width: 100%; justify-content: center; padding: 12px; font-size: 14px; }
+.password-wrap { position: relative; }
+.password-wrap input { padding-right: 46px; }
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  display: flex;
+}
+.password-toggle:hover { color: var(--text); }
+
+.auth-error {
+  display: none;
+  background: #ef6a5e14;
+  border: 1px solid #ef6a5e3d;
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px 13px;
+  margin: 0 0 16px;
+}
+.auth-error.show { display: block; }
+
+.auth-submit { width: 100%; justify-content: center; padding: 13px; font-size: 14.5px; }
+.auth-submit:disabled { opacity: .55; cursor: wait; transform: none; }
 
 .auth-switch {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin-top: 18px;
-  font-size: 13px;
+  margin-top: 20px;
+  font-size: 13.5px;
   color: var(--text-dim);
 }
 .auth-switch-btn {
   background: none;
   border: none;
   color: var(--accent);
-  font-size: 13px;
+  font-size: 13.5px;
   cursor: pointer;
   font-family: var(--font-body);
   font-weight: 600;
@@ -753,18 +865,14 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 }
 .auth-switch-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-.auth-trial-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border-soft);
-  color: var(--text-dim);
-  font-size: 12.5px;
-  line-height: 1.4;
+@media (max-width: 880px) {
+  .auth-shell { grid-template-columns: 1fr; min-height: auto; }
+  .auth-side { border-right: none; border-bottom: 1px solid var(--border-soft); padding: 22px 24px; }
+  .auth-side-body { margin: 0; padding: 18px 0 4px; }
+  .auth-headline { font-size: 18px; margin-bottom: 0; }
+  .auth-bullets, .auth-preview, .auth-side-foot { display: none; }
+  .auth-main { padding: 30px 24px 60px; }
 }
-.auth-trial-note svg { flex: 0 0 auto; color: var(--accent); }
 
 /* ---- New project: length meter ---- */
 .length-meter { margin-top: 10px; }
