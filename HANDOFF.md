@@ -1,4 +1,12 @@
-# ClipHunt — handoff notes
+# SceneHunt — handoff notes
+
+**Naming (2026-07-23):** the product is **SceneHunt** everywhere user-facing (pages, errors,
+export). Infra keeps the old name — repo `duxe10/cliphunt`, Pages project `cliphunt`,
+`cliphunt.pages.dev`, `cliphunt_*` localStorage keys — renaming those would break links/deploys/
+saved projects for zero user benefit. Pricing: Starter $19/mo, Premium $32.99/mo (pricing.html +
+functions/api/billing.js — a Stripe Payment Link stub; connect by setting
+STRIPE_PAYMENT_LINK_STARTER/_PREMIUM secrets, zero code changes; feature bullets on the pricing
+page are placeholder copy to review before launch).
 
 ## What this is
 A tool for video creators: paste/upload a script (or a voiceover to transcribe), it gets
