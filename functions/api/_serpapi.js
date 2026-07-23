@@ -53,7 +53,13 @@ export async function searchGoogleImages(env, query) {
       .filter((r) => !VIDEO_PLATFORM_RE.test(r.link) && !VIDEO_PLATFORM_RE.test(r.source || ""))
       .filter((r) => !GIF_RE.test(r.original || ""))
       .slice(0, MAX_IMAGES)
-      .map((r) => ({
+      .map((r, i) => ({
+        // Google Images results carry no natural stable identifier the way a YouTube videoId or
+        // Pexels id does — a request-scoped index, same as this app's other from-scratch id
+        // (evidence-search.js's rerankCandidates). Lets evidence-search.js's own rerank pass
+        // (the actual relevance/medium judgment — this file only does cheap mechanical
+        // pre-filtering) track scores back to candidates.
+        id: `photo-${i}`,
         // thumbnail is Google-hosted (encrypted-tbn/data:) — safe to display. The full-res
         // `original` is deliberately NOT returned: displaying it would hotlink an arbitrary
         // site's copyrighted image, the exact thing the link-only rule exists to avoid. The

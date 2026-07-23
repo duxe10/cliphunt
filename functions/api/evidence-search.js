@@ -274,6 +274,73 @@ VISUAL MODE matters:
 Return strict JSON only, no prose: {"ranking":[{"videoId":"...","score":0-100,"reason":"<=8 words"}]}
 Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly the clip.`;
 
+// Photo candidates used to get NO judgment at all — only _serpapi.js's cheap mechanical domain/
+// extension pre-filter, never anything checking whether a result is actually relevant, or even
+// the right MEDIUM. Confirmed live: that gap let a TikTok video's frame through as a "photo"
+// (fixed by name-blocking that one platform), but a hardcoded domain list only ever catches
+// platforms someone thought to enumerate — the actual missing piece is the same judgment layer
+// every other candidate source here already gets (rerankCandidates for YouTube,
+// rerankStockCandidates for Pexels). This generalizes past any specific platform: a video posted
+// on a blog, a random reupload site, a Twitter/X clip, anything with the same shape.
+const PHOTO_RERANK_PROMPT = `You score how well each Google Images result matches ONE real-world claim
+from a video script, to be used as a photo cutaway. You do not see the actual pixels — score using
+the title, snippet, and source domain only, the same way a researcher triages search results before
+opening them.
+
+Score each 0-100:
+- Relevance: does the title/domain plausibly describe a REAL photograph of THIS claim's specific
+  subject/event? Off-topic, generic, or unrelated results score near 0.
+- WRONG MEDIUM: reject anything that is actually a video post rather than a standalone photograph,
+  regardless of platform — action-describing or highlight-reel-style titles ("95 Seconds of
+  Magic", "Goal Celebration Highlights", "Comeback"), phrasing that reads like a video caption
+  rather than a photo/article caption, or a platform/context that reads as short-form video. Score
+  these near 0 even if topically on-subject — a relevant VIDEO thumbnail is still the wrong medium
+  for a photo cutaway. Don't rely on recognizing specific platform names; judge from what the
+  title/domain actually suggests the content IS.
+- Source credibility: prefer a title/domain that reads like a real news outlet, wire service,
+  official org account, or a plausible photo-sharing context, over vague content farms or unclear
+  reposts.
+
+Return strict JSON only, no prose: {"ranking":[{"id":"...","score":0-100,"reason":"<=8 words"}]}
+Include EVERY candidate exactly once, best first. 0 = unusable/wrong medium, 100 = exactly right.`;
+
+// Mirrors rerankCandidates' contract exactly (same true/false "did scoring actually happen"
+// return, same reasoning for why a candidate missing from the model's own ranking gets dropped
+// rather than defaulted in — see stock-search.js's rerankStockCandidates for the incident that
+// established that rule) — scores by title/domain credibility and medium-fit since raw pixels
+// aren't inspected.
+export async function rerankPhotoCandidates(intent, candidates, env) {
+  if (candidates.length <= 1 || !env.GROQ_API_KEY) return false;
+  const list = candidates.map((c) => ({ id: c.id, title: c.title, domain: c.domain }));
+  const user =
+    `CLAIM: ${intent.segmentText}\n` +
+    `SUBJECT: ${intent.subject || "(none)"}\n` +
+    `\nCANDIDATES:\n${JSON.stringify(list)}`;
+  try {
+    const res = await groqChat(env, {
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: PHOTO_RERANK_PROMPT },
+        { role: "user", content: user },
+      ],
+      temperature: 0,
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+    const ranking = Array.isArray(parsed.ranking) ? parsed.ranking : [];
+    const byId = new Map(ranking.map((r) => [r.id, r]));
+    for (const c of candidates) {
+      const r = byId.get(c.id);
+      c.score = r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : 0;
+      c.reason = r ? String(r.reason || "").slice(0, 60) : "";
+    }
+    return true;
+  } catch {
+    return false; // best-effort: leave candidates unscored, original order preserved
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -378,7 +445,9 @@ export async function onRequestPost(context) {
       wantsVideo
         ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote, visualMode, eraHint, visualGoal }, env)
         : Promise.resolve([]),
-      wantsPhoto ? searchGoogleImages(env, photoQuery) : Promise.resolve([]),
+      wantsPhoto
+        ? searchPhotoForClaim(photoQuery, { segmentText: claimText, subject: c.subject }, env)
+        : Promise.resolve([]),
     ]);
 
     console.log(
@@ -419,6 +488,23 @@ async function searchVideoForClaim(query, intent, env) {
     candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
     const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
     return filtered.slice(0, 5).map((c) => ({ ...c, url: `https://www.youtube.com/watch?v=${c.videoId}` }));
+  } catch {
+    return [];
+  }
+}
+
+// Mirrors searchVideoForClaim exactly — same "never throws" contract, same reranked-vs-not
+// conditional filter. This is the real fix for photo results silently including wrong-medium/
+// irrelevant candidates: _serpapi.js's domain/extension checks are a cheap pre-filter (removes
+// certain cases before spending any tokens on them), this rerank is the actual relevance/medium
+// judgment layer every other candidate source in this app already has.
+async function searchPhotoForClaim(query, intent, env) {
+  try {
+    const candidates = await searchGoogleImages(env, query);
+    const reranked = await rerankPhotoCandidates(intent, candidates, env);
+    candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+    return filtered.slice(0, 5);
   } catch {
     return [];
   }

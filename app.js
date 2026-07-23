@@ -607,13 +607,17 @@ function photoCardHtml(segIdx, claimIdx, photoIdx, img) {
   const thumbStyle = img.thumb
     ? `background-image:url('${escapeHtml(img.thumb)}'); background-size:cover; background-position:center;`
     : "";
+  // Same honesty-signal pattern as video/stock cards (see evidenceLabel) — evidence-search.js's
+  // rerankPhotoCandidates now actually judges relevance AND medium-fit (not just a domain
+  // blocklist), so surface it the same way instead of only showing the bare domain.
+  const label = evidenceLabel(img);
   return `
     <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
       <div class="clip-thumb" style="${thumbStyle}">
         <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
       </div>
       <div class="clip-label">${escapeHtml(img.title || "")}</div>
-      <div class="clip-sub">${escapeHtml(img.domain || "")}</div>
+      <div class="clip-sub ${label.cls}">${escapeHtml(img.domain || "")} · ${label.text}</div>
     </div>`;
 }
 
