@@ -532,6 +532,11 @@ or wherever an already-established visual can honestly cover a beat without a ne
 continue/callback visualRef must point DIRECTLY to an earlier new row, never another reference, and
 its subject/era must stay compatible with that origin.
 
+"reference" segments always get "new" — never "continue"/"callback"/"none". A recognized meme/
+reaction is looked up fresh per click through its own separate retrieval, with no single reusable
+visual the way a feel/evidence search produces one, so it can't honestly be marked as reusing or
+skipping an earlier visual the way the other families can.
+
 Return strict JSON only, no prose, no markdown fences:
 {"segments":[{"text":"...","family":"feel","subject":null,"categoryClaim":null,"query":"...","reason":"...","visualMode":"stock","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"new","visualId":"v0","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":"...","categoryClaim":null,"depictionType":"instant","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":"...","visualGoal":"...","coverageMode":"new","visualId":"v1","visualRef":null,"continuityReason":null,"noneKind":null},{"text":"...","family":"evidence","subject":null,"categoryClaim":"...","depictionType":"fallback","query":"...","reason":"...","visualMode":"exact","visualQueries":["..."],"eraHint":null,"visualGoal":"...","coverageMode":"continue","visualId":null,"visualRef":"v1","continuityReason":"...","noneKind":null},{"text":"...","family":"nothing","subject":null,"categoryClaim":null,"reason":"...","visualMode":null,"visualQueries":[],"eraHint":null,"visualGoal":null,"coverageMode":"none","visualId":null,"visualRef":null,"continuityReason":null,"noneKind":"narration_only"}]}`;
 
@@ -739,13 +744,18 @@ function mergeFragments(segments) {
 // shape-bias false positive above); upgrade "feel" -> "evidence" when EITHER is set but the
 // model's own family word didn't follow through (a real categoryClaim correctly identified, but
 // mislabeled "feel" anyway). Never touches "reference"/"nothing".
-function enforceEvidenceRule(segments) {
+export function enforceEvidenceRule(segments) {
   for (const seg of segments) {
     const hasSubject = seg.subject && String(seg.subject).trim();
     const hasCategoryClaim = seg.categoryClaim && String(seg.categoryClaim).trim();
     const isRealEvidence = hasSubject || hasCategoryClaim;
     if (seg.family === "evidence" && !isRealEvidence) {
       seg.family = "feel";
+      // depictionType is only ever meaningful for "evidence" (the prompt has the model omit it —
+      // set null — for every other family). Without this, a flipped segment could carry a stale
+      // "instant"/"fallback" value into app.js's display, rendering "· depiction: instant" under
+      // a segment now badged "Feel".
+      seg.depictionType = null;
     } else if (seg.family === "feel" && isRealEvidence) {
       seg.family = "evidence";
     }
@@ -792,6 +802,13 @@ export function enforceFeelQueryRule(segments) {
     if (!hasQuery && !hasVisualQuery) {
       seg.family = "nothing";
       seg.reason = "feel had no query — mechanically downgraded, no real anchor found";
+      // enforceVisualPlan already set visualMode/visualQueries/eraHint/visualGoal while this was
+      // still "feel" — clear them on downgrade so "nothing" never carries stale visual-plan
+      // fields, matching enforceVisualPlan's own stated invariant for pre-existing "nothing" rows.
+      delete seg.visualMode;
+      delete seg.visualQueries;
+      delete seg.eraHint;
+      delete seg.visualGoal;
     }
   }
   return segments;
@@ -852,6 +869,23 @@ export function normalizeCoveragePlan(segments) {
   const claimedIds = new Set();
 
   segments.forEach((seg, index) => {
+    // "reference" (meme/reaction) beats always stay "new" regardless of what the model said —
+    // reference-search.js's retrieval is a dual-source (YouTube reaction clips + Pexels stock),
+    // always re-searched per click, with no single trackable "visual" to continue/callback into
+    // the way one feel/evidence search produces. Letting a reference beat land in continue/
+    // callback silently drops its "Find reaction clip" button entirely, with nothing to replace it.
+    if (seg.family === "reference") {
+      let id = `legacy-v${index}`;
+      while (claimedIds.has(id)) id = `${id}-x`;
+      claimedIds.add(id); // reserved so no other row's fallback ID can collide with it
+      seg.coverageMode = "new";
+      seg.visualId = id;
+      seg.visualRef = null;
+      seg.continuityReason = null;
+      seg.noneKind = null;
+      return; // deliberately never added to `origins` — nothing should continue/callback into it
+    }
+
     const suppliedMode = COVERAGE_MODES.has(seg.coverageMode) ? seg.coverageMode : null;
     let mode = suppliedMode || (seg.family === "nothing" ? "none" : "new");
     const suppliedId = seg.visualId && String(seg.visualId).trim();

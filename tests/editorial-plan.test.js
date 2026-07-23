@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  enforceEvidenceRule,
   enforceVisualPlan,
   enforceFeelQueryRule,
   normalizeCoveragePlan,
@@ -178,6 +179,54 @@ test("feel segment with only visualQueries (empty legacy query) is not wrongly d
 test("feel segment with neither query nor visualQueries is still downgraded to nothing", () => {
   const [seg] = enforceFeelQueryRule([{ family: "feel", query: "", visualQueries: [] }]);
   assert.equal(seg.family, "nothing");
+});
+
+// Regression: enforceFeelQueryRule's downgrade used to leave visualMode/visualQueries/eraHint/
+// visualGoal in place after flipping to "nothing" — enforceVisualPlan had already set them while
+// the segment was still "feel", and nothing cleaned them up afterward, contradicting this file's
+// own stated invariant that "reference"/"nothing" never carry these fields.
+test("downgrading feel to nothing clears the stale visual-plan fields enforceVisualPlan had set", () => {
+  const [seg] = enforceFeelQueryRule(enforceVisualPlan([
+    { family: "feel", query: "", visualQueries: [], subject: null },
+  ]));
+  assert.equal(seg.family, "nothing");
+  assert.equal("visualMode" in seg, false);
+  assert.equal("visualQueries" in seg, false);
+  assert.equal("eraHint" in seg, false);
+  assert.equal("visualGoal" in seg, false);
+});
+
+// Regression: enforceEvidenceRule flips evidence->feel when the model set family="evidence" with
+// neither subject nor categoryClaim (the barista/groundskeeper shape-bias case), but used to leave
+// depictionType untouched — a stale "instant"/"fallback" value could survive onto a segment now
+// badged "feel", rendering a confusing "· depiction: instant" line in the UI.
+test("evidence downgraded to feel clears the now-stale depictionType", () => {
+  const [seg] = enforceEvidenceRule([
+    { family: "evidence", subject: null, categoryClaim: null, depictionType: "instant" },
+  ]);
+  assert.equal(seg.family, "feel");
+  assert.equal(seg.depictionType, null);
+});
+
+// Regression: the sequence coverage pass didn't exclude "reference" (meme/reaction) beats —
+// reference-search.js's retrieval is a dual-source (YouTube reaction + Pexels stock) lookup with
+// no single reusable "visual" the way one feel/evidence search produces, so a reference beat
+// marked continue/callback silently lost its "Find reaction clip" button with nothing to replace
+// it. normalizeCoveragePlan must force every reference beat to "new" regardless of model output.
+test("reference beats always stay new, never continue/callback/none", () => {
+  const rows = normalizeCoveragePlan([
+    { family: "reference", query: "surprised reaction", coverageMode: "new", visualId: "r0" },
+    { family: "reference", query: "surprised reaction again", coverageMode: "continue", visualRef: "r0" },
+    { family: "reference", coverageMode: "none" },
+  ]);
+  assert.deepEqual(rows.map((s) => s.coverageMode), ["new", "new", "new"]);
+  // A reference beat must never become a valid continue/callback origin for another beat either —
+  // there's no single reusable visual behind it to point back to.
+  const laterRef = normalizeCoveragePlan([
+    { family: "reference", query: "a meme", coverageMode: "new", visualId: "shared-id" },
+    { family: "feel", query: "b", coverageMode: "continue", visualRef: "shared-id" },
+  ]);
+  assert.equal(laterRef[1].coverageMode, "new"); // falls back to its own search, ref isn't a valid origin
 });
 
 test("coverage summary matches modes and does not enforce a quota", () => {
