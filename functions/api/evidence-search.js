@@ -54,7 +54,7 @@
 // see _claude.js's header comment.
 import { groqChat } from "./_groq.js";
 import { claudeChat, extractText, extractJson } from "./_claude.js";
-import { searchGoogleImages } from "./_serpapi.js";
+import { searchGoogleImages, searchNewsArticles } from "./_serpapi.js";
 
 // Below this score, the rerank considers a candidate a clear miss rather than a borderline
 // option — dropped outright rather than shown with a low score nobody's forced to notice.
@@ -78,7 +78,7 @@ instead of re-deriving your own answer. But normally, expect raw preceding narra
 it yourself using the rules below.
 
 Return strict JSON only, no prose, no markdown fences:
-{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both","youtubeQuery":"...","photoQuery":"...","visualMode":"exact|subject_broll","eraHint":"...","visualGoal":"..."}]}
+{"claims":[{"claim":"...","footageType":"specific|generic","subject":"...","quote":"...","mediaType":"video|photo|both|article","youtubeQuery":"...","photoQuery":"...","articleQuery":"...","visualMode":"exact|subject_broll","eraHint":"...","visualGoal":"..."}]}
 
 STEP 1 — split the moment into claims:
 
@@ -250,6 +250,25 @@ OUT LOUD — a spoken line that could appear in a video's captions. Narration, d
 actions or events, and general statements are NOT quotes; set to null. Never invent a quote.
 ("A missed penalty." describes an action, so quote is null.)
 
+A FOURTH, deliberately NARROW mediaType exists: "article" — reserved specifically for a claim that
+is itself ABOUT media/press narrative or reporting, not the underlying event — "the newspapers
+called them the golden generation", "pundits said he was finished", "reports emerged that talks
+had collapsed", "it became a front-page story". These claims aren't asking for footage OF an
+event; they're asking to CITE the actual reporting/narrative itself, which a real news article
+does better than any photo or video clip could. Do NOT use "article" just because a claim COULD in
+principle be supported by an article — nearly any claim could be. Reserve it for when the claim's
+own subject IS the reporting/narrative act (what was said/written/dubbed/reported), not an event a
+camera could capture. When in doubt, use "video"/"photo"/"both" instead — "article" should be
+genuinely rare, not a fourth default alongside the other three, and it is mutually exclusive with
+them (a claim is either about an event, in which case video/photo/both applies, or about the
+narrative around that event, in which case article applies — not both at once for the same claim).
+
+"articleQuery": set ONLY when mediaType is "article" (null otherwise) — 3-7 words, phrased as a
+real headline/caption search for the actual reporting, e.g. "golden generation nickname press
+England" or "player transfer collapse reports", not a description of the underlying event itself.
+Same context-resolution rules apply: carry forward the established time/edition/event so the
+search targets contemporary coverage, not an unrelated modern use of a similar phrase.
+
 EDITORIAL VIDEO B-ROLL — additive, only affects claims where mediaType includes "video". Also
 return "visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":string|null.
 
@@ -367,6 +386,59 @@ export async function rerankPhotoCandidates(intent, candidates, env) {
   }
 }
 
+// Reserved for mediaType:"article" — a claim ABOUT press/media narrative itself (see that
+// prompt section), not a fourth default source. Mirrors rerankPhotoCandidates exactly.
+const ARTICLE_RERANK_PROMPT = `You rank Google web search results by how good each is as a real news
+article or piece of reporting to cite for ONE media-narrative claim from a video script — a claim
+specifically about what the press/pundits/reports said or dubbed, not the underlying event itself.
+You do not see the full page — score using the title, snippet, and source domain only, the same
+way a researcher would triage results before opening them.
+
+Score each 0-100:
+- Relevance: does the title/snippet actually describe real reporting/commentary matching THIS
+  claim's narrative (the nickname, the story, the reported framing)? Off-topic or generic results
+  score near 0.
+- Source credibility: prefer a title/domain that reads like a real news outlet, a sports/business
+  publication, or an established analysis site over content farms, forums, or unclear reposts.
+- Timeliness match: prefer a source that plausibly covers the claimed era/moment; a genuine
+  retrospective can still be relevant, just score real contemporary coverage higher when both are
+  plausible options.
+
+Return strict JSON only, no prose: {"ranking":[{"id":"...","score":0-100,"reason":"<=8 words"}]}
+Include EVERY candidate exactly once, best first. 0 = unusable, 100 = exactly right.`;
+
+export async function rerankArticleCandidates(intent, candidates, env) {
+  if (candidates.length <= 1 || !env.GROQ_API_KEY) return false;
+  const list = candidates.map((c) => ({ id: c.id, title: c.title, snippet: c.snippet, domain: c.domain }));
+  const user =
+    `CLAIM: ${intent.segmentText}\n` +
+    `SUBJECT: ${intent.subject || "(none)"}\n` +
+    `\nCANDIDATES:\n${JSON.stringify(list)}`;
+  try {
+    const res = await groqChat(env, {
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: ARTICLE_RERANK_PROMPT },
+        { role: "user", content: user },
+      ],
+      temperature: 0,
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+    const ranking = Array.isArray(parsed.ranking) ? parsed.ranking : [];
+    const byId = new Map(ranking.map((r) => [r.id, r]));
+    for (const c of candidates) {
+      const r = byId.get(c.id);
+      c.score = r ? Math.max(0, Math.min(100, Number(r.score) || 0)) : 0;
+      c.reason = r ? String(r.reason || "").slice(0, 60) : "";
+    }
+    return true;
+  } catch {
+    return false; // best-effort: leave candidates unscored, original order preserved
+  }
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
 
@@ -452,10 +524,11 @@ export async function onRequestPost(context) {
   const claimResults = await Promise.all(rawClaims.map(async (c) => {
     const footageType = c.footageType === "generic" ? "generic" : "specific";
     const quote = footageType === "specific" && c.quote && String(c.quote).trim() ? String(c.quote).trim() : null;
-    const mediaType = ["video", "photo", "both"].includes(c.mediaType) ? c.mediaType : "video";
+    const mediaType = ["video", "photo", "both", "article"].includes(c.mediaType) ? c.mediaType : "video";
     const claimText = (c.claim && String(c.claim).trim()) || segmentText;
     const youtubeQuery = (c.youtubeQuery || c.subject || claimText).trim();
     const photoQuery = (c.photoQuery || youtubeQuery).trim();
+    const articleQuery = (c.articleQuery || youtubeQuery).trim();
     // Additive editorial fields — only meaningful for the video side. subject_broll requires a
     // real resolved subject, same guard as segment.js's own enforceVisualPlan.
     const visualMode = c.visualMode === "subject_broll" && c.subject ? "subject_broll" : "exact";
@@ -464,23 +537,29 @@ export async function onRequestPost(context) {
 
     // YOUTUBE_API_KEY is fail-open, not hard-guarded (see header comment) — a missing key just
     // silently drops video search for every claim rather than 500ing an all-photo-capable request.
+    // "article" is mutually exclusive with video/photo/both (see its prompt section) — debugImagesOnly
+    // (photo-pipeline testing) doesn't force article on, it's a separate narrow path.
     const wantsVideo = !debugImagesOnly && (mediaType === "video" || mediaType === "both") && !!env.YOUTUBE_API_KEY;
     const wantsPhoto = debugImagesOnly || mediaType === "photo" || mediaType === "both";
+    const wantsArticle = !debugImagesOnly && mediaType === "article";
 
-    const [videoCandidates, photoCandidates] = await Promise.all([
+    const [videoCandidates, photoCandidates, articleCandidates] = await Promise.all([
       wantsVideo
         ? searchVideoForClaim(youtubeQuery, { segmentText: claimText, subject: c.subject, footageType, quote, visualMode, eraHint, visualGoal }, env)
         : Promise.resolve([]),
       wantsPhoto
         ? searchPhotoForClaim(photoQuery, { segmentText: claimText, subject: c.subject }, env)
         : Promise.resolve([]),
+      wantsArticle
+        ? searchArticleForClaim(articleQuery, { segmentText: claimText, subject: c.subject }, env)
+        : Promise.resolve([]),
     ]);
 
     console.log(
       `[evidence-search]   claim=${JSON.stringify(claimText.slice(0, 80))} mediaType=${mediaType} visualMode=${visualMode} ` +
       `youtubeQuery=${wantsVideo ? JSON.stringify(youtubeQuery) : "(skipped)"} eraHint=${JSON.stringify(eraHint)} ` +
-      `photoQuery=${wantsPhoto ? JSON.stringify(photoQuery) : "(skipped)"} ` +
-      `video=${videoCandidates.length} photo=${photoCandidates.length}`
+      `photoQuery=${wantsPhoto ? JSON.stringify(photoQuery) : "(skipped)"} articleQuery=${wantsArticle ? JSON.stringify(articleQuery) : "(skipped)"} ` +
+      `video=${videoCandidates.length} photo=${photoCandidates.length} article=${articleCandidates.length}`
     );
 
     return {
@@ -494,10 +573,13 @@ export async function onRequestPost(context) {
       visualGoal,
       youtubeQuery: wantsVideo ? youtubeQuery : null,
       photoQuery: wantsPhoto ? photoQuery : null,
+      articleQuery: wantsArticle ? articleQuery : null,
       videoCandidates,
       photoCandidates,
+      articleCandidates,
       videoSearched: wantsVideo,
       photoSearched: wantsPhoto,
+      articleSearched: wantsArticle,
     };
   }));
 
@@ -528,6 +610,20 @@ async function searchPhotoForClaim(query, intent, env) {
   try {
     const candidates = await searchGoogleImages(env, query);
     const reranked = await rerankPhotoCandidates(intent, candidates, env);
+    candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
+    return filtered.slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+// Mirrors searchPhotoForClaim exactly. Only ever called for mediaType:"article" (see that
+// prompt's own scope note — this is deliberately rare, not a fourth default source).
+async function searchArticleForClaim(query, intent, env) {
+  try {
+    const candidates = await searchNewsArticles(env, query);
+    const reranked = await rerankArticleCandidates(intent, candidates, env);
     candidates.sort((a, b) => (b.score || 0) - (a.score || 0));
     const filtered = reranked ? candidates.filter((c) => (c.score || 0) >= MIN_RERANK_SCORE) : candidates;
     return filtered.slice(0, 5);

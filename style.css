@@ -448,6 +448,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .src-pexels { background: #7fd99a; }
 .src-image { background: #8fb8ff; }
 .src-photo { background: #d9a8ff; }
+.src-article { background: #f4d35e; }
 
 .clip-label {
   font-size: 11px;

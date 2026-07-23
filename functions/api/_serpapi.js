@@ -78,3 +78,51 @@ export async function searchGoogleImages(env, query) {
     return [];
   }
 }
+
+const MAX_ARTICLES = 6;
+
+// Deliberately narrow (see evidence-search.js's mediaType:"article" prompt guidance) — reserved
+// for a claim that's ABOUT press/media narrative itself (what was reported, what a nickname was,
+// what pundits said), not a fourth default source searched on every claim. Plain Google web
+// search (not google_news) — a news-vertical search is recency-biased and unreliable for older
+// stories a claim might reference from years or decades back; a real archived article/blog post
+// about an old story is still a normal organic web result.
+export async function searchNewsArticles(env, query) {
+  if (!env.SERPAPI_KEY || !query || !query.trim()) return [];
+  try {
+    const url =
+      `https://serpapi.com/search.json?engine=google&safe=active` +
+      `&q=${encodeURIComponent(query.trim())}&api_key=${env.SERPAPI_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.log(`[serpapi] article HTTP ${res.status} for query=${JSON.stringify(query)}`);
+      return [];
+    }
+    const data = await res.json();
+    const raw = Array.isArray(data.organic_results) ? data.organic_results : [];
+    const articles = raw
+      .filter((r) => r.title && r.link)
+      .filter((r) => !BLOCKED_DOMAIN_RE.test(r.link) && !BLOCKED_DOMAIN_RE.test(r.source || r.displayed_link || ""))
+      .filter((r) => !VIDEO_PLATFORM_RE.test(r.link) && !VIDEO_PLATFORM_RE.test(r.source || r.displayed_link || ""))
+      .slice(0, MAX_ARTICLES)
+      .map((r, i) => ({
+        // Same request-scoped id pattern as searchGoogleImages — organic web results carry no
+        // natural stable identifier either.
+        id: `article-${i}`,
+        title: r.title || "",
+        snippet: r.snippet || "",
+        domain: r.source || r.displayed_link || "",
+        // Articles are link-only same as everything else in this app — no scraping/redistributing
+        // the actual page content, just a title/snippet (already public search-result metadata)
+        // and a link out to the real source.
+        pageUrl: r.link,
+      }));
+    console.log(
+      `[serpapi] article query=${JSON.stringify(query)} raw=${raw.length} kept=${articles.length}`
+    );
+    return articles;
+  } catch (err) {
+    console.log(`[serpapi] article search failed: ${err.message}`);
+    return [];
+  }
+}

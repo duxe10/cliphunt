@@ -54,7 +54,7 @@ function newId() {
 }
 
 const FAMILY_LABEL = { feel: "Feel", evidence: "Evidence", reference: "Reference", nothing: "No clip" };
-const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG", photo: "PHOTO" };
+const SOURCE_LABEL = { youtube: "YT", pexels: "STOCK", image: "IMG", photo: "PHOTO", article: "ARTICLE" };
 const READING_WORDS_PER_SEC = 2.5; // ~150wpm, dumb estimate — no real audio/pause detection yet
 
 // Debug/test toggle: swaps evidence beats' "Find footage" button for "Find picture" so the
@@ -77,6 +77,10 @@ const SKIP_STOCK_KEY = "cliphunt_skip_stock_footage";
 let SKIP_STOCK_FOOTAGE = localStorage.getItem(SKIP_STOCK_KEY) === "1";
 
 const PLAY_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+// Article results (mediaType:"article", see evidence-search.js) carry no thumbnail at all — a
+// plain web search result, not an image/video search — so the card always shows this instead of
+// a real thumb, the same way clipCardHtml falls back to PLAY_ICON when a clip has none.
+const ARTICLE_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>`;
 
 let CURRENT_PROJECT = null;
 let SEGMENTS = [];
@@ -552,9 +556,11 @@ async function findFootage(segIdx) {
 
 // Renders one labeled .claim-group per claim the moment was split into (see evidence-search.js's
 // 2026-07-21 multi-claim decomposition) — each group has its own video cards (claimVideoCardHtml/
-// openClaimVideoPreview) and photo cards (photoCardHtml/openPhotoPreview), only for whichever
-// medium(s) that claim's mediaType actually called for. Replaces the old flat renderEvidence(),
-// which pooled one intent's results into a single unlabeled queue.
+// openClaimVideoPreview), photo cards (photoCardHtml/openPhotoPreview), and (rare — mediaType
+// "article" is deliberately narrow, see evidence-search.js) article cards (articleCardHtml/
+// openArticlePreview), only for whichever medium(s) that claim's mediaType actually called for.
+// Replaces the old flat renderEvidence(), which pooled one intent's results into a single
+// unlabeled queue.
 function renderEvidenceClaims(segIdx) {
   const seg = SEGMENTS[segIdx];
   const container = document.getElementById(`evidence-${segIdx}`);
@@ -567,7 +573,8 @@ function renderEvidenceClaims(segIdx) {
   container.innerHTML = claims.map((c, ci) => {
     const cards =
       (c.videoCandidates || []).map((cand, vi) => claimVideoCardHtml(segIdx, ci, vi, cand)).join("") +
-      (c.photoCandidates || []).map((img, pi) => photoCardHtml(segIdx, ci, pi, img)).join("");
+      (c.photoCandidates || []).map((img, pi) => photoCardHtml(segIdx, ci, pi, img)).join("") +
+      (c.articleCandidates || []).map((art, ai) => articleCardHtml(segIdx, ci, ai, art)).join("");
     const body = cards
       ? `<div class="clip-queue">${cards}</div>`
       : `<p class="no-clip-msg">No candidates found for this claim.</p>`;
@@ -679,6 +686,60 @@ function openPhotoPreview(segIdx, claimIdx, photoIdx) {
   actionBtn.rel = "noopener";
   actionBtn.removeAttribute("download");
   actionBtn.innerHTML = `${EXTERNAL_ICON} View source page`;
+  actionBtn.style.display = "";
+
+  const trimRow = document.getElementById("trim-row");
+  if (trimRow) trimRow.style.display = "none";
+
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+// mediaType:"article" is deliberately rare (see evidence-search.js's own scope note) — reserved
+// for a claim that's ABOUT press/media narrative itself, not a fourth default alongside video/
+// photo/stock. No thumbnail exists for a plain web result, so this always shows ARTICLE_ICON, and
+// the snippet (already public search-result metadata, same as a title) is shown same as a photo
+// card's domain line — same link-out-only rule as everything else: never scrapes or displays the
+// actual page content, just what SerpAPI's own result metadata already contains.
+function articleCardHtml(segIdx, claimIdx, articleIdx, art) {
+  const label = evidenceLabel(art);
+  return `
+    <div class="clip-card" onclick="openArticlePreview(${segIdx}, ${claimIdx}, ${articleIdx})">
+      <div class="clip-thumb">
+        <span class="src-chip src-article">${SOURCE_LABEL.article}</span>
+        ${ARTICLE_ICON}
+      </div>
+      <div class="clip-label">${escapeHtml(art.title || "")}</div>
+      <div class="clip-sub ${label.cls}">${escapeHtml(art.domain || "")} · ${label.text}</div>
+    </div>`;
+}
+
+function openArticlePreview(segIdx, claimIdx, articleIdx) {
+  const art = SEGMENTS[segIdx].evidence.claims[claimIdx].articleCandidates[articleIdx];
+
+  const iframe = document.getElementById("modal-iframe");
+  iframe.src = "";
+  iframe.style.display = "none";
+  const video = document.getElementById("modal-video");
+  if (video) {
+    video.pause();
+    video.src = "";
+    video.style.display = "none";
+  }
+  document.getElementById("modal-play").style.display = "none";
+  const thumbEl = document.getElementById("modal-thumb");
+  thumbEl.style.backgroundImage = "";
+
+  document.getElementById("modal-title").textContent = art.title || "";
+  document.getElementById("modal-sub").textContent = art.snippet
+    ? `${art.domain || "Article"} · ${art.snippet}`
+    : (art.domain || "Article");
+
+  const actionBtn = document.getElementById("modal-download");
+  actionBtn.href = art.pageUrl;
+  actionBtn.target = "_blank";
+  actionBtn.rel = "noopener";
+  actionBtn.removeAttribute("download");
+  actionBtn.innerHTML = `${EXTERNAL_ICON} Read article`;
   actionBtn.style.display = "";
 
   const trimRow = document.getElementById("trim-row");
