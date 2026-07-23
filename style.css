@@ -779,27 +779,29 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   align-items: center;
   gap: 9px;
   cursor: pointer;
-  padding: 6px 12px 6px 7px;
+  padding: 5px 13px 5px 6px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-dim);
   font-size: 13px;
+  font-weight: 500;
   user-select: none;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
 }
 .account-menu summary::-webkit-details-marker { display: none; }
-.account-menu summary:hover, .account-menu[open] summary { color: var(--text); border-color: var(--text-dim); }
+.account-menu summary:hover, .account-menu[open] summary { color: var(--text); border-color: var(--text-faint); background: var(--surface-2); }
 
 .account-avatar {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--accent-ink);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 12.5px;
   font-family: var(--font-display);
 }
 
@@ -808,30 +810,39 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .account-dropdown {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
-  width: 260px;
+  top: calc(100% + 10px);
+  width: 272px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 44px rgba(0,0,0,.45);
-  padding: 14px;
+  box-shadow: var(--shadow-3);
+  padding: 8px;
   z-index: 40;
 }
 
-.account-trial { margin-bottom: 12px; }
+/* Quota block as its own inset panel so the dropdown reads as sections, not a flat list. */
+.account-trial {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px 13px;
+  margin-bottom: 8px;
+}
 .account-trial-label {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   font-size: 12px;
+  font-weight: 600;
   color: var(--text-dim);
-  margin-bottom: 7px;
+  margin-bottom: 9px;
 }
-.account-trial-time { font-family: var(--font-mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.account-trial-time { font-family: var(--font-mono); color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
 
 .meter {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
-  background: var(--border-soft);
+  background: var(--bg);
   overflow: hidden;
 }
 .meter-fill {
@@ -845,18 +856,20 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .account-signout {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   background: none;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius);
   color: var(--text-dim);
-  font-size: 13px;
-  padding: 9px 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 11px 12px;
   cursor: pointer;
   font-family: var(--font-body);
+  transition: background .14s ease, color .14s ease;
 }
-.account-signout:hover { color: var(--text); border-color: var(--text-dim); }
+.account-signout:hover { color: var(--text); background: var(--surface-2); }
 
 /* ---- Auth page (split layout) ----
    Left: brand + what-you-get, with a CSS-only miniature of the actual product so the page sells
@@ -1092,48 +1105,85 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .options-dropdown {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
-  width: 300px;
+  top: calc(100% + 10px);
+  width: 320px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 44px rgba(0,0,0,.45);
-  padding: 10px;
+  box-shadow: var(--shadow-3);
+  padding: 8px;
   z-index: 40;
 }
 
 .option-row {
   display: flex;
-  gap: 11px;
-  align-items: flex-start;
-  padding: 10px;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
   border-radius: var(--radius);
   cursor: pointer;
+  transition: background .14s ease;
 }
 .option-row:hover { background: var(--surface-2); }
-.option-row input { accent-color: var(--accent); margin-top: 2px; cursor: pointer; }
-.option-row strong { display: block; font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.option-row > span { order: 0; flex: 1; min-width: 0; }
+.option-row strong { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 2px; color: var(--text); }
 .option-row small { display: block; font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
 
-.options-divider { height: 1px; background: var(--border-soft); margin: 8px 4px; }
+/* Native checkboxes rebuilt as toggle switches — the single biggest "this looks basic" fix. */
+.option-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  order: 1;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 23px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+  transition: background .18s ease, border-color .18s ease;
+}
+.option-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+  transition: transform .2s cubic-bezier(.2,.7,.3,1);
+}
+.option-row input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.option-row input[type="checkbox"]:checked::after { transform: translateX(17px); }
+.option-row input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.options-divider { height: 1px; background: var(--border-soft); margin: 6px 6px; }
 
 .option-danger {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   background: none;
   border: none;
   border-radius: var(--radius);
   color: var(--danger);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 10px;
+  padding: 11px 12px;
   cursor: pointer;
   font-family: var(--font-body);
   text-align: left;
+  transition: background .14s ease;
 }
-.option-danger:hover { background: rgba(255,112,67,.1); }
+.option-danger:hover { background: rgba(255,112,67,.12); }
 
 /* Find-footage buttons are deliberately secondary — with one per evidence scene across a long
    script, a page of gold buttons would drown the single real primary action (Export). */
@@ -1265,16 +1315,17 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .account-plans {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius);
   color: var(--text-dim);
-  font-size: 13px;
-  padding: 9px 12px;
-  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 11px 12px;
+  transition: background .14s ease, color .14s ease;
 }
-.account-plans:hover { color: var(--accent); border-color: var(--accent); }
+.account-plans:hover { color: var(--accent); background: var(--surface-2); }
 
 /* ---- Plan tag on the account chip ---- */
 .account-plan-tag {
@@ -1307,7 +1358,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   padding: 12px 20px;
   font-size: 13.5px;
   font-weight: 500;
-  box-shadow: 0 18px 44px rgba(0,0,0,.5);
+  box-shadow: var(--shadow-3);
   opacity: 0;
   transition: opacity .28s ease, transform .28s ease;
   z-index: 80;
