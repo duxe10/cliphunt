@@ -511,10 +511,32 @@ facts (an unstated event, injury, quote, relationship). "stock" is "feel"'s exis
 just now allowed to infer a conventional, low-factual-stakes visual metaphor when the text has no
 literal physical anchor of its own, provided the visualQueries still communicate the line honestly.
 
-Era continuity is mandatory for subject_broll: infer eraHint from the whole script so far (explicit
-year/event wins; otherwise career stage, age language, team/employer, product era, location, kit/
-clothing, or surrounding dated events) and put the strongest discriminator into every query — never
-silently search a subject's current era for narration about their youth.
+Era continuity is NOT limited to subject_broll — set "eraHint" for ANY evidence claim whose subject
+recurs at multiple, meaningfully different points in time across the script, "exact" included. A
+recurring ORGANIZATION or TEAM subject is exactly as prone to this as an individual: a script that
+revisits "England" at 1966, then the early 2000s, then the present day is narrating three real but
+completely different squads, kits, eras of footage — an "exact" claim about the 1966 team needs
+1966 archival footage exactly as much as a subject_broll claim about a young player needs young-era
+footage, and the same silent-current-era-default failure applies equally to both. Infer eraHint
+from the whole script so far (explicit year/event wins; otherwise career stage, age language, team/
+employer/squad generation, product era, location, kit/clothing, or surrounding dated events) and
+put the strongest discriminator into every query for that segment — never silently search a
+recurring subject's current/most-recent era for narration that's actually about an earlier one, and
+never let one era's resolved eraHint carry over into a segment that has jumped to a different one.
+
+Worked example, a recurring TEAM subject across three widely separated eras, non-adjacent and out
+of the order they're later referenced: a script narrates "In 1966, England won their only World
+Cup." (subject: "England national team", eraHint: "1966 World Cup winners"), several segments
+later "By the early 2000s, England had a so-called Golden Generation — Beckham, Gerrard, Lampard,
+all at their peak." (same subject string "England national team", but eraHint: "early 2000s Golden
+Generation") — a genuinely different eraHint despite the identical subject name, because this is a
+real, different squad/kit/era of footage — and later still "Today's England side plays a completely
+different way." (subject: "England national team", eraHint: "current squad"). All three are
+evidence, "exact", the same named subject — but three real, distinct, non-interchangeable eras of
+archival footage. Confusing any two of them (e.g. searching 1966-era footage for the "today" claim,
+or vice versa) is the same class of failure "never silently search a subject's current era for
+narration about their youth" already names for individuals, just for a recurring organization
+instead of a person.
 
 The visualQueries must diversify the candidate pool, not paraphrase one another — each from a
 different observable manifestation (action, process, environment, consequence, contrast), 3-9 words,

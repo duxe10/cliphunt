@@ -282,3 +282,22 @@ test("stripLeadingTitle doesn't strip a script that is ONLY a title line, to avo
   const script = "# Just a title, no body at all";
   assert.equal(stripLeadingTitle(script), script);
 });
+
+// Regression: eraHint used to only be requested for subject_broll, so the same recurring
+// ORGANIZATION/TEAM subject revisited at genuinely different eras (a real customer example: a
+// script that narrates the same national team's history across three widely separated periods)
+// had nothing populated for normalizeCoveragePlan's eraConflict check to compare against on
+// ordinary "exact" evidence claims — the safety net existed but had nothing to catch. Now that
+// eraHint is asked for on any recurring-subject evidence claim, confirm the EXISTING conflict
+// check actually catches an identical subject NAME resolving to two different real eras.
+test("same subject name at two different eraHints cannot be merged into one continuation", () => {
+  const rows = normalizeCoveragePlan([
+    { family: "evidence", subject: "England national team", eraHint: "1966 World Cup winners", query: "1966 World Cup final footage", coverageMode: "new", visualId: "v0" },
+    { family: "evidence", subject: "England national team", eraHint: "current squad", query: "current England match footage", coverageMode: "continue", visualRef: "v0" },
+  ]);
+  // The second segment names the SAME subject string but a genuinely different era — must NOT
+  // be accepted as a continuation of the 1966 visual; it has its own real query, so it falls
+  // back to its own new search rather than silently inheriting 1966 archival footage.
+  assert.equal(rows[1].coverageMode, "new");
+  assert.notEqual(rows[1].visualRef, "v0");
+});
