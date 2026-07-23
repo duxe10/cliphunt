@@ -330,7 +330,7 @@ function renderDashboard() {
     return `
       <a class="project-card" href="workspace.html?id=${encodeURIComponent(p.id)}">
         <div class="project-thumb">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9"/><path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9"/><path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15"/><path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
         </div>
         <h4>${escapeHtml(p.title)}</h4>
         <span class="meta">${formatTime(totalSec)} · ${segs.length} scenes · ${relativeTime(p.updatedAt)}</span>
@@ -582,26 +582,41 @@ function completeVisualSpan(origin) {
   return shared.map(s => s.text).join(" ");
 }
 
-function clipCardHtml(segIdx, clipIdx, clip) {
-  const thumbStyle = clip.thumbUrl
-    ? `background-image:url('${clip.thumbUrl}'); background-size:cover; background-position:center;`
-    : "";
-  const icon = clip.thumbUrl ? "" : PLAY_ICON;
-  // Stock clips get a rerank score when it ran (see stock-search.js's rerankStockCandidates) —
-  // same honesty-signal pattern as evidence/reference cards, shown only when it's actually there.
-  const scoreLine = Number.isFinite(clip.score)
-    ? `<div class="clip-sub ${clip.score >= 60 ? "ev-ok" : "ev-warn"}">${clip.score}%${clip.reason ? ` · ${escapeHtml(clip.reason)}` : ""}</div>`
-    : "";
+// Shared media card — every result (stock, video, photo, article) renders through this so the
+// gallery is visually consistent. Image-forward: the thumbnail fills the frame with the source
+// chip and match score overlaid on it, then a footer with a two-line title and one meta line.
+// `iconType` picks the placeholder glyph when there's no thumbnail (articles never have one).
+function mediaCardHtml({ onclick, thumb, source, srcLabel, score, title, meta, iconType }) {
+  const imgLayer = thumb ? `<div class="clip-img" style="background-image:url('${thumb}')"></div>` : "";
+  const icon = thumb ? "" : (iconType === "article" ? ARTICLE_ICON : PLAY_ICON);
+  const scoreEl = Number.isFinite(score)
+    ? `<span class="clip-score ${score >= 60 ? "ev-ok" : "ev-warn"}">${score}%</span>` : "";
   return `
-    <div class="clip-card" onclick="openPreview(${segIdx}, ${clipIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-${clip.source}">${SOURCE_LABEL[clip.source] || clip.source}</span>
+    <div class="clip-card" onclick="${onclick}">
+      <div class="clip-thumb">
+        ${imgLayer}
+        <span class="clip-scrim"></span>
+        <span class="src-chip src-${source}">${srcLabel}</span>
+        ${scoreEl}
         ${icon}
       </div>
-      <div class="clip-label">${escapeHtml(clip.title || clip.label || "")}</div>
-      ${scoreLine}
-    </div>
-  `;
+      <div class="clip-foot">
+        <div class="clip-title">${escapeHtml(title || "")}</div>
+        ${meta ? `<div class="clip-meta">${escapeHtml(meta)}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+function clipCardHtml(segIdx, clipIdx, clip) {
+  return mediaCardHtml({
+    onclick: `openPreview(${segIdx}, ${clipIdx})`,
+    thumb: clip.thumbUrl,
+    source: clip.source,
+    srcLabel: SOURCE_LABEL[clip.source] || clip.source,
+    score: clip.score,
+    title: clip.title || clip.label || "",
+    meta: clip.reason || clip.author || null,
+  });
 }
 
 const DL_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>`;
@@ -723,19 +738,15 @@ function renderEvidenceClaims(segIdx) {
 // still relies on evidenceCardHtml/openEvidencePreview reading seg.evidence.candidates as a flat
 // array, so evidence beats now need their own claim-indexed [claimIdx][candIdx] variant instead.
 function claimVideoCardHtml(segIdx, claimIdx, candIdx, cand) {
-  const thumbStyle = cand.thumb
-    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
-    : "";
-  const label = evidenceLabel(cand);
-  return `
-    <div class="clip-card" onclick="openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
-        ${cand.thumb ? "" : PLAY_ICON}
-      </div>
-      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${label.text}</div>
-    </div>`;
+  return mediaCardHtml({
+    onclick: `openClaimVideoPreview(${segIdx}, ${claimIdx}, ${candIdx})`,
+    thumb: cand.thumb,
+    source: "youtube",
+    srcLabel: SOURCE_LABEL.youtube,
+    score: cand.score,
+    title: cand.title || "",
+    meta: cand.reason || cand.channel || null,
+  });
 }
 
 function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
@@ -778,21 +789,17 @@ function openClaimVideoPreview(segIdx, claimIdx, candIdx) {
 // page" external link as the single action — mirroring the video path's "link out, don't
 // download" posture instead of being a bare anchor tag.
 function photoCardHtml(segIdx, claimIdx, photoIdx, img) {
-  const thumbStyle = img.thumb
-    ? `background-image:url('${escapeHtml(img.thumb)}'); background-size:cover; background-position:center;`
-    : "";
-  // Same honesty-signal pattern as video/stock cards (see evidenceLabel) — evidence-search.js's
-  // rerankPhotoCandidates now actually judges relevance AND medium-fit (not just a domain
-  // blocklist), so surface it the same way instead of only showing the bare domain.
-  const label = evidenceLabel(img);
-  return `
-    <div class="clip-card" onclick="openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-photo">${SOURCE_LABEL.photo}</span>
-      </div>
-      <div class="clip-label">${escapeHtml(img.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${escapeHtml(img.domain || "")} · ${label.text}</div>
-    </div>`;
+  // rerankPhotoCandidates judges relevance AND medium-fit, so the score rides on the frame like
+  // every other card; the source domain is the meta line.
+  return mediaCardHtml({
+    onclick: `openPhotoPreview(${segIdx}, ${claimIdx}, ${photoIdx})`,
+    thumb: img.thumb,
+    source: "photo",
+    srcLabel: SOURCE_LABEL.photo,
+    score: img.score,
+    title: img.title || "",
+    meta: img.domain || null,
+  });
 }
 
 function openPhotoPreview(segIdx, claimIdx, photoIdx) {
@@ -837,16 +844,16 @@ function openPhotoPreview(segIdx, claimIdx, photoIdx) {
 // card's domain line — same link-out-only rule as everything else: never scrapes or displays the
 // actual page content, just what SerpAPI's own result metadata already contains.
 function articleCardHtml(segIdx, claimIdx, articleIdx, art) {
-  const label = evidenceLabel(art);
-  return `
-    <div class="clip-card" onclick="openArticlePreview(${segIdx}, ${claimIdx}, ${articleIdx})">
-      <div class="clip-thumb">
-        <span class="src-chip src-article">${SOURCE_LABEL.article}</span>
-        ${ARTICLE_ICON}
-      </div>
-      <div class="clip-label">${escapeHtml(art.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${escapeHtml(art.domain || "")} · ${label.text}</div>
-    </div>`;
+  return mediaCardHtml({
+    onclick: `openArticlePreview(${segIdx}, ${claimIdx}, ${articleIdx})`,
+    thumb: null, // plain web result — the document glyph stands in for a thumbnail
+    source: "article",
+    srcLabel: SOURCE_LABEL.article,
+    score: art.score,
+    title: art.title || "",
+    meta: art.domain || null,
+    iconType: "article",
+  });
 }
 
 function openArticlePreview(segIdx, claimIdx, articleIdx) {
@@ -915,19 +922,15 @@ function evidenceLabel(cand) {
 }
 
 function evidenceCardHtml(segIdx, candIdx, cand) {
-  const thumbStyle = cand.thumb
-    ? `background-image:url('${cand.thumb}'); background-size:cover; background-position:center;`
-    : "";
-  const label = evidenceLabel(cand);
-  return `
-    <div class="clip-card" onclick="openEvidencePreview(${segIdx}, ${candIdx})">
-      <div class="clip-thumb" style="${thumbStyle}">
-        <span class="src-chip src-youtube">${SOURCE_LABEL.youtube}</span>
-        ${cand.thumb ? "" : PLAY_ICON}
-      </div>
-      <div class="clip-label">${escapeHtml(cand.title || "")}</div>
-      <div class="clip-sub ${label.cls}">${label.text}</div>
-    </div>`;
+  return mediaCardHtml({
+    onclick: `openEvidencePreview(${segIdx}, ${candIdx})`,
+    thumb: cand.thumb,
+    source: "youtube",
+    srcLabel: SOURCE_LABEL.youtube,
+    score: cand.score,
+    title: cand.title || "",
+    meta: cand.reason || cand.channel || null,
+  });
 }
 
 // Standard (non-trimmed) YouTube embed for preview — evidence/reference results are references
