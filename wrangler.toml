@@ -4,3 +4,16 @@
 name = "cliphunt"
 compatibility_date = "2025-06-01"
 pages_build_output_dir = "."
+
+# Accounts + one-time-trial records (see functions/api/_auth.js). Sessions themselves are
+# stateless signed cookies — KV only holds user records (user:<email>) and trial-used marks
+# (trial:<fingerprint-hash>). Free tier: 1k writes/day — plenty at signup/trial volume.
+[[kv_namespaces]]
+binding = "AUTH_KV"
+id = "df7ed9480fb04461b5695ea2994fb4bb"
+
+# Workers AI, used only by functions/api/transcribe.js (Whisper voiceover -> script text).
+# Free allocation: 10k neurons/day. If this binding is missing at runtime the endpoint
+# fails soft with a clear error instead of 500ing the whole app.
+[ai]
+binding = "AI"

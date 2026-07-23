@@ -17,46 +17,69 @@
       </div>
       ClipHunt
     </a>
-    <a class="btn btn-primary" href="new-project.html">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      New Project
-    </a>
+    <div class="topbar-right">
+      <a class="btn btn-ghost" href="new-project.html">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New project
+      </a>
+      <div id="account-slot"></div>
+    </div>
   </div>
 
   <div class="container">
     <a class="back-link" href="index.html">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
-      Back to Projects
+      All projects
     </a>
 
     <div class="workspace-head">
-      <div>
+      <div class="workspace-title-block">
         <h1 id="project-title"></h1>
-        <span class="stat-pill" id="stat-duration"></span>
-        <span class="stat-pill" id="stat-scenes"></span>
-        <span class="stat-pill" id="stat-visuals"></span>
-        <span class="stat-pill" id="stat-reused"></span>
-        <span class="stat-pill" id="stat-pauses"></span>
-        <span class="stat-pill" id="stat-edited"></span>
+        <div class="stat-row">
+          <span class="stat-pill" id="stat-duration"></span>
+          <span class="stat-pill" id="stat-scenes"></span>
+          <span class="stat-pill" id="stat-visuals"></span>
+          <span class="stat-pill" id="stat-reused"></span>
+          <span class="stat-pill" id="stat-pauses"></span>
+          <span class="stat-pill stat-pill-quiet" id="stat-edited"></span>
+        </div>
       </div>
       <div class="workspace-actions">
-        <!-- Test/debug only: swaps evidence beats' "Find footage" button for "Find picture" so
-             the SerpAPI image pipeline can be tested without a YouTube search + Groq rerank on
-             every click — see app.js's DEBUG_IMAGES_ONLY / evidence-search.js's debugImagesOnly. -->
-        <label class="debug-toggle" title="Evidence beats search photos only, skipping YouTube — for testing the picture feature in isolation">
-          <input type="checkbox" id="debug-images-only" />
-          Photos-only test mode
-        </label>
-        <!-- For a project whose creator never actually cuts to generic/atmospheric stock —
-             see app.js's SKIP_STOCK_FOOTAGE. -->
-        <label class="debug-toggle" title="Skip generic Pexels stock on feel beats entirely — for a creator whose real edits never use it">
-          <input type="checkbox" id="skip-stock-footage" />
-          Skip stock footage
-        </label>
-        <button class="btn btn-ghost" id="delete-project">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
-          Delete
+        <!-- The deliverable — the one thing a user leaves this page with, so it's the page's
+             single primary action. -->
+        <button class="btn btn-primary" onclick="exportLinks()">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+          Export links
         </button>
+        <!-- Practitioner switches, deliberately out of the primary flow — sensible defaults,
+             flexibility one click away. -->
+        <details class="options-menu" id="options-menu">
+          <summary class="btn btn-ghost" aria-label="Search options">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+            Options
+          </summary>
+          <div class="options-dropdown">
+            <label class="option-row" title="Skip generic Pexels stock on atmosphere scenes entirely — for a creator whose real edits never use it">
+              <input type="checkbox" id="skip-stock-footage" />
+              <span>
+                <strong>Skip stock footage</strong>
+                <small>Atmosphere scenes stay empty instead of pulling generic stock.</small>
+              </span>
+            </label>
+            <label class="option-row" title="Evidence scenes search photos only, skipping YouTube — for testing the picture pipeline in isolation">
+              <input type="checkbox" id="debug-images-only" />
+              <span>
+                <strong>Photos-only mode</strong>
+                <small>Evidence scenes search pictures instead of footage.</small>
+              </span>
+            </label>
+            <div class="options-divider"></div>
+            <button class="option-danger" id="delete-project">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+              Delete project
+            </button>
+          </div>
+        </details>
       </div>
     </div>
 
@@ -85,14 +108,14 @@
         <div class="trim-row" id="trim-row" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
           <span style="font-size:12px; opacity:.65; font-family:'IBM Plex Mono',monospace;">TRIM</span>
           <input type="text" id="trim-start" placeholder="0:00" style="width:60px; padding:6px 8px; background:#151512; border:1px solid #35322c; border-radius:6px; color:inherit; font-family:'IBM Plex Mono',monospace; font-size:13px;" />
-          <span style="opacity:.5;">→</span>
+          <span style="opacity:.5;">to</span>
           <input type="text" id="trim-end" placeholder="0:10" style="width:60px; padding:6px 8px; background:#151512; border:1px solid #35322c; border-radius:6px; color:inherit; font-family:'IBM Plex Mono',monospace; font-size:13px;" />
           <button class="btn btn-dark" id="trim-preview" style="padding:6px 12px;">Preview range</button>
           <button class="btn btn-primary" id="trim-download" style="padding:6px 12px;">Download range</button>
           <span class="trim-err" id="trim-err" style="color:#ff8a6a; font-size:12px; width:100%;"></span>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-dark" onclick="closePreview()">Skip</button>
+          <button class="btn btn-dark" onclick="closePreview()">Close</button>
           <a class="btn btn-primary" id="modal-download" download target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
             Download

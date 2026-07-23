@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sign in · ClipHunt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="logo-mark">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </div>
+        <span>ClipHunt</span>
+      </div>
+
+      <h1 id="auth-title">Welcome back</h1>
+      <p class="auth-sub" id="auth-sub">Sign in to keep hunting clips for your scripts.</p>
+
+      <form id="auth-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="auth-email">Email</label>
+          <input type="email" id="auth-email" autocomplete="email" placeholder="you@example.com" required />
+        </div>
+        <div class="field">
+          <label class="field-label" for="auth-password">Password</label>
+          <input type="password" id="auth-password" autocomplete="current-password" placeholder="At least 8 characters" required minlength="8" />
+        </div>
+
+        <p class="auth-error" id="auth-error" role="alert"></p>
+
+        <button type="submit" class="btn btn-primary auth-submit" id="auth-submit">Sign in</button>
+      </form>
+
+      <div class="auth-switch">
+        <span id="auth-switch-label">New here?</span>
+        <button type="button" class="auth-switch-btn" id="auth-switch-btn">Create an account</button>
+      </div>
+
+      <div class="auth-trial-note">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        New accounts include a free trial covering 10 minutes of script.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Deliberately standalone (doesn't load app.js) — this page must work when logged out, and
+    // app.js's page dispatch would try to auth-gate it.
+    let mode = "login";
+
+    const titleEl = document.getElementById("auth-title");
+    const subEl = document.getElementById("auth-sub");
+    const submitEl = document.getElementById("auth-submit");
+    const switchLabelEl = document.getElementById("auth-switch-label");
+    const switchBtnEl = document.getElementById("auth-switch-btn");
+    const errorEl = document.getElementById("auth-error");
+    const passwordEl = document.getElementById("auth-password");
+
+    function applyMode() {
+      const signup = mode === "signup";
+      titleEl.textContent = signup ? "Create your account" : "Welcome back";
+      subEl.textContent = signup
+        ? "One account, one free trial — 10 minutes of script, on us."
+        : "Sign in to keep hunting clips for your scripts.";
+      submitEl.textContent = signup ? "Create account" : "Sign in";
+      switchLabelEl.textContent = signup ? "Already have an account?" : "New here?";
+      switchBtnEl.textContent = signup ? "Sign in instead" : "Create an account";
+      passwordEl.autocomplete = signup ? "new-password" : "current-password";
+      errorEl.textContent = "";
+    }
+
+    switchBtnEl.addEventListener("click", () => {
+      mode = mode === "login" ? "signup" : "login";
+      applyMode();
+    });
+
+    document.getElementById("auth-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.textContent = "";
+      const email = document.getElementById("auth-email").value.trim();
+      const password = passwordEl.value;
+      if (!email || !password) {
+        errorEl.textContent = "Fill in both fields.";
+        return;
+      }
+      submitEl.disabled = true;
+      submitEl.textContent = mode === "signup" ? "Creating account…" : "Signing in…";
+      try {
+        const res = await fetch("/api/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: mode, email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong");
+        window.location.href = "index.html";
+      } catch (err) {
+        errorEl.textContent = err.message;
+        submitEl.disabled = false;
+        applyMode();
+      }
+    });
+
+    // Already signed in? Skip straight through.
+    fetch("/api/auth", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "me" }),
+    }).then((r) => { if (r.ok) window.location.href = "index.html"; }).catch(() => {});
+  </script>
+</body>
+</html>

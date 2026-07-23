@@ -6,6 +6,7 @@
 // abstract-state gap), and the one call per script, so cost stays predictable per project. This
 // is a real billed Anthropic balance, not a free tier — see _claude.js's header comment.
 import { claudeChat, extractText, extractJson } from "./_claude.js";
+import { ipTrialKey, scriptSeconds, TRIAL_SECONDS_MAX } from "./_auth.js";
 
 // 2026-07-22: EDITORIAL VISUAL PLANNING + SEQUENCE COVERAGE. Two additive layers on top of the
 // classification prompt above (unchanged): (1) per-segment visualMode/visualQueries/eraHint/
@@ -670,6 +671,39 @@ export async function onRequestPost(context) {
   // validateScriptCoverage checks against — never included it in the first place.
   script = stripLeadingTitle(script);
 
+  // ONE-TIME TRIAL ENFORCEMENT — this is the endpoint that spends real money (billed Anthropic
+  // balance), so the budget check lives here, server-side, not in the UI. The budget is
+  // TRIAL_SECONDS_MAX (10 min of estimated narration) per account, tracked against BOTH the
+  // account record and a keyed hash of the caller's IP — whichever has used more wins, so a fresh
+  // account from the same network doesn't reset the clock (see _auth.js). Checked BEFORE the
+  // Claude call; consumed only AFTER a successful generation, so a failed run never burns budget.
+  const user = context.data && context.data.user;
+  if (!user) {
+    return Response.json({ error: "Sign in to use ClipHunt" }, { status: 401 });
+  }
+  const secondsNeeded = scriptSeconds(script);
+  const ipKey = await ipTrialKey(request, env);
+  const ipUsed = Number(await env.AUTH_KV.get(ipKey)) || 0;
+  const usedSoFar = Math.max(user.trialSecondsUsed || 0, ipUsed);
+  const remaining = Math.max(0, TRIAL_SECONDS_MAX - usedSoFar);
+  if (secondsNeeded > remaining) {
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    return Response.json({
+      error: remaining === 0
+        ? "Your free trial is used up. Get in touch to keep using ClipHunt."
+        : `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or get in touch for full access.`,
+      trialSecondsUsed: usedSoFar,
+      trialSecondsMax: TRIAL_SECONDS_MAX,
+    }, { status: 402 });
+  }
+  const consumeTrial = async () => {
+    const newUsed = Math.min(TRIAL_SECONDS_MAX, usedSoFar + secondsNeeded);
+    const updated = { ...user, trialSecondsUsed: newUsed };
+    await env.AUTH_KV.put(`user:${user.email.toLowerCase()}`, JSON.stringify(updated));
+    await env.AUTH_KV.put(ipKey, String(newUsed));
+    console.log(`[segment] trial consumed: +${secondsNeeded}s -> ${newUsed}/${TRIAL_SECONDS_MAX}s for ${user.email}`);
+  };
+
   // Structured JSON-schema output plus the coverage-pass fields can make this a long response —
   // long enough to risk Cloudflare's non-streaming edge timeout (524). Stream the upstream
   // Anthropic SSE response server-side (collectClaudeStream in _claude.js) instead, and keep the
@@ -686,6 +720,8 @@ export async function onRequestPost(context) {
       }, 10000);
       try {
         const segments = await generateVisualPlan(env, script, upstreamAbort.signal);
+        // Consume trial budget only on SUCCESS — a failed/errored run costs the user nothing.
+        await consumeTrial();
         if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ segments })));
       } catch (err) {
         if (!cancelled) controller.enqueue(encoder.encode(JSON.stringify({ error: err.message || "Segmentation failed" })));

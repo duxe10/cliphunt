@@ -1271,6 +1271,42 @@ degrades to exactly the prior behavior:
   `subject_broll` querying the right era, and no truncation on a long real script now that output
   includes several more fields per segment.
 
+## Accounts, one-time trial, transcription, export (2026-07-23)
+Product-facing pass turning the dev scaffold into something showable:
+
+- **Auth**: email+password accounts in `AUTH_KV` (Cloudflare KV, binding in wrangler.toml),
+  PBKDF2-hashed passwords, stateless HMAC-signed session cookies (`SESSION_SECRET` Pages secret) —
+  all WebCrypto, no dependencies. `functions/api/_auth.js` (helpers), `functions/api/auth.js`
+  (signup/login/logout/me), `login.html`. `functions/api/_middleware.js` gates EVERY /api/* route
+  except /api/auth — that middleware is the real enforcement; the frontend's `ensureAuth()` is
+  just the redirect-to-login UX on top.
+- **One-time trial**: 10 minutes of estimated narration (600s at the same 2.5 words/sec model the
+  timeline uses) per account, enforced server-side in segment.js BEFORE the paid Claude call and
+  consumed only AFTER success. Anti-abuse: consumption is recorded on the account AND against an
+  HMAC-keyed hash of the caller's IP (never the raw IP); checks use whichever is larger, so a
+  fresh account from the same network can't reset the clock. Exhaustion returns 402 with a clear
+  message. Tests in tests/auth.test.js cover the gate, the IP record, consume-on-success-only.
+- **Whisper transcription**: `functions/api/transcribe.js`, Workers AI
+  (`@cf/openai/whisper-large-v3-turbo`, `[ai]` binding in wrangler.toml, free daily allocation).
+  Raw audio bytes in, `{text}` out, 20MB cap. Wired into new-project.html's voiceover flow —
+  transcript lands in the editable script box, nothing auto-runs.
+- **Length calculator**: live words/duration meter under the script box on new-project.html, plus
+  remaining-trial bar — same 2.5wps constant in all three places (meter, timeline, server bill) so
+  the UI never disagrees with the charge. Hunt button disables with a clear message when over.
+- **Export**: `exportLinks()` in app.js — scene-by-scene Markdown file of every link pulled
+  (stock/video/photo/article, with scores and sources), unsearched scenes marked as such,
+  continue/callback scenes referencing their origin scene. The workspace's single primary action.
+- **File upload**: the previously-dead "Upload file" link now works (.txt/.md via FileReader).
+- **UI pass**: account chip w/ trial meter in every topbar (native `<details>` dropdown),
+  practitioner toggles + delete moved into an Options disclosure on the workspace, per-scene
+  Find-footage buttons demoted to secondary styling (dozens per page were drowning the one real
+  primary), scene text bumped to 15.5px as the row's dominant element, login page, mobile
+  breakpoint. No emojis anywhere — inline SVG only, per the standing rule.
+- **DEPLOY NOTE**: wrangler.toml now carries the AUTH_KV + AI bindings — a git-connected build
+  picks them up only if Pages' build reads wrangler.toml; the known-good path is a manual
+  `npx wrangler pages deploy . --project-name cliphunt --branch master --commit-dirty=true`,
+  which definitely applies them. SESSION_SECRET was set as a production Pages secret (2026-07-23).
+
 ## What's NOT built yet
 - Twitter/Instagram post lookup for `subject_post`-style evidence (oEmbed-based, no OCR — was the plan, not started)
 - Voiceover transcription (Whisper or similar) — the "Voiceover" choice card on `new-project.html` is UI-only, not functional

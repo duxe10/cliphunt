@@ -17,128 +17,245 @@
       </div>
       ClipHunt
     </a>
-    <a class="btn btn-primary" href="new-project.html">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      New Project
-    </a>
+    <div class="topbar-right">
+      <div id="account-slot"></div>
+    </div>
   </div>
 
-  <div class="container" style="max-width:600px;">
+  <div class="container" style="max-width:640px;">
     <div class="page-head">
-      <h1>Start a New Project</h1>
-      <p>Drop in your script and let's hunt some clips.</p>
+      <h1>Start a new project</h1>
+      <p>Paste a script or upload a voiceover — ClipHunt breaks it into scenes and finds the footage.</p>
     </div>
 
     <div class="card">
       <div class="field">
-        <label class="field-label">Project Title</label>
-        <input type="text" id="title-input" placeholder="Harry Kane's World Cup Curse" />
+        <label class="field-label" for="title-input">Project title</label>
+        <input type="text" id="title-input" placeholder="Name it after the video it's for" />
       </div>
 
       <div class="field">
-        <label class="field-label">How did you write this?</label>
+        <label class="field-label">Starting from</label>
         <div class="choice-row">
-          <div class="choice-card active" id="choice-script" onclick="selectChoice('script')">
+          <div class="choice-card active" id="choice-script" onclick="selectChoice('script')" role="button" tabindex="0">
             <span class="icon">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6M9 9h2"/></svg>
             </span>
             <span>
-              <h4>Pasted Script</h4>
-              <p>I have the text written out.</p>
+              <h4>Written script</h4>
+              <p>Paste it in, or upload a text file.</p>
             </span>
           </div>
-          <div class="choice-card" id="choice-voice" onclick="selectChoice('voice')">
+          <div class="choice-card" id="choice-voice" onclick="selectChoice('voice')" role="button" tabindex="0">
             <span class="icon">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>
             </span>
             <span>
-              <h4>Voiceover</h4>
-              <p>I recorded the audio first.</p>
+              <h4>Recorded voiceover</h4>
+              <p>Upload the audio — we transcribe it.</p>
             </span>
           </div>
+        </div>
+      </div>
+
+      <!-- Voiceover panel — hidden until that mode is chosen. Transcript lands in the script box
+           below so it stays editable before anything is spent. -->
+      <div class="field voice-panel" id="voice-panel" hidden>
+        <label class="field-label">Voiceover audio</label>
+        <div class="voice-drop" id="voice-drop">
+          <input type="file" id="voice-file" accept="audio/*,.m4a,.mp3,.wav,.ogg,.webm" hidden />
+          <div class="voice-drop-idle" id="voice-drop-idle">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>
+            <div>
+              <strong>Choose an audio file</strong>
+              <span>MP3, M4A, WAV or OGG · up to 20MB (about 10 minutes)</span>
+            </div>
+          </div>
+          <div class="voice-drop-status" id="voice-status" hidden></div>
         </div>
       </div>
 
       <div class="field">
         <div class="field-row">
-          <label class="field-label" style="margin:0;">Video Script</label>
-          <span class="upload-link">
+          <label class="field-label" for="script-input" style="margin:0;">Script</label>
+          <label class="upload-link" for="script-file">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-            Upload file
-          </span>
+            Upload .txt
+            <input type="file" id="script-file" accept=".txt,.md,text/plain,text/markdown" hidden />
+          </label>
         </div>
-        <textarea id="script-input" placeholder="Paste your script here, or upload a file above. We'll break it down into distinct moments automatically."></textarea>
+        <textarea id="script-input" placeholder="Paste your script here. Every sentence becomes a scene with matched footage."></textarea>
+
+        <!-- Length calculator + trial budget, updated on every keystroke. The single most
+             important pre-spend signal, so it sits directly under the input it describes. -->
+        <div class="length-meter" id="length-meter">
+          <div class="length-stats">
+            <span id="meter-words">0 words</span>
+            <span class="length-dot" aria-hidden="true"></span>
+            <span id="meter-duration">0:00 spoken</span>
+            <span class="length-trial" id="meter-trial"></span>
+          </div>
+          <div class="meter"><div class="meter-fill" id="meter-fill" style="width:0%"></div></div>
+        </div>
       </div>
 
-      <p id="hunt-error" style="display:none; color:#ff8a6a; font-size:13px; margin:0 0 14px;"></p>
+      <p id="hunt-error" class="form-error" role="alert" style="display:none;"></p>
 
-      <button id="hunt-btn" class="btn btn-primary" style="width:100%; justify-content:center; padding:13px;" onclick="huntClips()">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-        <span id="hunt-btn-label">Hunt Clips</span>
+      <button id="hunt-btn" class="btn btn-primary btn-hero" onclick="huntClips()">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+        <span id="hunt-btn-label">Hunt clips</span>
       </button>
+      <p class="hunt-note" id="hunt-note">Takes about a minute for a full-length script.</p>
     </div>
   </div>
 
   <script src="app.js"></script>
   <script>
+    let currentMode = "script";
+
     function selectChoice(which) {
-      document.getElementById('choice-script').classList.toggle('active', which === 'script');
-      document.getElementById('choice-voice').classList.toggle('active', which === 'voice');
+      currentMode = which;
+      document.getElementById("choice-script").classList.toggle("active", which === "script");
+      document.getElementById("choice-voice").classList.toggle("active", which === "voice");
+      document.getElementById("voice-panel").hidden = which !== "voice";
+    }
+
+    // ── Length calculator ──
+    // Same 2.5 words/second model the workspace timeline and the server's trial accounting use —
+    // one number, three places, deliberately identical so the meter never disagrees with the bill.
+    const WPS = 2.5;
+
+    function updateMeter() {
+      const script = document.getElementById("script-input").value;
+      const words = script.trim() ? script.trim().split(/\s+/).length : 0;
+      const seconds = Math.ceil(words / WPS);
+      const remaining = AUTH ? Math.max(0, AUTH.trialSecondsMax - AUTH.trialSecondsUsed) : 600;
+
+      document.getElementById("meter-words").textContent = `${words.toLocaleString()} word${words === 1 ? "" : "s"}`;
+      document.getElementById("meter-duration").textContent = `${fmtClock(seconds)} spoken`;
+
+      const trialEl = document.getElementById("meter-trial");
+      const fillEl = document.getElementById("meter-fill");
+      const overBudget = seconds > remaining;
+      trialEl.textContent = remaining > 0
+        ? (overBudget ? `over your ${fmtClock(remaining)} trial balance` : `${fmtClock(remaining)} trial balance`)
+        : "trial used up";
+      trialEl.classList.toggle("over", overBudget || remaining === 0);
+      fillEl.style.width = `${Math.min(100, remaining ? Math.round(100 * seconds / remaining) : 100)}%`;
+      fillEl.classList.toggle("over", overBudget || remaining === 0);
+
+      const btn = document.getElementById("hunt-btn");
+      btn.disabled = overBudget || remaining === 0;
+      document.getElementById("hunt-note").textContent = (overBudget || remaining === 0)
+        ? (remaining === 0 ? "Your free trial is used up — get in touch for full access."
+          : "This script is longer than your remaining trial — trim it down to continue.")
+        : "Takes about a minute for a full-length script.";
+    }
+
+    // Called by app.js's dispatcher once auth has resolved (AUTH is populated by then).
+    function initNewProject() {
+      updateMeter();
+      document.getElementById("script-input").addEventListener("input", updateMeter);
+
+      // Text file upload -> straight into the script box (still editable before anything runs).
+      document.getElementById("script-file").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        document.getElementById("script-input").value = text;
+        if (!document.getElementById("title-input").value && file.name) {
+          document.getElementById("title-input").value = file.name.replace(/\.(txt|md)$/i, "");
+        }
+        updateMeter();
+      });
+
+      // Voiceover -> /api/transcribe (Whisper) -> script box.
+      const drop = document.getElementById("voice-drop");
+      const fileInput = document.getElementById("voice-file");
+      drop.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const statusEl = document.getElementById("voice-status");
+        const idleEl = document.getElementById("voice-drop-idle");
+        if (file.size > 20 * 1024 * 1024) {
+          statusEl.hidden = false;
+          idleEl.hidden = true;
+          statusEl.textContent = "That file is over 20MB — export a compressed MP3 and try again.";
+          statusEl.classList.add("error");
+          return;
+        }
+        statusEl.hidden = false;
+        idleEl.hidden = true;
+        statusEl.classList.remove("error");
+        statusEl.textContent = `Transcribing ${file.name}… this can take a minute.`;
+        try {
+          const res = await fetch("/api/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: file,
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Transcription failed");
+          document.getElementById("script-input").value = data.text;
+          statusEl.textContent = `Transcribed ${file.name} — review the text below, then hunt.`;
+          if (!document.getElementById("title-input").value && file.name) {
+            document.getElementById("title-input").value = file.name.replace(/\.[^.]+$/, "");
+          }
+          updateMeter();
+        } catch (err) {
+          statusEl.textContent = err.message;
+          statusEl.classList.add("error");
+        }
+      });
     }
 
     async function huntClips() {
-      const script = document.getElementById('script-input').value.trim();
-      const title = document.getElementById('title-input').value.trim() || 'Untitled Project';
-      const errorEl = document.getElementById('hunt-error');
-      const btn = document.getElementById('hunt-btn');
-      const label = document.getElementById('hunt-btn-label');
-      errorEl.style.display = 'none';
+      const script = document.getElementById("script-input").value.trim();
+      const title = document.getElementById("title-input").value.trim() || "Untitled Project";
+      const errorEl = document.getElementById("hunt-error");
+      const btn = document.getElementById("hunt-btn");
+      const label = document.getElementById("hunt-btn-label");
+      errorEl.style.display = "none";
 
       if (!script) {
-        errorEl.textContent = 'Paste or write a script first.';
-        errorEl.style.display = 'block';
+        errorEl.textContent = "Paste, upload or transcribe a script first.";
+        errorEl.style.display = "block";
         return;
       }
 
       btn.disabled = true;
-      label.textContent = 'Breaking it down…';
+      label.textContent = "Breaking it into scenes…";
 
       try {
-        const res = await fetch('/api/segment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch("/api/segment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ script }),
         });
         const data = await res.json();
         // /api/segment streams its response to dodge Cloudflare's edge timeout on long outputs
         // (see segment.js) — the HTTP status is always 200 by the time headers are sent, before
         // the model has even run, so an upstream failure only ever shows up as data.error, not a
-        // non-ok status.
-        if (!res.ok || data.error) throw new Error(data.error || 'Something went wrong');
-        if (!Array.isArray(data.segments)) throw new Error('The visual plan response was incomplete. No project was saved.');
+        // non-ok status. (Trial refusals ARE a real non-200, sent before streaming starts.)
+        if (!res.ok || data.error) throw new Error(data.error || "Something went wrong");
+        if (!Array.isArray(data.segments)) throw new Error("The visual plan response was incomplete. No project was saved.");
 
-        // The segmenter already returns family/subject/categoryClaim/depictionType/reason per
-        // segment (see segment.js) — logged here immediately so a decision breakdown is visible
-        // in the browser console right away, instead of needing a live `wrangler pages deployment
-        // tail` or navigating into the workspace (which also logs this, see app.js's renderWorkspace).
         const counts = data.segments.reduce((acc, s) => { acc[s.family] = (acc[s.family] || 0) + 1; return acc; }, {});
         console.log(`[cliphunt] segmented "${title}" into ${data.segments.length} moments:`, counts);
-        console.table(data.segments.map((s) => ({
-          family: s.family, subject: s.subject, categoryClaim: s.categoryClaim,
-          depictionType: s.depictionType, reason: s.reason, text: (s.text || '').slice(0, 60),
-        })));
 
         const now = Date.now();
         const project = { id: newId(), title, segments: data.segments, createdAt: now, updatedAt: now };
         const projects = getProjects();
         projects.push(project);
         saveProjects(projects);
-        window.location.href = 'workspace.html?id=' + encodeURIComponent(project.id);
+        window.location.href = "workspace.html?id=" + encodeURIComponent(project.id);
       } catch (err) {
         errorEl.textContent = err.message;
-        errorEl.style.display = 'block';
+        errorEl.style.display = "block";
         btn.disabled = false;
-        label.textContent = 'Hunt Clips';
+        label.textContent = "Hunt clips";
+        updateMeter();
       }
     }
   </script>

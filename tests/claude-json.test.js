@@ -8,6 +8,28 @@ import {
   validateScriptCoverage,
 } from "../functions/api/segment.js";
 
+// The segment endpoint is session-gated with a one-time trial budget now (see _auth.js /
+// _middleware.js) — in production the middleware attaches context.data.user and env carries
+// AUTH_KV + SESSION_SECRET. These build an equivalent authed context for direct endpoint tests.
+function mockKV(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  return {
+    store,
+    get: async (k) => (store.has(k) ? store.get(k) : null),
+    put: async (k, v) => { store.set(k, v); },
+  };
+}
+
+function segmentContext(script, { kv = mockKV(), trialSecondsUsed = 0 } = {}) {
+  return {
+    request: new Request("https://example.test/api/segment", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script }),
+    }),
+    env: { ANTHROPIC_API_KEY: "test-only", AUTH_KV: kv, SESSION_SECRET: "test-secret" },
+    data: { user: { email: "test@example.test", trialSecondsUsed } },
+  };
+}
+
 test("extractJson accepts a normal markdown JSON fence", () => {
   assert.equal(extractJson('```json\n{"segments":[]}\n```'), '{"segments":[]}');
 });
@@ -139,12 +161,7 @@ test("segment endpoint streams a complete browser-facing JSON response", async (
   ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
   globalThis.fetch = async () => new Response(sse, { status: 200 });
   try {
-    const response = await onRequestPost({
-      request: new Request("https://example.test/api/segment", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
-      }),
-      env: { ANTHROPIC_API_KEY: "test-only" },
-    });
+    const response = await onRequestPost(segmentContext("Hello world."));
     assert.equal(response.headers.get("content-encoding"), "identity");
     const data = JSON.parse(await response.text());
     assert.equal(data.error, undefined, data.error);
@@ -163,12 +180,7 @@ test("segment endpoint never retries a failed paid model request", async () => {
     return new Response("temporary upstream failure", { status: 500 });
   };
   try {
-    const response = await onRequestPost({
-      request: new Request("https://example.test/api/segment", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
-      }),
-      env: { ANTHROPIC_API_KEY: "test-only" },
-    });
+    const response = await onRequestPost(segmentContext("Hello world."));
     const data = JSON.parse(await response.text());
     assert.match(data.error, /temporary upstream failure/);
     assert.equal(calls, 1);
@@ -182,12 +194,7 @@ test("segment endpoint flushes immediately before the model finishes", async () 
   let release;
   globalThis.fetch = async () => new Promise(resolve => { release = resolve; });
   try {
-    const response = await onRequestPost({
-      request: new Request("https://example.test/api/segment", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
-      }),
-      env: { ANTHROPIC_API_KEY: "test-only" },
-    });
+    const response = await onRequestPost(segmentContext("Hello world."));
     const reader = response.body.getReader();
     const first = await reader.read();
     assert.equal(first.done, false);
@@ -209,12 +216,7 @@ test("cancelling the browser response aborts the upstream model request", async 
     });
   };
   try {
-    const response = await onRequestPost({
-      request: new Request("https://example.test/api/segment", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script: "Hello world." }),
-      }),
-      env: { ANTHROPIC_API_KEY: "test-only" },
-    });
+    const response = await onRequestPost(segmentContext("Hello world."));
     const reader = response.body.getReader();
     await reader.read();
     await reader.cancel();

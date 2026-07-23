@@ -5,8 +5,81 @@
 // function. Display fields (timestamps, durations) and clips are derived fresh on load —
 // clips are hydrated live (Pexels/YouTube) each time rather than persisted, so results stay
 // current and history stays small.
+//
+// AUTH (2026-07-23): every API endpoint is session-gated server-side (functions/api/_middleware.js
+// is the real enforcement); this file's ensureAuth() is the matching UX layer — it redirects
+// logged-out visitors to login.html before rendering a gated page, and paints the account chip
+// (email + trial remaining + sign out) into #account-slot on every page's topbar. Projects
+// themselves STAY in localStorage — accounts exist to gate spend, not to sync data.
 
 const PROJECTS_KEY = "cliphunt_projects";
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+let AUTH = null; // { email, trialSecondsUsed, trialSecondsMax } once ensureAuth() resolves
+
+async function ensureAuth() {
+  try {
+    const res = await fetch("/api/auth", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "me" }),
+    });
+    if (!res.ok) throw new Error("unauthenticated");
+    AUTH = await res.json();
+    renderAccountChip();
+    return AUTH;
+  } catch {
+    window.location.href = "login.html";
+    return new Promise(() => {}); // never resolves — page is navigating away
+  }
+}
+
+function fmtClock(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function renderAccountChip() {
+  const slot = document.getElementById("account-slot");
+  if (!slot || !AUTH) return;
+  const remaining = Math.max(0, (AUTH.trialSecondsMax || 0) - (AUTH.trialSecondsUsed || 0));
+  const initial = (AUTH.email || "?").charAt(0).toUpperCase();
+  // Native <details> gives an accessible, zero-JS dropdown; light-dismiss handled below.
+  slot.innerHTML = `
+    <details class="account-menu" id="account-menu">
+      <summary aria-label="Account menu">
+        <span class="account-avatar">${escapeHtml(initial)}</span>
+        <span class="account-email">${escapeHtml(AUTH.email)}</span>
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="account-dropdown">
+        <div class="account-trial">
+          <div class="account-trial-label">
+            <span>Free trial</span>
+            <span class="account-trial-time">${fmtClock(remaining)} left</span>
+          </div>
+          <div class="meter"><div class="meter-fill" style="width:${AUTH.trialSecondsMax ? Math.round(100 * remaining / AUTH.trialSecondsMax) : 0}%"></div></div>
+        </div>
+        <button class="account-signout" onclick="signOut()">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Sign out
+        </button>
+      </div>
+    </details>`;
+  document.addEventListener("click", (e) => {
+    const menu = document.getElementById("account-menu");
+    if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+}
+
+async function signOut() {
+  try {
+    await fetch("/api/auth", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "logout" }),
+    });
+  } catch { /* cookie clear is best-effort; redirect regardless */ }
+  window.location.href = "login.html";
+}
 
 function getProjects() {
   try {
@@ -281,6 +354,12 @@ function renderWorkspace() {
     };
   }
 
+  // Light-dismiss for the options disclosure — same pattern as the account menu.
+  document.addEventListener("click", (e) => {
+    const menu = document.getElementById("options-menu");
+    if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+
   // One-shot console dump of every segment's classification/reasoning on load — the segmenter
   // already computes subject/categoryClaim/depictionType/reason per segment (see segment.js),
   // this just surfaces it in the browser instead of requiring a live `wrangler pages deployment
@@ -338,7 +417,7 @@ function segmentHtml(seg) {
     const label = isReference ? "Find reaction clip" : (DEBUG_IMAGES_ONLY ? "Find picture" : "Find footage");
     body = `
       <div class="evidence-block" id="evidence-${seg.idx}">
-        <button class="btn btn-primary btn-find-footage" data-family="${seg.family}" onclick="findFootage(${seg.idx})">
+        <button class="btn btn-find-footage" data-family="${seg.family}" onclick="findFootage(${seg.idx})">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
           <span class="btn-label">${label}</span>
         </button>
@@ -1017,8 +1096,116 @@ function closePreview() {
   if (trimRow) trimRow.style.display = "none";
 }
 
-// One script serves all pages; dispatch by which page's root element is present.
-document.addEventListener("DOMContentLoaded", () => {
-  if (document.getElementById("segments")) renderWorkspace();
-  else if (document.getElementById("project-grid")) renderDashboard();
+// ── Export ──────────────────────────────────────────────────────────────────
+// Downloads a clean, scene-by-scene Markdown file of every link pulled so far — the deliverable a
+// creator actually takes into their editor. Markdown deliberately: readable as plain text, renders
+// everywhere (Notion, Obsidian, GitHub, VS Code), and links stay clickable. Built entirely from
+// the in-memory SEGMENTS state — whatever has actually been searched is included; evidence beats
+// not yet searched are marked as such rather than silently omitted.
+function exportLinks() {
+  if (!CURRENT_PROJECT || !SEGMENTS.length) return;
+  const lines = [];
+  const totalSec = SEGMENTS.reduce((sum, s) => sum + parseFloat(s.dur), 0);
+  const searched = SEGMENTS.filter((s) => s.clips !== null || s.evidence).length;
+
+  lines.push(`# ${CURRENT_PROJECT.title} — visual plan`);
+  lines.push("");
+  lines.push(`Generated by ClipHunt on ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`);
+  lines.push(`${SEGMENTS.length} scenes · ${formatTime(totalSec)} estimated runtime · ${searched} scenes with results so far`);
+  lines.push("");
+  lines.push("---");
+
+  const linkLine = (label, title, url, score, extra) => {
+    const scorePart = Number.isFinite(score) ? ` · ${score}% match` : "";
+    const extraPart = extra ? ` · ${extra}` : "";
+    return `- **${label}**${scorePart}${extraPart} — [${title || url}](${url})`;
+  };
+
+  for (const seg of SEGMENTS) {
+    lines.push("");
+    lines.push(`## Scene ${String(seg.idx).padStart(2, "0")} · ${seg.time} (${seg.dur})`);
+    lines.push("");
+    lines.push(`> ${seg.text}`);
+    lines.push("");
+
+    if (seg.coverageMode === "none") {
+      lines.push(seg.noneKind === "deliberate_pause" ? "_Intentional visual pause — no clip needed._"
+        : "_Narration-only beat — no clip needed._");
+      continue;
+    }
+    if (seg.coverageMode === "continue" || seg.coverageMode === "callback") {
+      const verb = seg.coverageMode === "callback" ? "Reuses" : "Continues";
+      lines.push(`_${verb} Scene ${String(seg.originIdx).padStart(2, "0")}'s visual${seg.continuityReason ? ` — ${seg.continuityReason}` : ""}._`);
+      continue;
+    }
+
+    let any = false;
+
+    // Stock clips (feel beats) — and reference beats' Pexels half, which shares seg.clips.
+    if (Array.isArray(seg.clips) && seg.clips.length) {
+      for (const c of seg.clips) {
+        lines.push(linkLine("Stock", c.title, c.downloadUrl || c.previewUrl, c.score, c.author ? `by ${c.author}` : null));
+      }
+      any = true;
+    }
+
+    // Evidence results, claim by claim.
+    if (seg.evidence && Array.isArray(seg.evidence.claims)) {
+      for (const claim of seg.evidence.claims) {
+        const claimResults = [];
+        for (const v of claim.videoCandidates || []) claimResults.push(linkLine("Video", v.title, v.url, v.score, v.channel));
+        for (const p of claim.photoCandidates || []) claimResults.push(linkLine("Photo", p.title, p.pageUrl, p.score, p.domain));
+        for (const a of claim.articleCandidates || []) claimResults.push(linkLine("Article", a.title, a.pageUrl, a.score, a.domain));
+        if (claimResults.length) {
+          if ((seg.evidence.claims.length || 0) > 1) lines.push(`**Claim:** ${claim.claim}`);
+          lines.push(...claimResults);
+          lines.push("");
+          any = true;
+        }
+      }
+    }
+    // Reference beats' YouTube half (flat candidates array, distinct from claims).
+    if (seg.evidence && Array.isArray(seg.evidence.candidates) && seg.evidence.candidates.length) {
+      for (const v of seg.evidence.candidates) lines.push(linkLine("Video", v.title, v.url, v.score, v.channel));
+      any = true;
+    }
+
+    if (!any) {
+      if (seg.clips === null && !seg.evidence && (seg.family === "evidence" || seg.family === "reference")) {
+        lines.push("_Not searched yet — open this project in ClipHunt and press Find footage on this scene._");
+      } else {
+        lines.push("_No matching results found._");
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  lines.push("All links point to the original sources. Check each source's license before use.");
+
+  const safeTitle = (CURRENT_PROJECT.title || "cliphunt").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase();
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeTitle || "cliphunt"}-visual-plan.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// One script serves all pages; dispatch by which page's root element is present. Gated pages
+// resolve auth first — the server refuses API calls without a session either way (see
+// _middleware.js), this just gets logged-out visitors to login.html before a broken render.
+document.addEventListener("DOMContentLoaded", async () => {
+  const isWorkspace = document.getElementById("segments");
+  const isDashboard = document.getElementById("project-grid");
+  const isNewProject = document.getElementById("script-input");
+  if (!isWorkspace && !isDashboard && !isNewProject) return;
+  await ensureAuth();
+  if (isWorkspace) renderWorkspace();
+  else if (isDashboard) renderDashboard();
+  else if (isNewProject && typeof initNewProject === "function") initNewProject();
 });
