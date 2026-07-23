@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>New Project · ClipHunt</title>
+<title>New Project · SceneHunt</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -13,9 +13,9 @@
   <div class="topbar">
     <a class="logo" href="index.html">
       <div class="logo-mark">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path d="M4 10h16v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4.4 9.8 3.4 6l15.5-2.6 1.1 3.7z"/><path d="m8 9.2-.8-3M12.4 8.5l-.8-3M16.8 7.7l-.8-2.9"/></svg>
       </div>
-      ClipHunt
+      SceneHunt
     </a>
     <div class="topbar-right">
       <div id="account-slot"></div>
@@ -25,7 +25,7 @@
   <div class="container" style="max-width:640px;">
     <div class="page-head">
       <h1>Start a new project</h1>
-      <p>Paste a script or upload a voiceover — ClipHunt breaks it into scenes and finds the footage.</p>
+      <p>Paste a script or upload a voiceover — SceneHunt breaks it into scenes and finds the footage.</p>
     </div>
 
     <div class="card">
@@ -152,7 +152,11 @@
         : "Takes about a minute for a full-length script.";
     }
 
-    // Called by app.js's dispatcher once auth has resolved (AUTH is populated by then).
+    // Called by app.js's dispatcher once auth resolves — the meter re-renders with the account's
+    // real trial numbers (it first paints optimistically assuming a full trial).
+    function onAuthReady() { updateMeter(); }
+
+    // Called by app.js's dispatcher immediately on load (auth resolves in parallel).
     function initNewProject() {
       updateMeter();
       document.getElementById("script-input").addEventListener("input", updateMeter);
@@ -225,7 +229,21 @@
       }
 
       btn.disabled = true;
-      label.textContent = "Breaking it into scenes…";
+
+      // Live progress: the plan takes real time (one AI pass over the whole script — roughly a
+      // second per scene), and a frozen label for a minute-plus reads as broken. An elapsed timer
+      // with staged messages keeps the wait legible. The response streams keep-alive whitespace
+      // while the model works (see segment.js), so the connection is provably alive throughout.
+      const started = Date.now();
+      const progressTimer = setInterval(() => {
+        const s = Math.round((Date.now() - started) / 1000);
+        const stage = s < 12 ? "Reading your script"
+          : s < 45 ? "Planning every scene"
+          : s < 100 ? "Long script — still planning"
+          : "Nearly there";
+        label.textContent = `${stage}… ${s}s`;
+      }, 1000);
+      label.textContent = "Reading your script…";
 
       try {
         const res = await fetch("/api/segment", {
@@ -233,12 +251,26 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ script }),
         });
-        const data = await res.json();
+        // Read the stream ourselves (rather than res.json()) so the progress timer keeps running
+        // against a live connection until the real payload lands at the end.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let raw = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (value) raw += decoder.decode(value, { stream: true });
+          if (done) break;
+        }
+        const data = JSON.parse(raw.trim() || "{}");
         // /api/segment streams its response to dodge Cloudflare's edge timeout on long outputs
         // (see segment.js) — the HTTP status is always 200 by the time headers are sent, before
         // the model has even run, so an upstream failure only ever shows up as data.error, not a
         // non-ok status. (Trial refusals ARE a real non-200, sent before streaming starts.)
-        if (!res.ok || data.error) throw new Error(data.error || "Something went wrong");
+        if (!res.ok || data.error) {
+          const err = new Error(data.error || "Something went wrong");
+          err.status = res.status;
+          throw err;
+        }
         if (!Array.isArray(data.segments)) throw new Error("The visual plan response was incomplete. No project was saved.");
 
         const counts = data.segments.reduce((acc, s) => { acc[s.family] = (acc[s.family] || 0) + 1; return acc; }, {});
@@ -252,10 +284,20 @@
         window.location.href = "workspace.html?id=" + encodeURIComponent(project.id);
       } catch (err) {
         errorEl.textContent = err.message;
+        // A 402 is the trial wall — the next step is a plan, so put the door right in the message.
+        if (err.status === 402) {
+          const link = document.createElement("a");
+          link.href = "pricing.html";
+          link.textContent = "View plans";
+          link.style.cssText = "color:var(--accent); font-weight:600; margin-left:8px; text-decoration:underline; text-underline-offset:3px;";
+          errorEl.appendChild(link);
+        }
         errorEl.style.display = "block";
         btn.disabled = false;
         label.textContent = "Hunt clips";
         updateMeter();
+      } finally {
+        clearInterval(progressTimer);
       }
     }
   </script>

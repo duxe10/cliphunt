@@ -1,19 +1,25 @@
+/* SceneHunt theme (2026-07-23 rebrand, formerly ClipHunt's warm/orange scheme).
+   Cool graphite base + lime signal accent. Contrast, checked: body text on bg
+   ~16:1, dim text on surface ~6.5:1, accent-ink on the lime accent ~12:1 —
+   all comfortably past WCAG AA. The old radial background glow is gone on
+   purpose; surfaces separate through borders and value steps instead. */
 :root {
-  --bg: #14110d;
-  --surface: #1c1810;
-  --surface-2: #241f15;
-  --border: #362d1c;
-  --border-soft: #2a2417;
-  --text: #f4ede1;
-  --text-dim: #a49a86;
-  --accent: #ff6a2b;
-  --accent-soft: #ff6a2b1e;
-  --accent-ink: #2b1206;
+  --bg: #0c0e11;
+  --surface: #13161b;
+  --surface-2: #191d24;
+  --border: #2b313b;
+  --border-soft: #212630;
+  --text: #edf0f4;
+  --text-dim: #939ca8;
+  --accent: #d7f04d;
+  --accent-soft: #d7f04d1f;
+  --accent-ink: #161a05;
+  --danger: #ef6a5e;
 
-  --feel: #8ed17c; --feel-bg: #8ed17c1c;
-  --evidence: #6fb6e0; --evidence-bg: #6fb6e01c;
-  --reference: #caa0f2; --reference-bg: #caa0f21c;
-  --nothing: #8a8172; --nothing-bg: #8a81721c;
+  --feel: #7ed49a; --feel-bg: #7ed49a1c;
+  --evidence: #6db4ea; --evidence-bg: #6db4ea1c;
+  --reference: #b9a1f2; --reference-bg: #b9a1f21c;
+  --nothing: #7f8894; --nothing-bg: #7f88941c;
 
   --radius: 10px;
   --radius-lg: 14px;
@@ -29,7 +35,6 @@ body {
   margin: 0;
   font-family: var(--font-body);
   background: var(--bg);
-  background-image: radial-gradient(circle at 12% -10%, #2a2013 0%, transparent 45%);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
@@ -226,7 +231,7 @@ input[type="text"], textarea {
   font-size: 14px;
 }
 
-input[type="text"]::placeholder, textarea::placeholder { color: #5c5647; }
+input[type="text"]::placeholder, textarea::placeholder { color: #566070; }
 
 textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: var(--font-body); }
 
@@ -439,7 +444,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   font-size: 9px;
   font-weight: 600;
   letter-spacing: .03em;
-  color: #0d0b08;
+  color: #10130a;
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -666,7 +671,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   background: var(--accent);
   transition: width .2s ease;
 }
-.meter-fill.over { background: #e2574a; }
+.meter-fill.over { background: var(--danger); }
 
 .account-signout {
   display: flex;
@@ -723,7 +728,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 
 .auth-sub { color: var(--text-dim); font-size: 13.5px; margin: 0 0 24px; line-height: 1.5; }
 
-.auth-error { color: #ff8a6a; font-size: 13px; min-height: 18px; margin: 0 0 10px; }
+.auth-error { color: var(--danger); font-size: 13px; min-height: 18px; margin: 0 0 10px; }
 
 .auth-submit { width: 100%; justify-content: center; padding: 12px; font-size: 14px; }
 
@@ -775,7 +780,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 }
 .length-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-dim); opacity: .5; }
 .length-trial { margin-left: auto; }
-.length-trial.over { color: #e2574a; font-weight: 600; }
+.length-trial.over { color: var(--danger); font-weight: 600; }
 
 /* ---- New project: voiceover panel ---- */
 .voice-drop {
@@ -793,9 +798,9 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 .voice-drop-idle span { font-size: 12px; }
 
 .voice-drop-status { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
-.voice-drop-status.error { color: #ff8a6a; }
+.voice-drop-status.error { color: var(--danger); }
 
-.form-error { color: #ff8a6a; font-size: 13px; margin: 0 0 14px; }
+.form-error { color: var(--danger); font-size: 13px; margin: 0 0 14px; }
 
 .btn-hero { width: 100%; justify-content: center; padding: 13px; font-size: 14.5px; }
 .btn-hero:disabled { opacity: .45; cursor: not-allowed; transform: none; }
@@ -855,7 +860,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   background: none;
   border: none;
   border-radius: var(--radius);
-  color: #e2574a;
+  color: var(--danger);
   font-size: 13px;
   font-weight: 600;
   padding: 10px;
@@ -863,7 +868,7 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
   font-family: var(--font-body);
   text-align: left;
 }
-.option-danger:hover { background: #e2574a14; }
+.option-danger:hover { background: #ef6a5e14; }
 
 /* ---- Hierarchy refinements ----
    Scene text is what the user scans — it gets the size. Everything mechanical
@@ -879,10 +884,119 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.55; font-family: 
 }
 .btn-find-footage:hover { border-color: var(--accent); color: var(--accent); }
 
+/* ---- Pricing ---- */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.pricing-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pricing-card-featured { border-color: var(--accent); }
+
+.pricing-flag {
+  position: absolute;
+  top: -11px;
+  left: 24px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.pricing-card h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.pricing-price {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.pricing-price span { font-size: 15px; font-weight: 500; color: var(--text-dim); letter-spacing: 0; }
+
+.pricing-tagline { color: var(--text-dim); font-size: 13.5px; margin: 0 0 20px; line-height: 1.5; }
+
+.pricing-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 26px;
+  flex: 1;
+}
+.pricing-features li {
+  position: relative;
+  padding: 7px 0 7px 26px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.pricing-features li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 12px;
+  width: 12px;
+  height: 7px;
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(-45deg);
+}
+
+.pricing-cta { width: 100%; justify-content: center; padding: 12px; }
+.pricing-cta:disabled { opacity: .5; cursor: wait; transform: none; }
+
+.pricing-note {
+  text-align: center;
+  color: var(--danger);
+  font-size: 13px;
+  min-height: 18px;
+  margin: 20px 0 4px;
+}
+
+.pricing-smallprint { text-align: center; color: var(--text-dim); font-size: 12px; margin: 4px 0 0; }
+
+/* ---- Account menu: plans link ---- */
+.account-plans {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 9px 12px;
+  margin-bottom: 8px;
+}
+.account-plans:hover { color: var(--accent); border-color: var(--accent); }
+
 @media (max-width: 720px) {
   .workspace-head { flex-direction: column; gap: 14px; }
   .segment-row { grid-template-columns: 96px 1fr; }
   .account-email { display: none; }
+  .pricing-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

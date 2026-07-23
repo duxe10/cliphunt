@@ -22,7 +22,7 @@ export async function onRequest(context) {
 
   const user = await getSessionUser(request, env);
   if (!user) {
-    return Response.json({ error: "Sign in to use ClipHunt" }, { status: 401 });
+    return Response.json({ error: "Sign in to use SceneHunt" }, { status: 401 });
   }
 
   context.data.user = user;

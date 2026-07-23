@@ -679,7 +679,7 @@ export async function onRequestPost(context) {
   // Claude call; consumed only AFTER a successful generation, so a failed run never burns budget.
   const user = context.data && context.data.user;
   if (!user) {
-    return Response.json({ error: "Sign in to use ClipHunt" }, { status: 401 });
+    return Response.json({ error: "Sign in to use SceneHunt" }, { status: 401 });
   }
   const secondsNeeded = scriptSeconds(script);
   const ipKey = await ipTrialKey(request, env);
@@ -690,7 +690,7 @@ export async function onRequestPost(context) {
     const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
     return Response.json({
       error: remaining === 0
-        ? "Your free trial is used up. Get in touch to keep using ClipHunt."
+        ? "Your free trial is used up. Get in touch to keep using SceneHunt."
         : `This script is about ${fmt(secondsNeeded)} of narration, but your trial has ${fmt(remaining)} left. Trim the script or get in touch for full access.`,
       trialSecondsUsed: usedSoFar,
       trialSecondsMax: TRIAL_SECONDS_MAX,
