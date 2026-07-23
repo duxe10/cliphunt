@@ -221,6 +221,18 @@ segment to deliver its actual content (stays null), or is it already a complete 
 nothing further (subject gets set)? "That resilience is why they trust him" doesn't need a
 following segment to mean anything; "It wasn't just a missed penalty." does.
 
+A fourth failure, easy to miss because it passes the "real, specific, identifiable entity" test on
+a technicality: a mid-roll SPONSOR/AD READ — a pivot to a product or service pitch that has nothing
+to do with the video's actual subject, typically signaled by "this episode/video is sponsored by",
+"today's sponsor", "use code X", "download the Y app", or a similarly abrupt tonal/topic break into
+promotional copy. The sponsor is often a real, nameable company — that alone does NOT qualify it as
+"subject". The test isn't "is a real entity named", it's "is this actually part of the narrative
+this video is about". A sponsor plug is about the sponsor, not the video's topic — finding real
+footage of the sponsor's product/app is never useful evidence for the story being told, and
+searching for it wastes a real API call on something no editor would ever cut to here. subject:
+null, categoryClaim: null, family: "nothing", reason: "sponsor/ad read, not part of the narrative" —
+regardless of how many real, checkable facts the sponsor copy itself contains.
+
 Contrast with a genuinely depicted action, still the strongest case: "He was still out training
 alone at 6am, months after the injury." — subject: "[player name]", and (see "depictionType"
 below) this one is "instant", not "fallback". Set "subject" to null whenever neither a real entity

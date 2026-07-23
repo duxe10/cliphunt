@@ -105,6 +105,12 @@ Worked examples:
 - "That resilience is one of the reasons teammates and managers continue to trust him." -> ONE
   claim, unchanged from before — a single complete statement about a real, already-established
   person.
+- "They missed the next tournament entirely, missed the one after that too, and were knocked out
+  in the group stage of the one after THAT." -> THREE claims, one per tournament, each its OWN
+  eraHint (the years/editions in question) even though the sentence structure is a tight, rapid
+  list rather than separate sentences — a fast clause-by-clause history burst is not one blended
+  era just because it's narrated in one breath. Splitting the claims but leaving them sharing one
+  era defeats the point: each real historical instant needs its own real, correctly-dated footage.
 
 STEP 2 — for EACH claim independently, decide the fields below. Claims from the same moment
 usually share the same resolved subject (from context) unless a claim clearly names a different
@@ -239,12 +245,19 @@ return "visualMode":"exact|subject_broll", "eraHint":string|null, "visualGoal":s
 arc, or compressed narration rather than one filmable instant — a skilled editor would use truthful
 illustrative footage OF THAT SUBJECT (training, interviews, walking, matchday routine, whatever
 fits their actual domain and story stage) rather than proof of an inferred action at the narrated
-instant. Do not invent an unstated event, injury, quote, or relationship. eraHint must carry the
-strongest available era discriminator (explicit year/event first, otherwise career stage, age
-language, team/employer, product era) — never search a subject's current era for narration about
-an earlier period. visualGoal is <=12 words describing what the footage should communicate. Set
-eraHint/visualGoal to null when mediaType is photo-only or mode is "exact" with nothing era-specific
-to add.
+instant. Do not invent an unstated event, injury, quote, or relationship.
+
+eraHint is not limited to subject_broll — set it for ANY claim (exact included) whose subject
+recurs across the script at genuinely different points in time, individual OR organization/team.
+A team/org subject revisiting several real eras (a franchise's different championship runs, a
+company's different product generations) needs exactly the same era discrimination an individual
+does. Infer eraHint from the whole script so far (explicit year/event wins; otherwise career
+stage, age language, team/employer, product era) and put it into the youtubeQuery too — never
+search a subject's current/most-recent era for narration about an earlier period, and never let
+one claim's resolved era carry into a sibling claim (from claim-splitting above) that named a
+different year. visualGoal is <=12 words describing what the footage should communicate. Set
+eraHint/visualGoal to null only when mediaType is photo-only, or the claim genuinely has no
+era-specific detail to add (a claim about the subject's current/most-recent, undated present).
 
 An optional "PLANNED VISUAL" block may appear in the user message, carried over from whole-script
 segmentation (segment.js). Treat it as a useful prior, but correct it when the local claim-level
